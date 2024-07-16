@@ -1,0 +1,60 @@
+.label-title {
+    -fx-font-size: 18px;
+    -fx-padding: 5 0 0 0;
+    -fx-font-weight: bold;
+}
+
+.textarea-log {
+    -fx-font-family: 'Courier New';
+    -fx-font-size: 14;
+    -fx-font-weight: bold;
+}
+
+.button-common {
+    -fx-pref-width: 80;
+    -fx-text-fill: #000000; /* White font color for high contrast */
+    -fx-font-family: "Roboto"; /* Font family */
+    -fx-font-size: 12.5px; /* Font size */
+    -fx-border-radius: 5px; /* Rounded corners */
+    -fx-font-weight: normal;
+}
+
+.hbox-buttons {
+    -fx-spacing: 10;
+    -fx-alignment: CENTER_LEFT;
+    -fx-hgrow: ALWAYS;
+}
+
+.hbox-combo-restart {
+    -fx-spacing: 10;
+    -fx-alignment: CENTER_RIGHT;
+    -fx-hgrow: ALWAYS;
+}
+
+.grid-pane {
+    -fx-hgap: 10;
+    -fx-vgap: 10;
+    -fx-alignment: CENTER_LEFT;
+}
+
+.right-border {
+    -fx-border-color: transparent #C4C4C4 transparent transparent; /* Adds border only to the right side */
+    -fx-border-width: 1px 2px 0 1px; /* 1px wide right border */
+}
+
+.label-common {
+    -fx-font-family: "Roboto"; /* Change to your desired font family */
+    -fx-font-size: 13px;
+}
+
+.transparent-pane {
+    -fx-background-color: transparent;
+}
+
+.pane-with-border {
+    -fx-background-color: transparent;
+    -fx-border-color: #C4C4C4;  /* Black border color */
+    -fx-border-width: 2;        /* Border width */
+    -fx-border-radius: 8;       /* Rounded corners */
+    -fx-padding: 10;   /* Padding inside the border */
+}

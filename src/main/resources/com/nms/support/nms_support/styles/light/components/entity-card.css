@@ -1,0 +1,37 @@
+/* Styles for the entire entity card */
+.entity-card {
+    -fx-background-color: #f0f0f0; /* Light gray background */
+    -fx-border-color: #cccccc; /* Light border color */
+    -fx-border-width: 1.5px;
+    -fx-border-radius: 10px; /* Rounded corners */
+    -fx-background-radius: 10px;
+}
+
+/* Styles for the card header */
+.card-header {
+    -fx-font-weight: bold; /* Bold font weight */
+    -fx-font-size: 16px; /* Larger font size for header */
+    -fx-background-color: #ffffff; /* Light blue background */
+    -fx-padding: 2px; /* Padding inside the header */
+    -fx-border-radius: 10px 10px 0 0;
+    -fx-background-radius: 10px 10px 0 0;
+}
+
+.card-content {
+    -fx-background-color: yellow;
+}
+
+/* Styles for the card body */
+.card-body {
+    -fx-font-size: 10px; /* Font size for body text */
+    -fx-background-color: #7fc0ea; /* Very light blue background */
+    -fx-padding: 2px; /* Padding inside the body */
+    -fx-border-radius: 0 0 10px 10px;
+    -fx-background-radius: 0 0 10px 10px;
+}
+
+/* Separator line between header and body */
+.card-header {
+    -fx-border-color: #cccccc; /* Border color (same as card border) */
+    -fx-border-width: 0 0 1 0; /* Border width (bottom border only) */
+}

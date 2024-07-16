@@ -1,0 +1,25 @@
+/* styles.css */
+
+.root {
+    -fx-font-family: "Helvetica";
+}
+
+
+.root-container{
+    -fx-background-color: #FFFFFF;
+}
+
+.label-common {
+    -fx-font-family: "Arial"; /* Change to your desired font family */
+    -fx-font-size: 13px;
+}
+
+.button-common {
+    -fx-pref-width: 80;
+        -fx-text-fill: #000000;        /* White font color for high contrast */
+        -fx-font-family: "Roboto";     /* Font family */
+        -fx-font-size: 12.5px;           /* Font size */
+              /* Padding */
+        -fx-border-radius: 5px;        /* Rounded corners */
+        -fx-font-weight: normal;
+}

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.image.*?>
+
+<!-- Use a StackPane to allow dynamic resizing -->
+<StackPane fx:id="root" prefHeight="400.0" prefWidth="600.0" xmlns="http://javafx.com/javafx/17.0.2-ea"
+           xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.nms.support.nms_support.controller.MainController">
+    <!-- StackPane will automatically resize its content -->
+    <VBox spacing="5" alignment="CENTER" styleClass="root-container">
+        <!-- HBox to hold the ComboBox and theme toggle button -->
+        <HBox spacing="10" alignment="CENTER">
+            <!-- ComboBox for theme selection -->
+            <Label styleClass="label-common">Project</Label>
+            <ComboBox fx:id="projectComboBox" prefWidth="200"/>
+            <Button fx:id="addButton" alignment="CENTER" prefWidth="104.0"
+                    styleClass="button-common" text="ADD"/>
+            <Button fx:id="delButton" alignment="CENTER" prefWidth="104.0"
+                    styleClass="button-common" text="REMOVE"/>
+            <!--                <ImageView fx:id="themeIcon" onMouseClicked="#toggleTheme" fitWidth="30" fitHeight="30"/>-->
+        </HBox>
+        <!-- TabPane set to fill the VBox -->
+        <TabPane tabClosingPolicy="UNAVAILABLE" VBox.vgrow="ALWAYS" styleClass="tab-pane">
+            <tabs>
+                <!-- First Tab -->
+                <Tab fx:id="buildTab" text="Build Automation" styleClass="tab" >
+                    <!-- content will be loaded in the BuildAutomation controller -->
+                </Tab>
+
+                <Tab fx:id="dataStoreTab" text="View DataStores" styleClass="tab" >
+                    <!-- content will be loaded in the BuildAutomation controller -->
+                </Tab>
+            </tabs>
+        </TabPane>
+    </VBox>
+</StackPane>

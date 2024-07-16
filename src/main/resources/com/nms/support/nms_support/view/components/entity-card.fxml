@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.AnchorPane?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.control.Label?>
+
+<AnchorPane xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1"
+            maxWidth="250"  prefHeight="180.0" styleClass="entity-card" fx:controller="com.nms.support.nms_support.controller.EntityCardController">
+
+    <VBox  styleClass="card-content"
+          AnchorPane.topAnchor="0.0" AnchorPane.leftAnchor="0.0"
+          AnchorPane.rightAnchor="0.0" AnchorPane.bottomAnchor="0.0"
+          alignment="CENTER">
+        <!-- Header Section -->
+        <Label fx:id="headerLabel" alignment="CENTER" styleClass="card-header" prefHeight="60.0" prefWidth="250.0"/>
+        <!-- Body Section -->
+        <Label fx:id="bodyLabel" alignment="CENTER" styleClass="card-body" prefHeight="140.0" prefWidth="250.0"/>
+    </VBox>
+
+</AnchorPane>
