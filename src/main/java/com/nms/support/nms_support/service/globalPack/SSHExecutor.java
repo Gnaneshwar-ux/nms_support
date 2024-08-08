@@ -41,11 +41,7 @@ public class SSHExecutor {
                     System.out.println("exit-status: " + channelExec.getExitStatus());
                     break;
                 }
-                try {
-                    Thread.sleep(1000);
-                } catch (Exception ee) {
-                    ee.printStackTrace();
-                }
+
             }
             boolean result = channelExec.getExitStatus() == 0;
             channelExec.disconnect();

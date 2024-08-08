@@ -26,10 +26,10 @@ public class Geometry {
     }
 
     public String toString(){
-        String coords = "";
+        StringBuilder coordsBuilder = new StringBuilder();
         for(Coordinate c: coordinates){
-            coords += c.getX() + " - " + c.getY()+"\n";
+            coordsBuilder.append(c.getX() + " - " + c.getY()+"\n");
         }
-        return coords;
+        return coordsBuilder.toString();
     }
 }

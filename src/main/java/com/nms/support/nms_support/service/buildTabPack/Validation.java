@@ -8,13 +8,13 @@ import java.io.FileReader;
 import java.io.IOException;
 
 public class Validation {
-    public static boolean validate(ProjectEntity project) {
+    public static boolean validate(ProjectEntity project, String app) {
         String jconfigPath = project.getJconfigPath();
         String exePath = project.getExePath();
         String username = project.getUsername();
         String password = project.getPassword();
         String autoLogin = project.getAutoLogin();
-        String typeSelected = project.getPrevTypeSelected();
+        String typeSelected = project.getPrevTypeSelected(app);
         if (jconfigPath == null || jconfigPath.isEmpty()) {
             return false;
         }
@@ -35,7 +35,6 @@ public class Validation {
         }
 
         return true;
-
     }
 
     public static boolean validateForAutologin(ProjectEntity project) {

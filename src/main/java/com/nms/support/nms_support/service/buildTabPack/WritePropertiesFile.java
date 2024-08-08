@@ -12,7 +12,7 @@ import java.util.Properties;
 
 public class WritePropertiesFile {
 
-    public static boolean updateFile(ProjectEntity project) {
+    public static boolean updateFile(ProjectEntity project, String app) {
         // Create a Properties object
         Properties properties = new Properties();
         if(!project.getAutoLogin().equals("true")) return false;
@@ -20,7 +20,7 @@ public class WritePropertiesFile {
         properties.setProperty("selectedProject",project.getName());
         properties.setProperty(project.getName()+"_username",project.getUsername());
         properties.setProperty(project.getName()+"_password",project.getPassword());
-        properties.setProperty(project.getName()+"_selectedUserType",project.getPrevTypeSelected());
+        properties.setProperty(project.getName()+"_selectedUserType",project.getPrevTypeSelected(app));
         properties.setProperty(project.getName()+"_autoLogin",project.getAutoLogin());
 
         // Define the file path (cread.properties in the current directory)

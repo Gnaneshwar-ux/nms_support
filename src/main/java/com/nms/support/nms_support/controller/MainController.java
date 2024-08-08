@@ -4,6 +4,7 @@ import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.service.LogManager;
 import com.nms.support.nms_support.service.ProjectManager;
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
+import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.fxml.Initializable;
@@ -17,10 +18,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.ResourceBundle;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public class MainController implements Initializable {
 
+    private static final Logger logger = LoggerUtil.getLogger();
 
     @FXML
     public ComboBox<String> themeComboBox;
@@ -38,22 +41,23 @@ public class MainController implements Initializable {
 
     @Override
     public void initialize(URL url, ResourceBundle resourceBundle) {
-        System.out.println("Main controller initialized");
+        // Only log initialization issues or important configuration details
         if (root != null) {
             root.getStyleClass().add("root");
         } else {
-            System.out.println("Root is null");
+            logger.warning("Root is null");
         }
+
         String user = System.getProperty("user.name");
-        projectManager = new ProjectManager("C:\\Users\\"+user+"\\Documents\\nms_support_data\\projects.json");
-        logManager = new LogManager("C:\\Users\\"+user+"\\Documents\\nms_support_data\\logs.json");
+        projectManager = new ProjectManager("C:\\Users\\" + user + "\\Documents\\nms_support_data\\projects.json");
+        logManager = new LogManager("C:\\Users\\" + user + "\\Documents\\nms_support_data\\logs.json");
 
         addButton.setOnAction(event -> addProject());
         delButton.setOnAction(event -> removeProject());
         reloadProjectNamesCB();
         loadTabContent();
-        setTabState(projectComboBox.getValue());
         projectComboBox.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> setTabState(newValue));
+        setTabState("None");
     }
 
     private void setTabState(String newValue) {
@@ -69,23 +73,21 @@ public class MainController implements Initializable {
 
     private void loadTabContent() {
         try {
-
-            //Linking Build Automation Tab
             FXMLLoader buildLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/build-automation.fxml"));
             Parent buildContent = buildLoader.load();
             BuildAutomation buildAutomation = buildLoader.getController();
             buildAutomation.setMainController(this);
             buildTab.setContent(buildContent);
 
-            //Linking DataStore Dump Tab
             FXMLLoader dataStoreLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/datastore-dump.fxml"));
             Parent dataStoreContent = dataStoreLoader.load();
             DatastoreDumpController dataStoreAutomation = dataStoreLoader.getController();
             dataStoreAutomation.setMainController(this);
             dataStoreTab.setContent(dataStoreContent);
 
+            logger.info("Tab content loaded successfully.");
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.severe("Error loading tab content: " + e.getMessage());
         }
     }
 
@@ -107,17 +109,21 @@ public class MainController implements Initializable {
             projectManager.saveData();
             reloadProjectNamesCB(); // Refresh ComboBox with updated list
             DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Project Removed", "Project removed successfully.");
+            logger.info("Project removed: " + selectedProjectName);
         }
     }
 
     private void addProject() {
-        Optional<String> result = DialogUtil.showTextInputDialog(
+        DialogUtil.showTextInputDialog(
                 "Add Project",
                 "Enter the name of the new project:",
                 "Project Name:"
-        );
+        ).thenAccept(result -> {
+            if (result.isPresent()) {
 
-        if (result.isPresent()) {
+
+
+
             String projectName = result.get().trim();
             if (projectName.isEmpty()) {
                 DialogUtil.showAlert(Alert.AlertType.WARNING, "Invalid Input", "Project name cannot be empty.");
@@ -126,39 +132,44 @@ public class MainController implements Initializable {
 
             List<String> existingProjects = projectManager.getProjects() != null ? projectManager.getProjects().stream()
                     .map(ProjectEntity::getName)
-                    .collect(Collectors.toList()):null;
+                    .collect(Collectors.toList()) : new ArrayList<>();
 
-            if (existingProjects!=null && existingProjects.contains(projectName)) {
+            if (existingProjects.contains(projectName)) {
                 DialogUtil.showAlert(Alert.AlertType.WARNING, "Duplicate Project", "Project with this name already exists.");
             } else {
-                // Add the new project with default or empty values
-                ProjectEntity newProject = new ProjectEntity(
-                        projectName
-                );
-
+                ProjectEntity newProject = new ProjectEntity(projectName);
                 projectManager.addProject(newProject);
                 projectManager.saveData();
-                reloadProjectNamesCB();// Refresh ComboBox with updated list
+                reloadProjectNamesCB(); // Refresh ComboBox with updated list
                 projectComboBox.setValue(projectName);
                 DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Project Added", "Project added successfully.");
+                logger.info("New project added: " + projectName);
             }
-        }
+            } else {
+                System.out.println("No input provided.");
+            }
+        });
     }
 
-    public ProjectEntity getSelectedProject(){
-        if (projectComboBox.getValue().equals("None")) return null;
-        return projectManager.getProjectByName(projectComboBox.getValue());
+    public ProjectEntity getSelectedProject() {
+        String selectedProjectName = projectComboBox.getValue();
+        if ("None".equals(selectedProjectName)) return null;
+        logger.info("Retrieved selected project: " + selectedProjectName);
+        return projectManager.getProjectByName(selectedProjectName);
     }
 
     private void reloadProjectNamesCB() {
-        System.out.println(projectManager.getProjectWrapper().toString());
-        List<String> projectNames =projectManager.getProjects() != null ? projectManager.getProjects().stream()
+        List<String> projectNames = projectManager.getProjects() != null ? projectManager.getProjects().stream()
                 .map(ProjectEntity::getName)
-                .collect(Collectors.toList()): new ArrayList<>();
+                .collect(Collectors.toList()) : new ArrayList<>();
+
         projectNames.add(0, "None"); // Add "None" as the first item
         projectComboBox.getItems().setAll(projectNames);
+
         if (projectComboBox.getValue() == null || !projectNames.contains(projectComboBox.getValue())) {
             projectComboBox.setValue("None"); // Set default value if current selection is not valid
         }
+
+        logger.info("Project names reloaded in ComboBox.");
     }
 }

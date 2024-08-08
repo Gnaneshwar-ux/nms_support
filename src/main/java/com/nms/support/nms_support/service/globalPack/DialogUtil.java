@@ -1,5 +1,6 @@
 package com.nms.support.nms_support.service.globalPack;
 
+import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.collections.FXCollections;
 import javafx.collections.transformation.FilteredList;
@@ -7,6 +8,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.control.Alert.AlertType;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
@@ -16,6 +18,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 
 public class DialogUtil {
 
@@ -47,12 +51,20 @@ public class DialogUtil {
     }
 
     // Show a text input dialog with the specified title, header, and content
-    public static Optional<String> showTextInputDialog(String title, String header, String content) {
-        TextInputDialog dialog = new TextInputDialog();
-        dialog.setTitle(title);
-        dialog.setHeaderText(header);
-        dialog.setContentText(content);
-        return dialog.showAndWait();
+    public static CompletableFuture<Optional<String>> showTextInputDialog(String title, String header, String content) {
+        CompletableFuture<Optional<String>> future = new CompletableFuture<>();
+
+        Platform.runLater(() -> {
+            TextInputDialog dialog = new TextInputDialog();
+            dialog.setTitle(title);
+            dialog.setHeaderText(header);
+            dialog.setContentText(content);
+
+            Optional<String> result = dialog.showAndWait();
+            future.complete(result);
+        });
+
+        return future;
     }
 
     // Show an alert dialog with the specified type, title, and content
@@ -145,5 +157,57 @@ public class DialogUtil {
         }
 
         return selectedProcesses;
+    }
+
+    public static CompletableFuture<Optional<String[]>> showTwoInputDialog(String title, String message1, String message2, String desc1, String desc2) {
+        CompletableFuture<Optional<String[]>> future = new CompletableFuture<>();
+
+        // Ensure that the dialog runs on the JavaFX application thread
+        Platform.runLater(() -> {
+            // Create the dialog
+            Dialog<String[]> dialog = new Dialog<>();
+            dialog.setTitle(title);
+
+            // Set the button types
+            ButtonType okButtonType = new ButtonType("OK", ButtonBar.ButtonData.OK_DONE);
+            dialog.getDialogPane().getButtonTypes().addAll(okButtonType, ButtonType.CANCEL);
+
+            // Create the text fields
+            TextField field1 = new TextField();
+            field1.prefWidth(100);
+            TextField field2 = new TextField();
+            field2.prefWidth(100);
+
+            // Create a grid pane and add the fields with labels
+            GridPane grid = new GridPane();
+            grid.setHgap(10);
+            grid.setVgap(10);
+
+            grid.add(new Label(message1), 0, 0);
+            grid.add(field1, 1, 0);
+            grid.add(new Label(desc1),1,1);
+            grid.add(new Label(message2), 0, 2);
+            grid.add(field2, 1, 2);
+            grid.add(new Label(desc2),1,3);
+
+            dialog.getDialogPane().setContent(grid);
+
+            // Request focus on the first field by default
+            Platform.runLater(() -> field1.requestFocus());
+
+            // Convert the result to a String array when the OK button is clicked
+            dialog.setResultConverter(dialogButton -> {
+                if (dialogButton == okButtonType) {
+                    return new String[]{field1.getText(), field2.getText()};
+                }
+                return null;
+            });
+
+            // Show the dialog and handle the result
+            Optional<String[]> result = dialog.showAndWait();
+            future.complete(result);
+        });
+
+        return future;
     }
 }

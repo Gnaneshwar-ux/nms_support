@@ -11,10 +11,9 @@ import java.io.IOException;
 public class ParseDataStoreReport {
 
     public static ObservableList<DataStoreRecord> parseDSReport(String reportPath) {
-        String filePath = reportPath;
 
         // Read data from the file
-        String report = readFile(filePath);
+        String report = readFile(reportPath);
 
         // Split the report into lines
         String[] lines = report.split("\n");
@@ -29,7 +28,7 @@ public class ParseDataStoreReport {
         // Iterate over the lines and parse the data
         for (String line : lines) {
             // Split each line by comma
-            if(line.length() == 0) continue;
+            if(line.isEmpty()) continue;
             String[] parts = line.split(",");
 
             // Trim each part to remove leading/trailing spaces
@@ -50,7 +49,7 @@ public class ParseDataStoreReport {
             }
 
             // Skip adding the description column to the dataList
-            String tool = parts.length > 0 ? parts[0] : "";
+            String tool = parts[0];
             String dataStore = parts.length > 1 ? parts[1] : "";
             String column = parts.length > 2 ? parts[2] : "";
             String type = parts.length > 4 ? parts[4] : "";

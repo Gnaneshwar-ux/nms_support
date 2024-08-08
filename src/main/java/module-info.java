@@ -12,6 +12,7 @@ module com.nms.support.nms_support {
     requires com.fasterxml.jackson.databind;
     requires java.desktop;
     requires jsch;
+    requires java.logging;
 
     opens com.nms.support.nms_support.model to javafx.base,com.fasterxml.jackson.databind;
     opens com.nms.support.nms_support to javafx.fxml;

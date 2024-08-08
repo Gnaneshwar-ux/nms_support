@@ -11,7 +11,7 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
-import com.nms.support.nms_support.service.globalPack.OpenFile;
+import com.nms.support.nms_support.service.globalPack.ManageFile;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.scene.control.Alert;
@@ -19,8 +19,8 @@ import javafx.scene.control.Alert;
 import static com.nms.support.nms_support.service.globalPack.DialogUtil.selectProcess;
 
 public class ControlApp {
-    private BuildAutomation buildAutomation;
-    private LogManager logManager;
+    private final BuildAutomation buildAutomation;
+    private final LogManager logManager;
     private ProjectManager projectManager;
     private Map<String, String> jpsMap;
 
@@ -68,9 +68,10 @@ public class ControlApp {
             buildAutomation.appendTextToLog(e.toString());
 
         }
-        File[] logfiles = directory.listFiles((dir, name) -> name.contains(app) && new File(dir, name).isFile());
-        long lastModifiedTime = Long.MIN_VALUE;
-        File chosenFile = null;
+        File[] logfiles = null;
+        if (directory != null) {
+            logfiles = directory.listFiles((dir, name) -> name.contains(app) && new File(dir, name).isFile());
+        }
 
         if (logfiles != null) {
             Arrays.sort(logfiles, new Comparator<File>() {
@@ -136,11 +137,10 @@ public class ControlApp {
             if (line.contains("/version.xml")) {
                 if (line.contains("AppData") && line.contains(".nms")) {
                     launcher = "JNLP";
-                    c = true;
                 } else {
                     launcher = "Local";
-                    c = true;
                 }
+                c = true;
             }
             if (a && b && c && d) {
                 break;
@@ -302,7 +302,9 @@ public class ControlApp {
 
     public List<Map<String, String>> getRunningProcessList(ProjectEntity project, String app, boolean running) {
         if(project == null)System.out.println("Project not selected or null");
-        System.out.println(project.toString());
+        if (project != null) {
+            System.out.println(project.toString());
+        }
         System.out.println(app);
         File logs[] = getLogFiles(app.split("\\.")[0]);
         List<Map<String, String>> processes = new ArrayList<>();
@@ -390,7 +392,7 @@ public class ControlApp {
             buildAutomation.appendTextToLog(selectedProcesses.get(0).get("FILE"));
 
             // Check if Notepad++ exists
-            OpenFile.open(filePath);
+            ManageFile.open(filePath);
         });
     }
 
@@ -404,8 +406,15 @@ public class ControlApp {
 
             // Check if log file exists, create if it does not
             if (!logFile.exists()) {
-                logFile.getParentFile().mkdirs(); // Create directories if they do not exist
-                logFile.createNewFile(); // Create the file
+                boolean isDirCreated = logFile.getParentFile().mkdirs();// Create directories if they do not exist
+                if(isDirCreated) {
+                    boolean isFileCreated = logFile.createNewFile(); // Create the file
+                    if(!isFileCreated){
+                        throw new RuntimeException("Failed to create log file "+ logFile);
+                    }
+                }
+                else
+                    throw new RuntimeException("Failed to create dir "+ logFile.getParentFile().toString());
             }
 
             // Clear the file if clearLog is true

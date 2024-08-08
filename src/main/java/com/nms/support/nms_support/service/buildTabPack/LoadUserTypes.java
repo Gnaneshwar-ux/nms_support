@@ -12,69 +12,94 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 class SQLParser {
 
-    public static List<String> parseSQLFile(String filePath, String targetProduct) {
+    private static final String[] codes = {"CREW","SERVICE_ALERT","WCE","OMS_CONFIG_TOOL","WCB","MODEL","STORM"};
+
+    public static String getApp(String code){
+        switch (code){
+            case "CREW": return "WebWorkspace.exe";
+            case "SERVICE_ALERT": return "ServiceAlert.exe";
+            case "WCE": return "WebCallEntry.exe";
+            case "OMS_CONFIG_TOOL": return "ConfigurationAssistant.exe";
+            case "WCB": return "WebCallbacks.exe";
+            case "MODEL": return "ModelManagement.exe";
+            case "STORM": return "StormManagement.exe";
+        }
+        return "Unknown";
+    }
+
+    public static HashMap<String,List<String>> parseSQLFile(String filePath) {
 
         System.out.println("parseSQLFile invoked");
-        List<String> resultList = new ArrayList<>();
+        HashMap<String, List<String>> resultMap = new HashMap<>();
 
         filePath = findLatestFilePath(filePath);
 
         System.out.println(filePath);
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-            String line;
+        if (filePath != null) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
+                String line;
 
-            StringBuilder sqlContent = new StringBuilder();
+                StringBuilder sqlContent = new StringBuilder();
 
 
-            boolean comment  = false;
-            while ((line = reader.readLine()) != null) {
-                if(line.contains("/*")) comment = true;
-                if(line.contains("*/")){
-                    comment = false;
-                    continue;
+                boolean comment  = false;
+                while ((line = reader.readLine()) != null) {
+                    if(line.contains("/*")) comment = true;
+                    if(line.contains("*/")){
+                        comment = false;
+                        continue;
+                    }
+                    if(comment) continue;
+                    sqlContent.append(line).append("\n");
+                    //System.out.println(line);
                 }
-                if(comment) continue;
-                sqlContent.append(line).append("\n");
-                //System.out.println(line);
-            }
 
-            String sqlPattern = "INSERT[^;]*;";
-            Pattern pattern = Pattern.compile(sqlPattern, Pattern.CASE_INSENSITIVE);
-            Matcher matcher = pattern.matcher(sqlContent.toString().replace("\n", ""));
+                String sqlPattern = "INSERT[^;]*;";
+                Pattern pattern = Pattern.compile(sqlPattern, Pattern.CASE_INSENSITIVE);
+                Matcher matcher = pattern.matcher(sqlContent.toString().replace("\n", ""));
 
-            while (matcher.find()) {
+                while (matcher.find()) {
 
-                if(!matcher.group().contains("env_code"))continue;
+                    if(!matcher.group().contains("env_code"))continue;
 
-                String valuesPattern = "VALUES\\s*\\(([^)]*)\\);";
-                Matcher valuesMatcher = Pattern.compile(valuesPattern).matcher(matcher.group());
+                    String valuesPattern = "VALUES\\s*\\(([^)]*)\\);";
+                    Matcher valuesMatcher = Pattern.compile(valuesPattern).matcher(matcher.group());
 
-                if (valuesMatcher.find()) {
-                    //System.out.println(valuesMatcher.group(1));
-                    String[] values = valuesMatcher.group(1).split(",");
-                    String product = values[0].trim().replaceAll("[\"']", "").toUpperCase();
-                    String codeName = values[1].trim().replaceAll("[\"']", "");
+                    if (valuesMatcher.find()) {
+                        //System.out.println(valuesMatcher.group(1));
+                        String[] values = valuesMatcher.group(1).split(",");
+                        String product = values[0].trim().replaceAll("[\"']", "").toUpperCase();
+                        String codeName = values[1].trim().replaceAll("[\"']", "");
 
-                    if (targetProduct.toUpperCase().equals(product.toUpperCase())) {
-                        resultList.add(codeName);
+                        if (isValid(product.toUpperCase())) {
+                            String appName = getApp(product);
+                            if(!resultMap.containsKey(appName)){
+                                resultMap.put(appName,new ArrayList<>());
+                            }
+                            resultMap.get(appName).add(codeName);
+                        }
                     }
                 }
-            }
 
-        } catch (IOException e) {
-            e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
-        return resultList;
+        return resultMap;
+    }
+
+    private static boolean isValid(String code){
+        for (String c: codes){
+            if(c.equals(code)) return true;
+        }
+        return false;
     }
 
 

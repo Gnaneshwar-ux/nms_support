@@ -6,6 +6,9 @@ import com.nms.support.nms_support.model.ProjectEntity;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class SetupAutoLogin {
 
@@ -37,11 +40,8 @@ public class SetupAutoLogin {
 
 
         //System.out.println(SQLParser.parseSQLFile(project.getJconfigPath().replace("jconfig", "sql"), "crew"));
-        String types = "";
-        for(String i: SQLParser.parseSQLFile(project.getJconfigPath().replace("jconfig", "sql"), "crew")){
-            types += i+"#";
-            project.addType(i);
-        }
+
+        loadUserTypes(project);
 
         try {
             return copyFiles(project,buildAutomation);
@@ -51,6 +51,14 @@ public class SetupAutoLogin {
         }
 
 
+    }
+
+    public static void loadUserTypes(ProjectEntity project){
+        HashMap<String, List<String>> l = SQLParser.parseSQLFile(project.getJconfigPath().replace("jconfig", "sql"));
+        for (Map.Entry<String, List<String>> entry : l.entrySet()) {
+            System.out.println("Key: " + entry.getKey() + " - Value: " + entry.getValue());
+        }
+        project.setTypes(l);
     }
 
     public static boolean updateFile(String pathLogin, String altPathLogin, BuildAutomation buildAutomation) throws InterruptedException  {
@@ -76,7 +84,7 @@ public class SetupAutoLogin {
 
             boolean found = false;
             String text = CommandCode;
-            String res = "";
+            StringBuilder res = new StringBuilder();
             while ((line = br.readLine()) != null) {
 //
 //			if (line.contains("windowOpened")) {
@@ -86,15 +94,15 @@ public class SetupAutoLogin {
 //                            return true;
 //                        }
                 if (line.contains("<ToolBehavior>")) {
-                    res += line+"\n"+text;
+                    res.append(line+"\n"+text);
                 }
                 else
-                    res += line + "\n";
+                    res.append(line + "\n");
             }
 
             br.close();
             FileWriter fWriter = new FileWriter(tempFile);
-            fWriter.write(res);
+            fWriter.write(res.toString());
 
             fWriter.close();
 
@@ -102,7 +110,11 @@ public class SetupAutoLogin {
             File targetDirLogin = new File(pathLogin);
 
             if (!targetDirLogin.exists()) {
-                targetDirLogin.mkdirs();
+                boolean isCreated = targetDirLogin.mkdirs();
+                if(!isCreated){
+                    buildAutomation.appendTextToLog("Failed to create dir "+targetDirLogin);
+                    return false;
+                }
             }
 
             String[] command = {"cmd", "/c", "copy", tempFile, pathLogin};
@@ -120,11 +132,9 @@ public class SetupAutoLogin {
 
             int exitCode = process.waitFor();
 
-            if(exitCode == 0){
-
-            }
-            else{
+            if(exitCode != 0){
                 buildAutomation.appendTextToLog("Login.xml copy failed.");
+                return false;
             }
 
             buildAutomation.appendTextToLog("Login.xml file copied successfully!\n");
@@ -146,7 +156,11 @@ public class SetupAutoLogin {
             File targetDirLogin = new File(project.getJconfigPath() + "/global/xml/AUTO_LOGIN_COMMANDS.inc");
 
             if (!targetDirLogin.exists()) {
-                targetDirLogin.mkdirs();
+                boolean isCreated = targetDirLogin.mkdirs();
+                if(!isCreated){
+                    buildAutomation.appendTextToLog("Failed to create dir "+targetDirLogin);
+                    return false;
+                }
             }
 
             Files.copy(sourceFileLogin.toPath(), targetDirLogin.toPath(), StandardCopyOption.REPLACE_EXISTING);
@@ -160,7 +174,11 @@ public class SetupAutoLogin {
             targetDirLogin = new File(project.getJconfigPath() + "/java/src/custom/LoadCredentialsExternalCommand.java");
 
             if (!targetDirLogin.exists()) {
-                targetDirLogin.mkdirs();
+                boolean isCreated = targetDirLogin.mkdirs();
+                if(!isCreated){
+                    buildAutomation.appendTextToLog("Failed to create dir "+targetDirLogin);
+                    return false;
+                }
             }
 
             Files.copy(sourceFileLogin.toPath(), targetDirLogin.toPath(), StandardCopyOption.REPLACE_EXISTING);

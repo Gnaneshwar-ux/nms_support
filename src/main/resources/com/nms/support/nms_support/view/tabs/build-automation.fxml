@@ -57,6 +57,9 @@
                             <left>
                                 <Button fx:id="deleteButton" styleClass="button-common" text="DELETE" HBox.hgrow="ALWAYS" />
                             </left>
+                            <center>
+                                <Button fx:id="patchButtom" alignment="CENTER" prefWidth="140.0" styleClass="button-common" text="UPGRADE" />
+                            </center>
                             <right>
                                 <Button fx:id="updateButton" alignment="CENTER" prefWidth="104.0" styleClass="button-common" text="UPDATE" />
                             </right>

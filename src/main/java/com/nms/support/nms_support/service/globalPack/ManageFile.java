@@ -3,10 +3,13 @@ package com.nms.support.nms_support.service.globalPack;
 import javafx.scene.control.Alert;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 
-public class OpenFile {
+public class ManageFile {
     public static boolean open(String filePath) {
         if (!Files.exists(Paths.get(filePath))) {
             DialogUtil.showAlert(Alert.AlertType.ERROR, "Invalid File Path", "The provided file path does not exist.");
@@ -38,6 +41,20 @@ public class OpenFile {
         } catch (Exception ex) {
             DialogUtil.showAlert(Alert.AlertType.ERROR, "Exception while opening log", ex.getMessage());
             return false;
+        }
+    }
+
+    public static void replaceTextInFiles(List<String> filePaths, String oldText, String newText) {
+        for (String filePath : filePaths) {
+            try {
+                Path path = Paths.get(filePath);
+                String content = new String(Files.readAllBytes(path));
+                content = content.replace(oldText, newText);
+                Files.write(path, content.getBytes());
+            } catch (IOException e) {
+                System.err.println("Failed to process file: " + filePath);
+                e.printStackTrace();
+            }
         }
     }
 

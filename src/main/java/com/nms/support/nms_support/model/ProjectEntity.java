@@ -1,6 +1,7 @@
 package com.nms.support.nms_support.model;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
 public class ProjectEntity {
@@ -11,36 +12,45 @@ public class ProjectEntity {
     private String username;
     private String password;
     private String autoLogin;
-    private String prevTypeSelected;
+    private HashMap<String,List<String>> types;
+    private HashMap<String,String> prevTypeSelected;
     private String host;
     private String hostUser;
     private String hostPass;
     private String dataStoreUser;
-    public List<String> getTypes() {
-        return types;
+    public List<String> getTypes(String app) {
+        if (types.containsKey(app)) return types.get(app);
+        return null;
     }
 
-    public void setTypes(List<String> types) {
-        this.types = types;
+    public void setTypes(String app, List<String> types) {
+        this.types.put(app, types);
     }
 
-    public void addType(String type) {
-        types.add(type);
+    public void addType(String app, String type) {
+        if(types.containsKey(app)){
+            types.get(app).add(type);
+        }
+        else{
+            types.put(app, new ArrayList<>());
+            types.get(app).add(type);
+        }
     }
 
-    private List<String> types;
 
     public void setLogId(String logId) {
         this.logId = logId;
     }
 
     public ProjectEntity() {
-        this.types = new ArrayList<>();
+        this.types = new HashMap<>();
+        this.prevTypeSelected = new HashMap<>();
     }
 
     public ProjectEntity(String name){
         this.name = name;
-        this.types = new ArrayList<>();
+        this.types = new HashMap<>();
+        this.prevTypeSelected = new HashMap<>();
     }
 
     public String getName() {
@@ -95,12 +105,12 @@ public class ProjectEntity {
         return logId;
     }
 
-    public String getPrevTypeSelected() {
-        return prevTypeSelected;
+    public String getPrevTypeSelected(String app) {
+        return this.prevTypeSelected.get(app);
     }
 
-    public void setPrevTypeSelected(String prevTypeSelected) {
-        this.prevTypeSelected = prevTypeSelected;
+    public void setPrevTypeSelected(String app, String prevTypeSelected) {
+        this.prevTypeSelected.put(app, prevTypeSelected);
     }
 
     public String getHost() {
@@ -146,5 +156,21 @@ public class ProjectEntity {
                 ", autoLogin='" + autoLogin + '\'' +
                 ", prevTypeSelected='" + prevTypeSelected + '\'' +
                 '}';
+    }
+
+    public void setTypes(HashMap<String, List<String>> l) {
+        this.types = l;
+    }
+
+    public HashMap<String, List<String>> getTypes() {
+        return types;
+    }
+
+    public HashMap<String, String> getPrevTypeSelected() {
+        return prevTypeSelected;
+    }
+
+    public void setPrevTypeSelected(HashMap<String, String> prevTypeSelected) {
+        this.prevTypeSelected = prevTypeSelected;
     }
 }

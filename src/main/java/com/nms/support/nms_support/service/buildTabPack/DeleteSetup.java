@@ -92,15 +92,22 @@ public class DeleteSetup {
             File targetDirLogin = new File(pathJconfig + "/global/xml/AUTO_LOGIN_COMMANDS.inc");
 
             if(targetDirLogin.isFile()){
-                targetDirLogin.delete();
-                buildAutomation.appendTextToLog("Deleted AUTO_LOGIN_COMMANDS.inc ... ");
+                boolean isDeleted = targetDirLogin.delete();
+                if(isDeleted)
+                buildAutomation.appendTextToLog("Succesfully deleted AUTO_LOGIN_COMMANDS.inc");
+                else
+                    buildAutomation.appendTextToLog("Failed to delete AUTO_LOGIN_COMMANDS.inc");
+
             }
 
             targetDirLogin = new File(pathJconfig + "/java/src/custom/LoadCredentialsExternalCommand.java");
 
             if(targetDirLogin.isFile()){
-                targetDirLogin.delete();
-                buildAutomation.appendTextToLog("Deleted LoadCredentialsExternalCommand.java ... ");
+                boolean isDeleted = targetDirLogin.delete();
+                if(isDeleted)
+                buildAutomation.appendTextToLog("Successfully deleted LoadCredentialsExternalCommand.java");
+                else
+                    buildAutomation.appendTextToLog("Failed to delete LoadCredentialsExternalCommand.java ... ");
             }
 
             buildAutomation.appendTextToLog("Removed data from cred file");
