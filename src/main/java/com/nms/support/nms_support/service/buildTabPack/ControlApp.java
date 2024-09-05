@@ -70,8 +70,10 @@ public class ControlApp {
         }
         File[] logfiles = null;
         if (directory != null) {
-            logfiles = directory.listFiles((dir, name) -> name.contains(app) && new File(dir, name).isFile());
+            logfiles = directory.listFiles((dir, name) -> name.toLowerCase().contains(app.toLowerCase()) && new File(dir, name).isFile());
         }
+
+
 
         if (logfiles != null) {
             Arrays.sort(logfiles, new Comparator<File>() {
@@ -307,6 +309,7 @@ public class ControlApp {
         }
         System.out.println(app);
         File logs[] = getLogFiles(app.split("\\.")[0]);
+
         List<Map<String, String>> processes = new ArrayList<>();
         loadProcessMap();
 

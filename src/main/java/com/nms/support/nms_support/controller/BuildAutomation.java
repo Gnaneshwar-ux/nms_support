@@ -406,7 +406,7 @@ public class BuildAutomation implements Initializable {
                     String p = buildLog.getText();
                     if(buildLog.getText().length() > 2000){
                         List<String> previousLines = getLastNLines(p, 30);
-                        clearLog();
+                        buildLog.clear();
                         buildLog.appendText(String.join("\n", previousLines) + "\n");
                     }
                     buildLog.appendText(text+"\n");
