@@ -4,5 +4,5 @@ import java.io.File;
 
 public interface IManager {
     void initManager(File source);
-    void saveData();
+    boolean saveData();
 }

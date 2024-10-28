@@ -208,6 +208,7 @@ public class ControlApp {
                         return false;
                     } else {
                         updateMessage("\nBUILD SUCCESSFUL.\n");
+
                         return true;
                     }
                 } catch (IOException e) {
@@ -403,15 +404,15 @@ public class ControlApp {
         // Get user and build log file path
         String user = System.getProperty("user.name");
         String dataStorePath = "C:/Users/" + user + "/Documents/nms_support_data/build_logs/" + "buildlog_" + project.getName() + ".log";
-
+        //System.out.println(dataStorePath);
         try {
             File logFile = new File(dataStorePath);
-
             // Check if log file exists, create if it does not
             if (!logFile.exists()) {
                 boolean isDirCreated = logFile.getParentFile().mkdirs();// Create directories if they do not exist
-                if(isDirCreated) {
+                if(logFile.getParentFile().exists()||isDirCreated) {
                     boolean isFileCreated = logFile.createNewFile(); // Create the file
+                    System.out.println(isFileCreated);
                     if(!isFileCreated){
                         throw new RuntimeException("Failed to create log file "+ logFile);
                     }
@@ -419,7 +420,7 @@ public class ControlApp {
                 else
                     throw new RuntimeException("Failed to create dir "+ logFile.getParentFile().toString());
             }
-
+            //System.out.println("End of build log");
             // Clear the file if clearLog is true
             if (clearLog) {
                 BufferedWriter writer = new BufferedWriter(new FileWriter(logFile, false));
@@ -432,6 +433,8 @@ public class ControlApp {
             writer.write(logMessage);
             writer.newLine(); // Add a new line
             writer.close();
+
+            //System.out.println("End of build log");
 
         } catch (IOException e) {
             DialogUtil.showAlert(Alert.AlertType.ERROR, "Exception while writing to log", e.getMessage());

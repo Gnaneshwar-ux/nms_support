@@ -1,4 +1,3 @@
-
 package com.nms.support.nms_support.service.buildTabPack;
 
 import com.nms.support.nms_support.controller.BuildAutomation;
@@ -6,40 +5,30 @@ import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
 import javafx.scene.control.ButtonType;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.util.Optional;
 
-/**
- *
- * @author Gnaneshwar
- */
-public class DeleteSetup {
-    static String tempFile = "Login.xml";
-    static String CommandCode = "<Include name=\"AUTO_LOGIN_COMMANDS.inc\"/>";
+public class DeleteRestartSetup {
+    static String tempFile = "WorkSpaceMenuBarTool.xml";
+    static String CommandCode = "<Include name=\"RESTART_TOOLS_COMMANDS.inc\"/>";
     public static void delete(ProjectEntity project, BuildAutomation buildAutomation) throws IOException {
 
-        Optional<ButtonType> confirmation = DialogUtil.showConfirmationDialog("Confirm Delete","Are you sure to delete setup?","This operation undo the changes made by this tool to set autologin.");
+        Optional<ButtonType> confirmation = DialogUtil.showConfirmationDialog("Confirm Delete","Are you sure to delete restart tools setup?","This operation undo the changes made by this tool to set autologin.");
         if (confirmation.isEmpty() || confirmation.get() == ButtonType.CANCEL) {
-            buildAutomation.appendTextToLog("Delete process canceled.");
+            buildAutomation.appendTextToLog("Delete Restart tools process canceled.");
             return; // Stop the process if the user cancels
         }
 
         try{
 
-            buildAutomation.appendTextToLog("Delete process started ... ");
+            buildAutomation.appendTextToLog("Delete Restart tools process started ... ");
 
-            if(!Validation.validateSetup(project)){
+            if(!Validation.validateRestartToolsSetup(project)){
                 buildAutomation.appendTextToLog("Delete already completed or setup not performed ");
                 return;
             }
             String pathJconfig = project.getJconfigPath();
-            String loginPath = pathJconfig +"/global/xml/" + tempFile;
+            String loginPath = pathJconfig +"/ops/workspace/xml/" + tempFile;
             File tempfile = new File(tempFile);
             FileReader r = new FileReader(loginPath);
             BufferedWriter writer = new BufferedWriter(new FileWriter(tempfile));
@@ -82,44 +71,41 @@ public class DeleteSetup {
             int exitCode = process.waitFor();
 
             if(exitCode == 0){
-                buildAutomation.appendTextToLog("Login.xml rollback done.");
+                buildAutomation.appendTextToLog("WorkSpaceMenuBarTool.xml rollback done.");
             }
             else{
-                buildAutomation.appendTextToLog("Login.xml rollback failed.");
+                buildAutomation.appendTextToLog("WorkSpaceMenuBarTool.xml rollback failed.");
             }
 
 
-            File targetDirLogin = new File(pathJconfig + "/global/xml/AUTO_LOGIN_COMMANDS.inc");
+            File targetDirLogin = new File(pathJconfig + "/ops/workspace/xml/RESTART_TOOLS_COMMANDS.inc");
 
             if(targetDirLogin.isFile()){
                 boolean isDeleted = targetDirLogin.delete();
                 if(isDeleted)
-                buildAutomation.appendTextToLog("Succesfully deleted AUTO_LOGIN_COMMANDS.inc");
+                    buildAutomation.appendTextToLog("Succesfully deleted AUTO_LOGIN_COMMANDS.inc");
                 else
                     buildAutomation.appendTextToLog("Failed to delete AUTO_LOGIN_COMMANDS.inc");
 
             }
 
-            targetDirLogin = new File(pathJconfig + "/java/src/custom/LoadCredentialsExternalCommand.java");
+            targetDirLogin = new File(pathJconfig + "/java/src/custom/RestartToolsCommand.java");
 
             if(targetDirLogin.isFile()){
                 boolean isDeleted = targetDirLogin.delete();
                 if(isDeleted)
-                buildAutomation.appendTextToLog("Successfully deleted LoadCredentialsExternalCommand.java");
+                    buildAutomation.appendTextToLog("Successfully deleted RestartToolsCommand.java");
                 else
-                    buildAutomation.appendTextToLog("Failed to delete LoadCredentialsExternalCommand.java ... ");
+                    buildAutomation.appendTextToLog("Failed to delete RestartToolsCommand.java ... ");
             }
 
-            buildAutomation.appendTextToLog("Removed data from cred file");
 
             buildAutomation.appendTextToLog("Delete process completed.");
 
         }
         catch(Exception e){
-            buildAutomation.appendTextToLog("Delete Setup Process Failed.");
-
+            buildAutomation.appendTextToLog("Delete Restart tools Setup Process Failed.");
         }
 
     }
-
 }

@@ -121,15 +121,17 @@ public class ProjectManager implements IManager {
         projectWrapper.setProjects(projects);
     }
 
-    public void saveData() {
+    public boolean saveData() {
         ObjectMapper objectMapper = new ObjectMapper();
         try {
             if (projectWrapper == null) {
                 projectWrapper = new ProjectWrapper();
             }
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(this.source, projectWrapper);
+            return  true;
         } catch (IOException e) {
             e.printStackTrace();
+            return false;
         }
     }
 

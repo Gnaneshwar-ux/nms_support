@@ -17,42 +17,6 @@
     </GlobalProperties>
     <ToolBehavior>
 
-<Perform name="Window" category="windowActivated"><Include name="AUTO_LOGIN_COMMANDS.inc"/></Perform>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
       <Perform name="Window" category="windowOpened">
@@ -60,7 +24,8 @@
       </Perform>
     </ToolBehavior>
     <MainPanel name="PN_LOGIN" layout_type="BorderLayout" layout_vgap="0">
-      <SubPanel name="PN_BANNER" layout_type="StretchLayout" theme_class="BrandBanner">
+      <SubPanel name="PN_BANNER"  layout_type="StretchLayout" theme_class="BrandBanner">
+      
         <PanelPlacement constraint="North"/>
         <Label name="LBL_BANNER_LOGO">
           <LabelPlacement start="0,0" constraint="fix" insets="14,10,28,0" anchor="SOUTH"/>
@@ -94,6 +59,7 @@
                <PanelPlacement start="0,relative" fill="HORIZONTAL" weight="0,0" insets="10,10,20,20"/>
                 <Label name="LBL_USER">
                   <LabelPlacement start="0,0" width="1" insets="2,2,2,2"/>
+                  
                 </Label>
                 <TextField name="TXTF_USER">
                   <TextFieldPlacement start="0,relative" width="2" anchor="WEST" weight="3,0" fill="HORIZONTAL" insets="2,8,2,2"/>

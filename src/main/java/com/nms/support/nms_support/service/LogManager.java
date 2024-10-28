@@ -113,7 +113,7 @@ public class LogManager implements IManager{
         return logIds;
     }
 
-    public void saveData() {
+    public boolean saveData() {
         ObjectMapper objectMapper = new ObjectMapper();
         try {
             if (logWrapper == null) {
@@ -123,6 +123,7 @@ public class LogManager implements IManager{
         } catch (IOException e) {
             e.printStackTrace();
         }
+        return false;
     }
 
     public boolean contains(LogEntity LogEntity){

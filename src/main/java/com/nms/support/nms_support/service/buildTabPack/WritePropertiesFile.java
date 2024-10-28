@@ -8,6 +8,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 import java.util.Properties;
 
 public class WritePropertiesFile {
@@ -15,18 +16,26 @@ public class WritePropertiesFile {
     public static boolean updateFile(ProjectEntity project, String app) {
         // Create a Properties object
         Properties properties = new Properties();
-        if(!project.getAutoLogin().equals("true")) return false;
         // Set key-value pairs
         properties.setProperty("selectedProject",project.getName());
-        properties.setProperty(project.getName()+"_username",project.getUsername());
-        properties.setProperty(project.getName()+"_password",project.getPassword());
-        properties.setProperty(project.getName()+"_selectedUserType",project.getPrevTypeSelected(app));
-        properties.setProperty(project.getName()+"_autoLogin",project.getAutoLogin());
+        properties.setProperty(project.getName() + "_username",
+                Optional.ofNullable(project.getUsername()).orElse(""));
+
+        properties.setProperty(project.getName() + "_password",
+                Optional.ofNullable(project.getPassword()).orElse(""));
+
+        properties.setProperty(project.getName() + "_selectedUserType",
+                Optional.ofNullable(project.getPrevTypeSelected(app)).orElse(""));
+
+        properties.setProperty(project.getName() + "_autoLogin",
+                Optional.ofNullable(project.getAutoLogin()).orElse("false"));
 
         // Define the file path (cread.properties in the current directory)
         String user = System.getProperty("user.name");
         String propPath = "C:/Users/" + user + "/Documents/nms_support_data";
         String filePath = propPath + "/cred.properties";
+
+
 
         try {
             // Create the directory if it doesn't exist
@@ -60,6 +69,7 @@ public class WritePropertiesFile {
             return true;
         } catch (IOException io) {
             io.printStackTrace();
+            System.err.println("Failed to create directory or file: " + io.getMessage());
             return false;
         }
     }

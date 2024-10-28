@@ -29,6 +29,17 @@ public class DialogUtil {
         alert.setTitle(title);
         alert.setHeaderText(null);
         alert.setContentText(message);
+        int height = 150;
+        int count = 0;
+        for (String line : message.split("\n")) {
+            count += (int)Math.ceil(line.length()/64.0);
+        }
+        if(count>3){
+            height += (count-3)*20;
+        }
+        System.out.println(height);
+        alert.setWidth(450);
+        alert.setHeight(height);
         alert.showAndWait();
     }
 

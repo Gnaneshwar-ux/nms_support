@@ -61,7 +61,7 @@ public class MainController implements Initializable {
     }
 
     private void setTabState(String newValue) {
-        if(newValue.equals("None")){
+        if(newValue != null && newValue.equals("None")){
             buildTab.setDisable(true);
             dataStoreTab.setDisable(true);
         }

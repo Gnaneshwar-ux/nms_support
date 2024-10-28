@@ -10,10 +10,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class SetupAutoLogin {
-
-    static String tempFile = "Login.xml";
-    static String CommandCode = "<Include name=\"AUTO_LOGIN_COMMANDS.inc\"/>";
+public class SetupRestartTool {
+    static String tempFile = "WorkSpaceMenuBarTool.xml";
+    static String CommandCode = "<Include name=\"RESTART_TOOLS_COMMANDS.inc\"/>";
     static javax.swing.JTextArea send;
 
     public static boolean execute(ProjectEntity project, BuildAutomation buildAutomation){
@@ -30,52 +29,41 @@ public class SetupAutoLogin {
         //String propPath = "C:/Users/" + user + "/Documents";
 
         try {
-            if(!updateFile(project.getJconfigPath() + "/global/xml/", project.getExePath()+"/java/product/global/xml/"+tempFile, buildAutomation)){
-                buildAutomation.appendTextToLog("Update file failed");
-                System.out.println("Output 1");
+            if(!updateFile(project.getJconfigPath() + "/ops/workspace/xml/", project.getExePath()+"/java/product/ops/workspace/xml/"+tempFile, buildAutomation)){
+                buildAutomation.appendTextToLog(tempFile+" update file failed");
                 return false;
             }
         } catch (InterruptedException e) {
             e.printStackTrace();
+            buildAutomation.appendTextToLog(e.toString());
             throw new RuntimeException(e);
         }
-
-
-        //System.out.println(SQLParser.parseSQLFile(project.getJconfigPath().replace("jconfig", "sql"), "crew"));
-
-        loadUserTypes(project);
 
         try {
             return copyFiles(project,buildAutomation);
         } catch (Exception e) {
             e.printStackTrace();
+            buildAutomation.appendTextToLog(e.toString());
             throw new RuntimeException(e);
         }
 
 
     }
 
-    public static void loadUserTypes(ProjectEntity project){
-        HashMap<String, List<String>> l = SQLParser.parseSQLFile(project.getJconfigPath().replace("jconfig", "sql"));
-        for (Map.Entry<String, List<String>> entry : l.entrySet()) {
-            System.out.println("Key: " + entry.getKey() + " - Value: " + entry.getValue());
-        }
-        project.setTypes(l);
-    }
 
-    public static boolean updateFile(String pathLogin, String altPathLogin, BuildAutomation buildAutomation) throws InterruptedException  {
+    public static boolean updateFile(String xmlPath, String altPathXml, BuildAutomation buildAutomation) throws InterruptedException  {
 
         try{
-            File file = new File(pathLogin+tempFile);
+            File file = new File(xmlPath+tempFile);
 
             if (!file.exists()) {
-                buildAutomation.appendTextToLog("Login.xml is not found in project!\n");
+                buildAutomation.appendTextToLog(tempFile+" is not found in project!\n");
 
 
-                file  = new File(altPathLogin);
+                file  = new File(altPathXml);
 
                 if(!file.exists()){
-                    buildAutomation.appendTextToLog("Login.xml is not found in product!\n");
+                    buildAutomation.appendTextToLog(tempFile+" is not found in product!\n");
                     return false;
                 }
 
@@ -95,8 +83,8 @@ public class SetupAutoLogin {
 //                        if(line.contains("AUTO_LOGIN_COMMANDS.inc")){
 //                            return true;
 //                        }
-                if (line.contains("<ToolBehavior>")) {
-                    res.append(line+"\n"+text);
+                if (line.contains("\"MNU_ACCESSIBILITY\"") && line.contains("MenuItem")) {
+                    res.append(text+"\n"+line);
                 }
                 else
                     res.append(line + "\n");
@@ -109,7 +97,7 @@ public class SetupAutoLogin {
             fWriter.close();
 
             File sourceFileLogin = new File(tempFile);
-            File targetDirLogin = new File(pathLogin);
+            File targetDirLogin = new File(xmlPath);
 
             if (!targetDirLogin.exists()) {
                 boolean isCreated = targetDirLogin.mkdirs();
@@ -119,7 +107,7 @@ public class SetupAutoLogin {
                 }
             }
 
-            String[] command = {"cmd", "/c", "copy", tempFile, pathLogin};
+            String[] command = {"cmd", "/c", "copy", tempFile, xmlPath};
 
             ProcessBuilder processBuilder = new ProcessBuilder(command);
 
@@ -135,11 +123,11 @@ public class SetupAutoLogin {
             int exitCode = process.waitFor();
 
             if(exitCode != 0){
-                buildAutomation.appendTextToLog("Login.xml copy failed.");
+                buildAutomation.appendTextToLog(tempFile+" copy failed.");
                 return false;
             }
 
-            buildAutomation.appendTextToLog("Login.xml file copied successfully!\n");
+            buildAutomation.appendTextToLog(tempFile+" file copied successfully!\n");
             return true;
         }
         catch(IOException e){
@@ -154,8 +142,8 @@ public class SetupAutoLogin {
         // copying inc files
         try{
 
-            File sourceFileLogin = new File("src/main/resources/nms_configs/AUTO_LOGIN_COMMANDS.inc");
-            File targetDirLogin = new File(project.getJconfigPath() + "/global/xml/AUTO_LOGIN_COMMANDS.inc");
+            File sourceFileLogin = new File("src/main/resources/nms_configs/RESTART_TOOLS_COMMANDS.inc");
+            File targetDirLogin = new File(project.getJconfigPath() + "/ops/workspace/xml/RESTART_TOOLS_COMMANDS.inc");
 
             if (!targetDirLogin.exists()) {
                 boolean isCreated = targetDirLogin.mkdirs();
@@ -172,8 +160,8 @@ public class SetupAutoLogin {
 
             // copying command files
 
-            sourceFileLogin = new File("src/main/resources/nms_configs/LoadCredentialsExternalCommand.java");
-            targetDirLogin = new File(project.getJconfigPath() + "/java/src/custom/LoadCredentialsExternalCommand.java");
+            sourceFileLogin = new File("src/main/resources/nms_configs/RestartToolsCommand.java");
+            targetDirLogin = new File(project.getJconfigPath() + "/java/src/custom/RestartToolsCommand.java");
 
             if (!targetDirLogin.exists()) {
                 boolean isCreated = targetDirLogin.mkdirs();

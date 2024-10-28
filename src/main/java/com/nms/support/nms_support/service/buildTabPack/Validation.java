@@ -64,7 +64,20 @@ public class Validation {
 
     }
 
-    public static boolean validateSetup(ProjectEntity project) {
+    public static boolean validateForRestartTools(ProjectEntity project) {
+        String jconfigPath = project.getJconfigPath();
+        String exePath = project.getExePath();
+
+        if (jconfigPath == null || jconfigPath.isEmpty()) {
+            return false;
+        }
+        if (exePath == null || exePath.isEmpty()) {
+            return false;
+        }
+        return true;
+    }
+
+    public static boolean validateLoginSetup(ProjectEntity project) {
 
         try {
 
@@ -92,6 +105,42 @@ public class Validation {
                 return false;
             }
             targetDirLogin = new File(project.getJconfigPath() + "/global/xml/AUTO_LOGIN_COMMANDS.inc");
+
+            return targetDirLogin.exists();
+
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    public static boolean validateRestartToolsSetup(ProjectEntity project) {
+
+        try {
+
+            String pathLogin = project.getJconfigPath() + "/ops/workspace/xml/WorkspaceMenuBarTool.xml";
+
+            File file = new File(pathLogin);
+
+            if (!file.exists()) {
+                return false;
+            }
+
+            BufferedReader br = new BufferedReader(new FileReader(file));
+            String line;
+            boolean b = true;
+            while ((line = br.readLine()) != null) {
+                if (line.contains("RESTART_TOOLS_COMMANDS.inc")) {
+                    b = false;
+                }
+            }
+            if (b) {
+                return false;
+            }
+            File targetDirLogin = new File(project.getJconfigPath() + "/java/src/custom/RestartToolsCommand.java");
+            if (!targetDirLogin.exists()) {
+                return false;
+            }
+            targetDirLogin = new File(project.getJconfigPath() + "/ops/workspace/xml/RESTART_TOOLS_COMMANDS.inc");
 
             return targetDirLogin.exists();
 

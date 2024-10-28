@@ -27,6 +27,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
+import static com.nms.support.nms_support.service.globalPack.Checker.isEmpty;
+
 public class BuildAutomation implements Initializable {
     private static final Logger logger = LoggerUtil.getLogger();
 
@@ -80,9 +82,14 @@ public class BuildAutomation implements Initializable {
     private void patchUpgrade() {
         ProjectEntity p = mainController.getSelectedProject();
 
-        if (p.getHost() == null || p.getHostUser() == null || p.getHostPass() == null) {
+        if (isEmpty(p.getHost()) || isEmpty(p.getHostUser()) || isEmpty(p.getHostPass())) {
             DialogUtil.showError("Required Fields Missing",
                     "Please make sure the following fields are filled in the DataStore Tab:\nHost Address\nUsername\nPassword\n");
+            return;
+        }
+        if (isEmpty(p.getExePath()) ) {
+            DialogUtil.showError("Required Fields Missing",
+                    "Please make sure the following fields are filled in the Build Automation Tab:\nWebWorkspace.exe path\n");
             return;
         }
 
@@ -249,11 +256,41 @@ public class BuildAutomation implements Initializable {
 
     private void restart() {
         logger.info("Restarting application");
+        ProjectEntity project = mainController.getSelectedProject();
+        clearLog();
         if (!stop()) return;
         try {
-            Task<Boolean> buildTask = controlApp.build(mainController.getSelectedProject(), buildMode.getValue());
+
+            boolean res = setupAutoLogin(project);
+            if(!autoLoginCheckBox.isSelected()){
+                appendTextToLog("Auto Login check box not selected");
+            }
+            else if(res)
+                appendTextToLog("Auto Login Setup process successful");
+            else {
+                appendTextToLog("Auto Login Setup process failed");
+                return;
+            }
+            res = setupRestartTools(project);
+            if(res)
+                appendTextToLog("RestartTools Setup process successful");
+            else {
+                appendTextToLog("RestartTools Setup process failed");
+                return;
+            }
+            logger.info("Building project: " + project.getName());
+            Task<Boolean> buildTask = controlApp.build(project, buildMode.getValue());
             buildTask.setOnSucceeded(event -> {
                 Boolean result = buildTask.getValue();
+                try {
+                    DeleteLoginSetup.delete(project, this);
+                    DeleteRestartSetup.delete(project, this);
+                    //this.appendTextToLog("Delete process completed\n");
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    appendTextToLog(e.toString());
+                    throw new RuntimeException(e);
+                }
                 if (result) {
                     start();
                 } else {
@@ -306,11 +343,44 @@ public class BuildAutomation implements Initializable {
     }
 
     private void build() {
-        logger.info("Building project: " + mainController.projectComboBox.getValue());
-        clearLog();
-        appendTextToLog("Build process begins for " + mainController.projectComboBox.getValue());
+        ProjectEntity project  = mainController.getSelectedProject();
+
         try {
-            controlApp.build(mainController.getSelectedProject(), buildMode.getValue());
+            clearLog();
+        boolean res = setupAutoLogin(project);
+        if(!autoLoginCheckBox.isSelected()){
+            appendTextToLog("Auto Login check box not selected");
+        }
+        else if(res)
+            appendTextToLog("Auto Login Setup process successful");
+        else {
+            appendTextToLog("Auto Login Setup process failed");
+            return;
+        }
+        res = setupRestartTools(project);
+        if(res)
+            appendTextToLog("RestartTools Setup process successful");
+        else {
+            appendTextToLog("RestartTools Setup process failed");
+            return;
+        }
+        logger.info("Building project: " + project.getName());
+
+        appendTextToLog("Build process begins for " +project.getName());
+            Task<Boolean> buildTask = controlApp.build(project, buildMode.getValue());
+            buildTask.setOnSucceeded(event -> {
+                Boolean result = buildTask.getValue();
+                //this.appendTextToLog("Delete process begin\n");
+                try {
+                    DeleteLoginSetup.delete(project, this);
+                    DeleteRestartSetup.delete(project, this);
+                    //this.appendTextToLog("Delete process completed\n");
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    appendTextToLog(e.toString());
+                    throw new RuntimeException(e);
+                }
+            });
         } catch (InterruptedException e) {
             logger.severe("InterruptedException in build() method: " + e.getMessage());
             appendTextToLog(e.toString());
@@ -319,16 +389,16 @@ public class BuildAutomation implements Initializable {
 
     private void deleteSetup() {
         logger.info("Deleting setup for project: " + mainController.getSelectedProject());
-        clearLog();
+        //clearLog();
         try {
-            DeleteSetup.delete(mainController.getSelectedProject(), this);
+            DeleteLoginSetup.delete(mainController.getSelectedProject(), this);
         } catch (IOException e) {
             logger.severe("IOException in deleteSetup() method: " + e.getMessage());
         }
     }
 
     private void updateSetup() {
-        logger.info("Updating setup for project: " + mainController.getSelectedProject());
+        logger.info("Updating setup for project: " + mainController.getSelectedProject().toString());
         clearLog();
         LogEntity log = mainController.logManager.getLogById(projectLogComboBox.getValue());
         String selectedProjectName = mainController.projectComboBox.getValue();
@@ -355,27 +425,67 @@ public class BuildAutomation implements Initializable {
             updatedProject.setPrevTypeSelected(getSelectedAppName(), userTypeComboBox.getValue());
         }
         populateAppNameComboBox(updatedProject.getExePath());
-        mainController.projectManager.saveData();
+        boolean res = mainController.projectManager.saveData();
+        if(res){
+            appendTextToLog("Save project details successful.");
+        }
+        else{
+            appendTextToLog("Save project details failed.");
+        }
         logger.info("Project updated: " + selectedProjectName);
+        if(WritePropertiesFile.updateFile(updatedProject, getSelectedAppName())){
+            appendTextToLog("Updated cred.properties file");
+        }else{
+            appendTextToLog("Failed to update cred.properties file");
+        }
+    }
 
+    private boolean setupAutoLogin(ProjectEntity updatedProject){
         if (autoLoginCheckBox.isSelected()) {
             try {
                 if (!Validation.validateForAutologin(updatedProject)) {
                     DialogUtil.showWarning("Fields missing required for Setup", "Need to perform setup for getting autologin enabled");
-                    return;
+                    return false;
                 }
-                if (Validation.validateSetup(updatedProject)) return;
+                if (Validation.validateLoginSetup(updatedProject)){
+                    return true;
+                }
                 appendTextToLog("Auto-login option selected, performing config update in project files");
 
                 boolean res = SetupAutoLogin.execute(mainController.getSelectedProject(), this);
                 mainController.projectManager.saveData();
                 appendTextToLog(res ? "Setup successful" : "Setup failed");
-                if (res) build();
+                return res;
             } catch (Exception e) {
                 logger.severe("Exception in setup: " + e.getMessage());
                 appendTextToLog("Exception in setup: " + e.toString());
+                return false;
             }
         }
+        return false;
+    }
+
+
+    private boolean setupRestartTools(ProjectEntity updatedProject){
+            try {
+                if (!Validation.validateForRestartTools(updatedProject)) {
+                    DialogUtil.showWarning("Fields missing required for restart tools Setup", "Need to perform restart tools setup for getting autologin enabled");
+                    return false;
+                }
+                if (Validation.validateRestartToolsSetup(updatedProject)){
+                    return true;
+                }
+                appendTextToLog("Auto-login option selected, performing config update in project files");
+
+                boolean res = SetupRestartTool.execute(mainController.getSelectedProject(), this);
+                mainController.projectManager.saveData();
+                appendTextToLog(res ? "Restart tools Setup successful" : "Restart tools Setup failed");
+                return res;
+            } catch (Exception e) {
+                logger.severe("Exception in Restart tools setup: " + e.getMessage());
+                appendTextToLog("Exception in Restart tools setup: " + e.toString());
+                return false;
+            }
     }
 
     private void reloadLogNames() {
@@ -403,12 +513,12 @@ public class BuildAutomation implements Initializable {
         if (text != null) {
             Platform.runLater(() -> {
                 if (buildLog != null) {
-                    String p = buildLog.getText();
-                    if(buildLog.getText().length() > 2000){
-                        List<String> previousLines = getLastNLines(p, 30);
-                        buildLog.clear();
-                        buildLog.appendText(String.join("\n", previousLines) + "\n");
-                    }
+//                    String p = buildLog.getText();
+//                    if(buildLog.getText().length() > 2000){
+//                        List<String> previousLines = getLastNLines(p, 30);
+//                        buildLog.clear();
+//                        buildLog.appendText(String.join("\n", previousLines) + "\n");
+//                    }
                     buildLog.appendText(text+"\n");
                 }
             });
