@@ -14,9 +14,27 @@
             <Label styleClass="label-common">Project</Label>
             <ComboBox fx:id="projectComboBox" prefWidth="200"/>
             <Button fx:id="addButton" alignment="CENTER" prefWidth="104.0"
-                    styleClass="button-common" text="ADD"/>
+                    styleClass="button-icon" >
+                <graphic>
+                    <ImageView fitWidth="20" fitHeight="20">
+                        <Image url="@../images/icons/add.png"/>
+                    </ImageView>
+                </graphic>
+                <tooltip>
+                    <Tooltip text="Add a project"/>
+                </tooltip>
+            </Button>
             <Button fx:id="delButton" alignment="CENTER" prefWidth="104.0"
-                    styleClass="button-common" text="REMOVE"/>
+                    styleClass="button-icon">
+                <graphic>
+                    <ImageView fitWidth="20" fitHeight="20">
+                        <Image url="@../images/icons/delete.png"/>
+                    </ImageView>
+                </graphic>
+                <tooltip>
+                    <Tooltip text="Delete selected project"/>
+                </tooltip>
+            </Button>
             <!--                <ImageView fx:id="themeIcon" onMouseClicked="#toggleTheme" fitWidth="30" fitHeight="30"/>-->
         </HBox>
         <!-- TabPane set to fill the VBox -->

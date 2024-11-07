@@ -8,6 +8,8 @@ package com.nms.support.nms_support.service.buildTabPack;
  *
  * @author Gnaneshwar
  */
+import com.nms.support.nms_support.service.globalPack.Mappings;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -21,16 +23,7 @@ class SQLParser {
     private static final String[] codes = {"CREW","SERVICE_ALERT","WCE","OMS_CONFIG_TOOL","WCB","MODEL","STORM"};
 
     public static String getApp(String code){
-        switch (code){
-            case "CREW": return "WebWorkspace.exe";
-            case "SERVICE_ALERT": return "ServiceAlert.exe";
-            case "WCE": return "WebCallEntry.exe";
-            case "OMS_CONFIG_TOOL": return "ConfigurationAssistant.exe";
-            case "WCB": return "WebCallbacks.exe";
-            case "MODEL": return "ModelManagement.exe";
-            case "STORM": return "StormManagement.exe";
-        }
-        return "Unknown";
+        return Mappings.getAppFromCode(code);
     }
 
     public static HashMap<String,List<String>> parseSQLFile(String filePath) {
@@ -38,7 +31,7 @@ class SQLParser {
         System.out.println("parseSQLFile invoked");
         HashMap<String, List<String>> resultMap = new HashMap<>();
 
-        filePath = findLatestFilePath(filePath);
+        //filePath = findLatestFilePath(filePath);
 
         System.out.println(filePath);
 
@@ -58,22 +51,22 @@ class SQLParser {
                     }
                     if(comment) continue;
                     sqlContent.append(line).append("\n");
-                    //System.out.println(line);
+                    System.out.println(line);
                 }
 
-                String sqlPattern = "INSERT[^;]*;";
+                String sqlPattern = "(?i)INSERT[^;]*;";
                 Pattern pattern = Pattern.compile(sqlPattern, Pattern.CASE_INSENSITIVE);
                 Matcher matcher = pattern.matcher(sqlContent.toString().replace("\n", ""));
 
                 while (matcher.find()) {
 
-                    if(!matcher.group().contains("env_code"))continue;
+                    if(!matcher.group().toLowerCase().contains("env_code"))continue;
 
-                    String valuesPattern = "VALUES\\s*\\(([^)]*)\\);";
+                    String valuesPattern = "(?i)VALUES\\s*\\(([^)]*)\\);";
                     Matcher valuesMatcher = Pattern.compile(valuesPattern).matcher(matcher.group());
 
                     if (valuesMatcher.find()) {
-                        //System.out.println(valuesMatcher.group(1));
+                        System.out.println(valuesMatcher.group(1));
                         String[] values = valuesMatcher.group(1).split(",");
                         String product = values[0].trim().replaceAll("[\"']", "").toUpperCase();
                         String codeName = values[1].trim().replaceAll("[\"']", "");

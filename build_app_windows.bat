@@ -81,16 +81,18 @@ call "%JAVA22_HOME%\bin\jlink" ^
 rem ------ PACKAGING ----------------------------------------------------------
 rem In the end we will find the package inside the target/installer directory.
 
+echo APP_VERSION is set to: %APP_VERSION%
+
 call "%JAVA22_HOME%\bin\jpackage" ^
   --type %INSTALLER_TYPE% ^
   --dest target/installer ^
   --input target/installer/input/libs ^
-  --name JPackageScriptFX ^
+  --name nms_tools ^
   --main-class com.nms.support.nms_support.FakeMain ^
   --main-jar %MAIN_JAR% ^
   --java-options -Xmx2048m ^
   --runtime-image target/java-runtime ^
-  --icon src/main/duke.ico ^
+  --icon src/main/nmssupport.ico ^
   --app-version %APP_VERSION% ^
   --vendor "ACME Inc." ^
   --copyright "Copyright © 2019-21 ACME Inc." ^

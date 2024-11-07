@@ -6,6 +6,7 @@ import com.splwg.oms.client.BaseEnvironmentManager;
 import com.splwg.oms.jbot.JBotTool;
 import com.splwg.oms.client.util.URLResource;
 import com.splwg.oms.client.control.Control;
+import com.splwg.oms.jbot.IDataStore;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -15,12 +16,9 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.*;
 import java.lang.reflect.Field;
+import java.util.*;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
 import java.util.List;
-import java.util.ArrayList;
 
 public class RestartToolsCommand extends JBotCommand {
     private JTextField antPathField;
@@ -48,6 +46,15 @@ public class RestartToolsCommand extends JBotCommand {
         progressPanel.add(Box.createRigidArea(new Dimension(0, 10)));
         progressPanel.add(statusLabel);
 
+        JPanel datastorePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+
+        JLabel datastore = new JLabel("Datastores(global) : ");
+        JTextField dsNames = new JTextField(30);
+
+        datastorePanel.add(datastore);
+        datastorePanel.add(dsNames);
+
+
         JPanel configPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
         JLabel antPathLabel = new JLabel("jconfig Path: ");
@@ -64,6 +71,7 @@ public class RestartToolsCommand extends JBotCommand {
         mainPanel.add(progressPanel);
         mainPanel.add(Box.createRigidArea(new Dimension(0, 10)));
         mainPanel.add(configPanel);
+        mainPanel.add(datastorePanel);
 
         dialog.add(mainPanel, BorderLayout.NORTH);
 
@@ -148,7 +156,7 @@ public class RestartToolsCommand extends JBotCommand {
                                             System.out.println("Tool : " + selectedToolName + "\n" + valRes);
                                             continue;
                                         }
-                                        if (!handleTool(tool, selectedToolName)) {
+                                        if (!handleTool(tool, selectedToolName, dsNames.getText())) {
                                             JOptionPane.showMessageDialog(dialog,
                                                     "Tool : " + selectedToolName + "\n" + "check logs", "Initialization Failed",
                                                     JOptionPane.INFORMATION_MESSAGE);
@@ -276,21 +284,61 @@ public class RestartToolsCommand extends JBotCommand {
         return button;
     }
 
-    private boolean handleTool(JBotTool tool, String toolname) {
+    private boolean handleTool(JBotTool tool, String toolname, String datastores) {
         if (tool != null) {
             System.out.println("\nHandling tool: " + tool.getName());
             try {
-                if(!tool.close()) return false;
                 clearCache();
+                System.out.println("before getOwnDataStore = "+tool.getOwnDataStore("DS_WA_ALARMS"));
+                tool.clearGlobalDataExceptFor(getExceptList(tool, datastores));
+                System.out.println("after getOwnDataStore = "+tool.getOwnDataStore("DS_WA_ALARMS"));
+                System.out.println("Global datastore cleared");
+                if(!tool.close()) return false;
+                System.out.println("Tool closed");
                 tool.init();
                 System.out.println("Restarted tool: " + tool.getName());
+                System.out.println("after restart getOwnDataStore = "+tool.getOwnDataStore("DS_WA_ALARMS"));
                 return true;
             } catch (Exception e) {
                 System.out.println("Error handling tool " + tool.getName() + ": " + e);
+                e.printStackTrace();
                 return false;
             }
         }
         return false;
+    }
+
+    private IDataStore[] getExceptList(JBotTool tool, String datastores) {
+        Map<String, IDataStore> globalMap = tool.getGlobalDataStoreMap();
+        Map<String, IDataStore> localMap = tool.getLocalDataStoreMap();
+
+        // Print keys in the global map
+        System.out.println("\nGlobal DataStore Keys:");
+        for (String key : globalMap.keySet()) {
+            System.out.println("\t"+key);
+        }
+
+        // Print keys in the local map
+        System.out.println("\nLocal DataStore Keys:");
+        for (String key : localMap.keySet()) {
+            System.out.println("\t"+key);
+        }
+
+        // Create a list to store IDataStore values that are not in the excludeKeys
+        List<IDataStore> result = new ArrayList<>();
+
+        List<String> excludeKeys = Arrays.asList(datastores.split(","));
+
+
+        // Iterate over globalMap and add entries not in excludeKeys
+        for (Map.Entry<String, IDataStore> entry : globalMap.entrySet()) {
+            if (!excludeKeys.contains(entry.getKey())) {
+                result.add(entry.getValue());
+            }
+        }
+
+        // Return the result list as an array
+        return result.toArray(new IDataStore[0]);
     }
 
     private boolean validation(JBotTool tool, String toolname) {

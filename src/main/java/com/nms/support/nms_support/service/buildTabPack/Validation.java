@@ -117,7 +117,7 @@ public class Validation {
 
         try {
 
-            String pathLogin = project.getJconfigPath() + "/ops/workspace/xml/WorkspaceMenuBarTool.xml";
+            String pathLogin = project.getJconfigPath() + "/global/xml/MAIN_MENUBAR_BUTTONS.inc";
 
             File file = new File(pathLogin);
 
@@ -140,7 +140,7 @@ public class Validation {
             if (!targetDirLogin.exists()) {
                 return false;
             }
-            targetDirLogin = new File(project.getJconfigPath() + "/ops/workspace/xml/RESTART_TOOLS_COMMANDS.inc");
+            targetDirLogin = new File(project.getJconfigPath() + "/global/xml/RESTART_TOOLS_COMMANDS.inc");
 
             return targetDirLogin.exists();
 

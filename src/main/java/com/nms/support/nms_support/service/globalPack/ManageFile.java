@@ -51,12 +51,11 @@ public class ManageFile {
                 String content = new String(Files.readAllBytes(path));
                 content = content.replace(oldText, newText);
                 Files.write(path, content.getBytes());
+                System.out.println("Replace text in files completed successfully.");
             } catch (IOException e) {
                 System.err.println("Failed to process file: " + filePath);
                 e.printStackTrace();
             }
         }
     }
-
-
 }

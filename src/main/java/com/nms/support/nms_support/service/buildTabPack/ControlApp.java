@@ -95,7 +95,12 @@ public class ControlApp {
             DialogUtil.showWarning("Warning","Before using this application you must run the WebWorkspace atleast once manually.");
             return null;
         }
-        return logfiles;
+
+        if (logfiles.length <= 50) {
+            return logfiles;
+        }
+
+        return Arrays.copyOf(logfiles,50);
     }
 
     //This method parse the log files and create map for required fields
@@ -172,6 +177,8 @@ public class ControlApp {
         return mp;
     }
 
+    public static Thread restartThread = null;
+
     public Task<Boolean> build(ProjectEntity project, String typeSelected) throws InterruptedException {
         String path = "";
         String jconfigPath = project.getJconfigPath();
@@ -223,6 +230,7 @@ public class ControlApp {
 
         Thread t = new Thread(buildTask);
         t.start();
+        restartThread = t;
         return buildTask; // Indicate that the build process has started
     }
 

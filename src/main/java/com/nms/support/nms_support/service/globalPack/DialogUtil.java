@@ -23,9 +23,13 @@ import java.util.concurrent.CountDownLatch;
 
 public class DialogUtil {
 
+    private static void setAlertIcon(Alert a){
+        IconUtils.setStageIcon((Stage)a.getDialogPane().getScene().getWindow());
+    }
     // Show an error dialog with the specified title and message
     public static void showError(String title, String message) {
         Alert alert = new Alert(Alert.AlertType.ERROR);
+        setAlertIcon(alert);
         alert.setTitle(title);
         alert.setHeaderText(null);
         alert.setContentText(message);
@@ -45,6 +49,7 @@ public class DialogUtil {
 
     public static void showWarning(String title, String message) {
         Alert alert = new Alert(AlertType.WARNING);
+        setAlertIcon(alert);
         alert.setTitle(title);
         alert.setHeaderText(null); // Optional: Can set to null to hide the header
         alert.setContentText(message);
@@ -54,6 +59,7 @@ public class DialogUtil {
     // Show a confirmation dialog with the specified title, header, and content
     public static Optional<ButtonType> showConfirmationDialog(String title, String header, String content) {
         Alert confirmationAlert = new Alert(Alert.AlertType.CONFIRMATION);
+        setAlertIcon(confirmationAlert);
         confirmationAlert.setTitle(title);
         confirmationAlert.setHeaderText(header);
         confirmationAlert.setContentText(content);
@@ -67,6 +73,7 @@ public class DialogUtil {
 
         Platform.runLater(() -> {
             TextInputDialog dialog = new TextInputDialog();
+            IconUtils.setStageIcon((Stage)dialog.getDialogPane().getScene().getWindow());
             dialog.setTitle(title);
             dialog.setHeaderText(header);
             dialog.setContentText(content);
@@ -81,6 +88,7 @@ public class DialogUtil {
     // Show an alert dialog with the specified type, title, and content
     public static void showAlert(Alert.AlertType type, String title, String content) {
         Alert alert = new Alert(type);
+        setAlertIcon(alert);
         alert.setTitle(title);
         alert.setHeaderText(null);
         alert.setContentText(content);
@@ -89,6 +97,7 @@ public class DialogUtil {
 
     public static List<Map<String, String>> selectProcess(List<Map<String, String>> process) {
         Stage dialogStage = new Stage();
+        IconUtils.setStageIcon(dialogStage);
         dialogStage.initModality(Modality.APPLICATION_MODAL);
         dialogStage.setTitle("Select process");
 
@@ -178,7 +187,7 @@ public class DialogUtil {
             // Create the dialog
             Dialog<String[]> dialog = new Dialog<>();
             dialog.setTitle(title);
-
+            IconUtils.setStageIcon((Stage) dialog.getDialogPane().getScene().getWindow());
             // Set the button types
             ButtonType okButtonType = new ButtonType("OK", ButtonBar.ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(okButtonType, ButtonType.CANCEL);

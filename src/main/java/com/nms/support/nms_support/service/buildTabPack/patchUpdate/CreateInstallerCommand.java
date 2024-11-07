@@ -54,19 +54,19 @@ public class CreateInstallerCommand {
 
 	private static BuildAutomation buildAutomation;
 
-	public void execute(String appURL, String envVarName, ProjectEntity project, BuildAutomation buildAutomation) throws Exception {
+	public boolean execute(String appURL, String envVarName, ProjectEntity project, BuildAutomation buildAutomation) throws Exception {
 
 		this.buildAutomation = buildAutomation;
 
 
         if(envVarName == null || envVarName.isEmpty()){
 			buildAutomation.appendTextToLog("ENV provided is invalid");
-			return;
+			return false;
 		}
 		else {
 			if(!doesEnvVariableExist(envVarName)){
 				buildAutomation.appendTextToLog("Provided ENV VAR not exists("+ envVarName +"). Exiting Upgrade process");
-				return;
+				return false;
 			}
 		}
 
@@ -74,7 +74,7 @@ public class CreateInstallerCommand {
 		installer_loc = project.getExePath();
 		String serverURL = adjustUrl(appURL);
 		boolean state =cleanDirectory(Path.of(dir_temp));
-		if(!state)return;
+		if(!state)return false;
      	buildAutomation.appendTextToLog("Loading Resources..");
 
 		FileFetcher.loadResources(dir_temp,serverURL, buildAutomation);
@@ -86,6 +86,8 @@ public class CreateInstallerCommand {
 			processDirectory(dir_temp);
 		} catch (IOException e) {
 			e.printStackTrace();
+			buildAutomation.appendTextToLog("process dir failed");
+			return false;
 		}
 
 		String currentDir = System.getProperty("user.dir");
@@ -153,6 +155,8 @@ public class CreateInstallerCommand {
 				buildAutomation.appendTextToLog("JRE directory copied successfully.");
 			} catch (IOException e) {
 				e.printStackTrace();
+				buildAutomation.appendTextToLog("jre files copy process failed");
+				return false;
 			}
 		}
 		for (String product : products) {
@@ -200,6 +204,7 @@ public class CreateInstallerCommand {
 				systemProps.add("-Dnms.application_name=" + jnlpName);
 				systemProps.add("-DHOST_NAME=" + url.getHost());
 				systemProps.add("-DHOST_PORT=" + url.getPort());
+				systemProps.add("-DPROJECT_NAME=" + project.getName());
 				Element jre = addElement(launch4j, "jre", (String) null);
 				Element classPath = addElement(launch4j, "classPath", (String) null);
 
@@ -277,10 +282,11 @@ public class CreateInstallerCommand {
 					trans.transform(source, result);
 				}
 				runLaunch4j(launchXML);
-				 launchXML.delete();
+				launchXML.delete();
 			} catch (Exception e) {
 				buildAutomation.appendTextToLog("Not able to setup " + product);
 				e.printStackTrace();
+				return false;
 			}
 		}
 		String config = readFileAsString(dir_temp + "/nms.nsi");
@@ -308,7 +314,8 @@ public class CreateInstallerCommand {
 		File jarF = new File(dir, "nmslib/tools.jar");
 		File toolFile = new File(System.getenv("JAVA_HOME") + "/lib/tools.jar");
 		if (!toolFile.isFile()) {
-			throw new Exception("JDK_NOT_FOUND");
+			buildAutomation.appendTextToLog("JDK_NOT_FOUND");
+			return false;
 		}
 		InputStream uis = null;
 		try {
@@ -334,7 +341,7 @@ public class CreateInstallerCommand {
 
 		ManageFile.replaceTextInFiles(List.of(dir_temp+"/java/ant/build.properties"),"NMS_HOME", envVarName);
 		ManageFile.replaceTextInFiles(List.of(dir_temp+"/java/ant/build.xml"),"NMS_HOME", envVarName);
-
+		return true;
 	}
 
 	private boolean createEnvVar(String variableName, String variableValue){

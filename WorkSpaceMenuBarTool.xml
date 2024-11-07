@@ -1108,6 +1108,8 @@
                 </MenuBar>
 				</ToolBar>
           <PopupMenu name="POPUP_HELP">
+
+
                 <MenuItem name="MNU_HELP_CONTENTS" accelerator="F1">
                     <Visible when="DS_LOGIN_ENTRY.ENV == 'WEB' and DS_LOGIN_ENTRY.TYPE != '&UserSwitchingEntry;'"/>
                     <PressPerform>
@@ -1142,8 +1144,9 @@
                         </Command>
                     </PressPerform>
                 </MenuItem>
-				
-                <MenuItem name="MNU_ACCESSIBILITY">                    <Visible initial="false" when="QA_TEST_LICENSED"/>                    <PressPerform>
+                <MenuItem name="MNU_ACCESSIBILITY">
+                    <Visible initial="false" when="QA_TEST_LICENSED"/>
+                    <PressPerform>
                         <Command value="ToolMethodCommand">
                             <Config name="method" value="saveAccessibility"/>
                         </Command>

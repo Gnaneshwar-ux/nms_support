@@ -53,6 +53,9 @@ public class BuildAutomation implements Initializable {
     public ComboBox<String> projectLogComboBox;
     public AnchorPane buildRoot;
     public Button patchButtom;
+    public Button reloadUsersButton;
+    public Button replaceProjectBuild;
+    public Button replaceProductBuild;
 
     private MainController mainController;
     private ControlApp controlApp;
@@ -62,21 +65,50 @@ public class BuildAutomation implements Initializable {
         logger.info("Initializing BuildAutomation");
 
         reloadButton.setOnAction(event -> reloadLogNames());
-        updateButton.setOnAction(event -> updateSetup());
+        updateButton.setOnAction(event -> save());
         patchButtom.setOnAction(event-> patchUpgrade());
         deleteButton.setOnAction(event -> deleteSetup());
         buildButton.setOnAction(event -> build());
         stopButton.setOnAction(event -> stop());
-        startButton.setOnAction(event -> start());
+        startButton.setOnAction(event -> start(mainController.getSelectedProject(), getSelectedAppName()));
         openNMSLogButton.setOnAction(event -> openNMSLog());
         openBuildLogButton.setOnAction(event -> openBuildLog());
         restartButton.setOnAction(event -> restart());
+        reloadUsersButton.setOnAction(event -> initializeUserTypes());
+        replaceProjectBuild.setOnAction(event -> {
+            DialogUtil.showTextInputDialog("ENV INPUT","Enter env var name created for this project:","Ex: OPAL_HOME").thenAccept(result->{
+                if(result.isPresent()){
+                    String env_name = result.get().trim();
+                    ManageFile.replaceTextInFiles(List.of(jconfigPath.getText()+"/build.properties"),"NMS_HOME", env_name);
+                    ManageFile.replaceTextInFiles(List.of(jconfigPath.getText()+"/build.xml"),"NMS_HOME", env_name);
+                    appendTextToLog("Replaced NMS_HOME with "+env_name+" in build.xml and build.properties files");
+                }else {
+                    appendTextToLog("Input of env var name empty or cancelled");
+                }
+            });
+
+        });
+
+        replaceProductBuild.setOnAction(event -> {
+            DialogUtil.showTextInputDialog("ENV INPUT","Enter env var name created for this product:","Ex: OPAL_HOME").thenAccept(result->{
+                if(result.isPresent()){
+                    String env_name = result.get().trim();
+                    ManageFile.replaceTextInFiles(List.of(webWorkspacePath.getText()+"/java/ant/build.properties"),"NMS_HOME", env_name);
+                    ManageFile.replaceTextInFiles(List.of(webWorkspacePath.getText()+"/java/ant/build.xml"),"NMS_HOME", env_name);
+                    appendTextToLog("Replaced NMS_HOME with "+env_name+" in build.xml and build.properties files");
+                }else {
+                    appendTextToLog("Input of env var name empty or cancelled");
+                }
+            });
+
+        });
 
         buildMode.getItems().addAll("Ant config", "Ant clean config");
         buildMode.getSelectionModel().select(0);
         appName.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> appNameChange(newValue));
 
-        appendTextToLog("Welcome " + System.getProperty("user.name") + "!\uD83E\uDD17");
+        appendTextToLog("Hi " + System.getProperty("user.name") + "!\uD83E\uDD17");
+
     }
 
     private void patchUpgrade() {
@@ -114,7 +146,12 @@ public class BuildAutomation implements Initializable {
                         try {
                             logger.info("Starting CreateInstallerCommand execution.");
                             appendTextToLog("Patch Upgrade process begin");
-                            cic.execute(url, envVarName, mainController.getSelectedProject(), BuildAutomation.this);
+                            boolean resp = cic.execute(url, envVarName, mainController.getSelectedProject(), BuildAutomation.this);
+                            if(resp){
+                                appendTextToLog("\nPatch upgrade completed.");
+                            }else{
+                                appendTextToLog("\nPatch upgrade failed.");
+                            }
                             logger.info("CreateInstallerCommand execution completed.");
                         } catch (Exception e) {
                             logger.log(Level.SEVERE, "Error executing CreateInstallerCommand", e);
@@ -127,11 +164,13 @@ public class BuildAutomation implements Initializable {
                 // Handle task success and failure
                 task.setOnSucceeded(event -> {
                     logger.info("Patch Upgrade task completed successfully.");
+
                 });
 
                 task.setOnFailed(event -> {
                     Throwable throwable = task.getException();
                     logger.log(Level.SEVERE, "Error executing Patch Upgrade", throwable);
+
                     DialogUtil.showError("Execution Failed", "An error occurred while executing CreateInstallerCommand: " + throwable.getMessage());
                 });
 
@@ -255,12 +294,17 @@ public class BuildAutomation implements Initializable {
     }
 
     private void restart() {
-        logger.info("Restarting application");
-        ProjectEntity project = mainController.getSelectedProject();
         clearLog();
+        logger.info("Restarting application");
+        if(ControlApp.restartThread != null){
+            ControlApp.restartThread.interrupt();
+            appendTextToLog("Killed running task");
+            ControlApp.restartThread = null;
+        }
+        ProjectEntity project = mainController.getSelectedProject();
+        String app = getSelectedAppName();
         if (!stop()) return;
         try {
-
             boolean res = setupAutoLogin(project);
             if(!autoLoginCheckBox.isSelected()){
                 appendTextToLog("Auto Login check box not selected");
@@ -280,27 +324,72 @@ public class BuildAutomation implements Initializable {
             }
             logger.info("Building project: " + project.getName());
             Task<Boolean> buildTask = controlApp.build(project, buildMode.getValue());
-            buildTask.setOnSucceeded(event -> {
-                Boolean result = buildTask.getValue();
-                try {
-                    DeleteLoginSetup.delete(project, this);
-                    DeleteRestartSetup.delete(project, this);
-                    //this.appendTextToLog("Delete process completed\n");
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    appendTextToLog(e.toString());
-                    throw new RuntimeException(e);
-                }
-                if (result) {
-                    start();
-                } else {
-                    appendTextToLog("Build failed. Not launching application.");
-                }
-            });
+
+            attachDeleteProcess(buildTask, project,app, true);
+
         } catch (InterruptedException e) {
             logger.severe("Exception in build() method: " + e.getMessage());
             appendTextToLog("Exception in build() method");
         }
+    }
+
+    private void attachDeleteProcess(Task<Boolean> buildTask, ProjectEntity project, String app, boolean isRestart){
+        buildTask.setOnSucceeded(event -> {
+            Boolean result = buildTask.getValue();
+            try {
+                DeleteLoginSetup.delete(project, this, false);
+                DeleteRestartSetup.delete(project, this, false);
+                //this.appendTextToLog("Delete process completed\n");
+            } catch (IOException e) {
+                e.printStackTrace();
+                appendTextToLog(e.toString());
+                throw new RuntimeException(e);
+            }
+            if (result) {
+                appendTextToLog("Build Success. ");
+                if(isRestart)start(project, app);
+            } else {
+                appendTextToLog("Build failed. ");
+            }
+        });
+
+        buildTask.setOnFailed(event -> {
+            Boolean result = buildTask.getValue();
+            try {
+                DeleteLoginSetup.delete(project, this, false);
+                DeleteRestartSetup.delete(project, this, false);
+                //this.appendTextToLog("Delete process completed\n");
+            } catch (IOException e) {
+                e.printStackTrace();
+                appendTextToLog(e.toString());
+                throw new RuntimeException(e);
+            }
+            if (result!=null && result) {
+                appendTextToLog("Build Success. ");
+                if(isRestart)start(project, app);
+            } else {
+                appendTextToLog("Build failed. ");
+            }
+        });
+
+        buildTask.setOnCancelled(event -> {
+            Boolean result = buildTask.getValue();
+            try {
+                DeleteLoginSetup.delete(project, this, false);
+                DeleteRestartSetup.delete(project, this, false);
+                //this.appendTextToLog("Delete process completed\n");
+            } catch (IOException e) {
+                e.printStackTrace();
+                appendTextToLog(e.toString());
+                throw new RuntimeException(e);
+            }
+            if (result!=null && result) {
+                appendTextToLog("Build Success. ");
+                if(isRestart)start(project, app);
+            } else {
+                appendTextToLog("Build cancelled");
+            }
+        });
     }
 
     private void openBuildLog() {
@@ -316,16 +405,16 @@ public class BuildAutomation implements Initializable {
         controlApp.viewLog(appName.getValue(), mainController.getSelectedProject());
     }
 
-    private void start() {
+    private void start(ProjectEntity project, String app) {
         logger.info("Starting application");
         clearLog();
         try {
-            if (Validation.validate(mainController.getSelectedProject(), getSelectedAppName()) && WritePropertiesFile.updateFile(mainController.getSelectedProject(), getSelectedAppName())) {
+            if (Validation.validate(project, app) && WritePropertiesFile.updateFile(project, app)) {
                 appendTextToLog("Update cred.properties file completed.");
             } else {
                 appendTextToLog("Update cred.properties file failed.");
             }
-            controlApp.start(appName.getValue(), mainController.getSelectedProject());
+            controlApp.start(app, project);
         } catch (IOException | InterruptedException e) {
             logger.severe("Exception in start() method: " + e.getMessage());
         }
@@ -344,7 +433,7 @@ public class BuildAutomation implements Initializable {
 
     private void build() {
         ProjectEntity project  = mainController.getSelectedProject();
-
+        String app = getSelectedAppName();
         try {
             clearLog();
         boolean res = setupAutoLogin(project);
@@ -368,19 +457,7 @@ public class BuildAutomation implements Initializable {
 
         appendTextToLog("Build process begins for " +project.getName());
             Task<Boolean> buildTask = controlApp.build(project, buildMode.getValue());
-            buildTask.setOnSucceeded(event -> {
-                Boolean result = buildTask.getValue();
-                //this.appendTextToLog("Delete process begin\n");
-                try {
-                    DeleteLoginSetup.delete(project, this);
-                    DeleteRestartSetup.delete(project, this);
-                    //this.appendTextToLog("Delete process completed\n");
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    appendTextToLog(e.toString());
-                    throw new RuntimeException(e);
-                }
-            });
+            attachDeleteProcess(buildTask, project, app,false);
         } catch (InterruptedException e) {
             logger.severe("InterruptedException in build() method: " + e.getMessage());
             appendTextToLog(e.toString());
@@ -391,20 +468,22 @@ public class BuildAutomation implements Initializable {
         logger.info("Deleting setup for project: " + mainController.getSelectedProject());
         //clearLog();
         try {
-            DeleteLoginSetup.delete(mainController.getSelectedProject(), this);
+            DeleteLoginSetup.delete(mainController.getSelectedProject(), this,true);
+            DeleteRestartSetup.delete(mainController.getSelectedProject(), this,true);
         } catch (IOException e) {
             logger.severe("IOException in deleteSetup() method: " + e.getMessage());
         }
     }
 
-    private void updateSetup() {
-        logger.info("Updating setup for project: " + mainController.getSelectedProject().toString());
+    private void save() {
+        logger.info("Saving project: " + mainController.getSelectedProject().toString());
         clearLog();
         LogEntity log = mainController.logManager.getLogById(projectLogComboBox.getValue());
         String selectedProjectName = mainController.projectComboBox.getValue();
         if (selectedProjectName == null || selectedProjectName.isEmpty()) {
             logger.warning("No project selected");
             appendTextToLog("No project selected");
+
             return;
         }
 
@@ -412,6 +491,13 @@ public class BuildAutomation implements Initializable {
         if (updatedProject == null) {
             logger.warning("Invalid project selected");
             appendTextToLog("Please select a valid project.");
+            return;
+        }
+
+        if(autoLoginCheckBox.isSelected() && userTypeComboBox.getValue() == null){
+            appendTextToLog("Issue: Selected autoLogin option without user type loaded or selected");
+            appendTextToLog("Failed to save project details");
+            DialogUtil.showError("Missing User Type","To use Auto Login - user types must be loaded and selected.");
             return;
         }
 
@@ -432,12 +518,20 @@ public class BuildAutomation implements Initializable {
         else{
             appendTextToLog("Save project details failed.");
         }
+
+
         logger.info("Project updated: " + selectedProjectName);
-        if(WritePropertiesFile.updateFile(updatedProject, getSelectedAppName())){
+        if (WritePropertiesFile.updateFile(updatedProject, getSelectedAppName())) {
             appendTextToLog("Updated cred.properties file");
-        }else{
+        } else {
             appendTextToLog("Failed to update cred.properties file");
         }
+
+    }
+
+    private void initializeUserTypes(){
+        SetupAutoLogin.loadUserTypes(mainController.getSelectedProject());
+        populateUserTypeComboBox(mainController.getSelectedProject());
     }
 
     private boolean setupAutoLogin(ProjectEntity updatedProject){

@@ -3,6 +3,8 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 
+<?import javafx.scene.image.ImageView?>
+<?import javafx.scene.image.Image?>
 <AnchorPane fx:id="root" stylesheets="@../../styles/light/tabs/build-automation.css" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.nms.support.nms_support.controller.BuildAutomation">
     <VBox alignment="TOP_CENTER" spacing="10" styleClass="transparent-pane" AnchorPane.bottomAnchor="10" AnchorPane.leftAnchor="10" AnchorPane.rightAnchor="10" AnchorPane.topAnchor="10">
 <!--        <Label styleClass="label-title" text="NMS BUILD AUTOMATION TOOL" />-->
@@ -39,18 +41,56 @@
                         </rowConstraints>
                         <Label styleClass="label-common" text="Project:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
                         <ComboBox fx:id="projectLogComboBox" prefWidth="1000" GridPane.columnIndex="1" GridPane.rowIndex="0" />
-                        <Button fx:id="reloadButton" styleClass="button-common" text="Reload" GridPane.columnIndex="2" GridPane.rowIndex="0" />
-
+                        <Button fx:id="reloadButton" styleClass="button-icon" GridPane.columnIndex="2" GridPane.rowIndex="0" >
+                            <graphic>
+                                <ImageView fitWidth="18" fitHeight="18">
+                                    <Image url="@../../images/icons/reload.png"/>
+                                </ImageView>
+                            </graphic>
+                            <tooltip>
+                                <Tooltip text="Reload log names available in temp/OracleNMS"/>
+                            </tooltip>
+                        </Button>
                         <Label styleClass="label-common" text="Jconfig path*:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
                         <TextField fx:id="jconfigPath" prefWidth="300" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+                        <Button fx:id="replaceProjectBuild" styleClass="button-icon" GridPane.columnIndex="2" GridPane.rowIndex="1" >
+                            <graphic>
+                                <ImageView fitWidth="18" fitHeight="18">
+                                    <Image url="@../../images/icons/replace.png"/>
+                                </ImageView>
+                            </graphic>
+                            <tooltip>
+                                <Tooltip text="This replace NMS_HOME text in jconfig build files"/>
+                            </tooltip>
+                        </Button>
                         <Label styleClass="label-common" text="WebWorkspace.exe path*:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
                         <TextField fx:id="webWorkspacePath" prefWidth="300" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+                        <Button fx:id="replaceProductBuild" styleClass="button-icon" GridPane.columnIndex="2" GridPane.rowIndex="2" >
+                            <graphic>
+                                <ImageView fitWidth="18" fitHeight="18">
+                                    <Image url="@../../images/icons/replace.png"/>
+                                </ImageView>
+                            </graphic>
+                            <tooltip>
+                                <Tooltip text="This replace NMS_HOME text in product ant build files"/>
+                            </tooltip>
+                        </Button>
                         <Label styleClass="label-common" text="Username:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
                         <TextField fx:id="usernameField" prefWidth="300" GridPane.columnIndex="1" GridPane.rowIndex="3" />
                         <Label styleClass="label-common" text="Password:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
                         <TextField fx:id="passwordField" prefWidth="230" GridPane.columnIndex="1" GridPane.rowIndex="4" />
                         <Label styleClass="label-common" text="User type:" GridPane.columnIndex="0" GridPane.rowIndex="5" />
                         <ComboBox fx:id="userTypeComboBox" prefWidth="1000" GridPane.columnIndex="1" GridPane.rowIndex="5" />
+                        <Button fx:id="reloadUsersButton" styleClass="button-icon" GridPane.columnIndex="2" GridPane.rowIndex="5" >
+                            <graphic>
+                                <ImageView fitWidth="18" fitHeight="18">
+                                    <Image url="@../../images/icons/reload.png"/>
+                                </ImageView>
+                            </graphic>
+                            <tooltip>
+                                <Tooltip text="Reload login user types from env_code table import"/>
+                            </tooltip>
+                        </Button>
                         <CheckBox fx:id="autoLoginCheckBox" styleClass="checkbox-common" text="Auto login" GridPane.columnIndex="1" GridPane.rowIndex="6" />
 
                         <BorderPane styleClass="transparent-pane" GridPane.columnIndex="1" GridPane.rowIndex="7">
@@ -61,7 +101,7 @@
                                 <Button fx:id="patchButtom" alignment="CENTER" prefWidth="140.0" styleClass="button-common" text="UPGRADE" />
                             </center>
                             <right>
-                                <Button fx:id="updateButton" alignment="CENTER" prefWidth="104.0" styleClass="button-common" text="UPDATE" />
+                                <Button fx:id="updateButton" alignment="CENTER" prefWidth="104.0" styleClass="button-common" text="SAVE" />
                             </right>
                         </BorderPane>
                     </GridPane>

@@ -2,6 +2,7 @@ package com.nms.support.nms_support;
 
 
 import com.nms.support.nms_support.controller.BuildAutomation;
+import com.nms.support.nms_support.service.globalPack.IconUtils;
 import javafx.application.Application;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
@@ -14,6 +15,7 @@ import java.util.Objects;
 public class NMSSupportApplication extends Application {
     @Override
     public void start(Stage stage) throws IOException {
+        IconUtils.setStageIcon(stage);
         FXMLLoader mainLoader = new FXMLLoader(NMSSupportApplication.class.getResource("view/main-view.fxml"));
         Scene scene = new Scene(mainLoader.load(), 1000, 600);
         scene.getStylesheets().add(Objects.requireNonNull(getClass().getResource("styles/light/components/entity-card.css")).toExternalForm());

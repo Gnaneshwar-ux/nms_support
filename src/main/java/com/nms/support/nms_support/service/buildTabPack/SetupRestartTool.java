@@ -5,13 +5,13 @@ import com.nms.support.nms_support.model.ProjectEntity;
 
 import java.io.*;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class SetupRestartTool {
-    static String tempFile = "WorkSpaceMenuBarTool.xml";
+    static String tempFile = "MAIN_MENUBAR_BUTTONS.inc";
     static String CommandCode = "<Include name=\"RESTART_TOOLS_COMMANDS.inc\"/>";
     static javax.swing.JTextArea send;
 
@@ -29,9 +29,19 @@ public class SetupRestartTool {
         //String propPath = "C:/Users/" + user + "/Documents";
 
         try {
-            if(!updateFile(project.getJconfigPath() + "/ops/workspace/xml/", project.getExePath()+"/java/product/ops/workspace/xml/"+tempFile, buildAutomation)){
+            if(!updateFile(project.getJconfigPath() + "/global/xml/", project.getExePath()+"/java/product/global/xml/"+tempFile, buildAutomation)){
                 buildAutomation.appendTextToLog(tempFile+" update file failed");
                 return false;
+            }
+            boolean resp = writeLinesIfNotExist(project.getExePath()+"\\java\\product\\global\\properties\\Global_en_US.properties",Arrays.asList(
+                    "BTN_RELOAD_TOOLS.text = Manage Tools",
+                    "BTN_RELOAD_TOOLS.tooltip = Restart tools for dynamic code changes."
+            ));
+            if(!resp){
+                buildAutomation.appendTextToLog("Failed to update properties file - "+project.getExePath()+"\\product\\global\\properties\\Default_en_US.properties");
+            }
+            else{
+                buildAutomation.appendTextToLog("Added properties for menu items");
             }
         } catch (InterruptedException e) {
             e.printStackTrace();
@@ -58,10 +68,7 @@ public class SetupRestartTool {
 
             if (!file.exists()) {
                 buildAutomation.appendTextToLog(tempFile+" is not found in project!\n");
-
-
                 file  = new File(altPathXml);
-
                 if(!file.exists()){
                     buildAutomation.appendTextToLog(tempFile+" is not found in product!\n");
                     return false;
@@ -83,13 +90,13 @@ public class SetupRestartTool {
 //                        if(line.contains("AUTO_LOGIN_COMMANDS.inc")){
 //                            return true;
 //                        }
-                if (line.contains("\"MNU_ACCESSIBILITY\"") && line.contains("MenuItem")) {
-                    res.append(text+"\n"+line);
-                }
-                else
+//                if (line.contains("<PopupMenu name=\"POPUP_HELP\">")) {
+//                    res.append(line+"\n"+text+"\n");
+//                }
+//                else
                     res.append(line + "\n");
             }
-
+            res.append(text);
             br.close();
             FileWriter fWriter = new FileWriter(tempFile);
             fWriter.write(res.toString());
@@ -142,13 +149,13 @@ public class SetupRestartTool {
         // copying inc files
         try{
 
-            File sourceFileLogin = new File("src/main/resources/nms_configs/RESTART_TOOLS_COMMANDS.inc");
-            File targetDirLogin = new File(project.getJconfigPath() + "/ops/workspace/xml/RESTART_TOOLS_COMMANDS.inc");
-
-            if (!targetDirLogin.exists()) {
-                boolean isCreated = targetDirLogin.mkdirs();
+            File sourceFileLogin = getResourceAsTempFile("/nms_configs/RESTART_TOOLS_COMMANDS.inc");
+            File targetDirLogin = new File(project.getJconfigPath() + "/global/xml/RESTART_TOOLS_COMMANDS.inc");
+            File targetDir = new File(project.getJconfigPath() + "/global/xml/");
+            if (!targetDir.exists()) {
+                boolean isCreated = targetDir.mkdirs();
                 if(!isCreated){
-                    buildAutomation.appendTextToLog("Failed to create dir "+targetDirLogin);
+                    buildAutomation.appendTextToLog("Failed to create dir "+targetDir);
                     return false;
                 }
             }
@@ -160,7 +167,7 @@ public class SetupRestartTool {
 
             // copying command files
 
-            sourceFileLogin = new File("src/main/resources/nms_configs/RestartToolsCommand.java");
+            sourceFileLogin = getResourceAsTempFile("/nms_configs/RestartToolsCommand.java");
             targetDirLogin = new File(project.getJconfigPath() + "/java/src/custom/RestartToolsCommand.java");
 
             if (!targetDirLogin.exists()) {
@@ -181,6 +188,59 @@ public class SetupRestartTool {
             e.printStackTrace();
             buildAutomation.appendTextToLog(e+"\n");
             return false;
+        }
+    }
+
+    public static boolean writeLinesIfNotExist(String filePath, List<String> linesToWrite) {
+        try {
+            // Check if file exists, and if not, create it
+            File file = new File(filePath);
+            if (!file.exists()) {
+                System.err.println(filePath+" File not exist.");
+                return false;
+            }
+
+            // Read existing lines in the file
+            List<String> existingLines = Files.readAllLines(Paths.get(filePath));
+            Set<String> uniqueLines = new HashSet<>(existingLines);
+
+            // Append lines that do not exist in the file
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(file, true))) {
+                for (String line : linesToWrite) {
+                    if (!uniqueLines.contains(line)) {
+                        writer.write(line);
+                        writer.newLine();
+                        uniqueLines.add(line); // Ensure it isn't written again
+                    }
+                }
+            }
+
+            System.out.println("Lines written to file successfully.");
+            return true; // Success
+        } catch (IOException e) {
+            System.out.println(e.toString());
+            return false; // Failure due to an exception
+        }
+    }
+
+    public static File getResourceAsTempFile(String resourcePath) {
+        try (InputStream inputStream = SetupAutoLogin.class.getResourceAsStream(resourcePath)) {
+            if (inputStream == null) {
+                throw new FileNotFoundException("Resource not found: " + resourcePath);
+            }
+
+            // Create a temporary file with the same name
+            String tempFileName = Paths.get(resourcePath).getFileName().toString();
+            Path tempFile = Files.createTempFile(tempFileName, null);
+            tempFile.toFile().deleteOnExit();
+
+            // Copy the resource to the temporary file
+            Files.copy(inputStream, tempFile, StandardCopyOption.REPLACE_EXISTING);
+
+            return tempFile.toFile();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
         }
     }
 

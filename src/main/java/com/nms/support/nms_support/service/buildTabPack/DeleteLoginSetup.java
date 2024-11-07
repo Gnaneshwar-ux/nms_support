@@ -22,22 +22,24 @@ import java.util.Optional;
 public class DeleteLoginSetup {
     static String tempFile = "Login.xml";
     static String CommandCode = "<Include name=\"AUTO_LOGIN_COMMANDS.inc\"/>";
-    public static void delete(ProjectEntity project, BuildAutomation buildAutomation) throws IOException {
+    public static void delete(ProjectEntity project, BuildAutomation buildAutomation, boolean doConfirm) throws IOException {
 
-        Optional<ButtonType> confirmation = DialogUtil.showConfirmationDialog("Confirm Delete","Are you sure to delete setup?","This operation undo the changes made by this tool to set autologin.");
-        if (confirmation.isEmpty() || confirmation.get() == ButtonType.CANCEL) {
-            buildAutomation.appendTextToLog("Delete process canceled.");
-            return; // Stop the process if the user cancels
+        if(doConfirm) {
+            Optional<ButtonType> confirmation = DialogUtil.showConfirmationDialog("Confirm Delete", "Are you sure to delete setup?", "This operation undo the changes made by this tool to set autologin.");
+            if (confirmation.isEmpty() || confirmation.get() == ButtonType.CANCEL) {
+                buildAutomation.appendTextToLog("Delete process canceled.");
+                return; // Stop the process if the user cancels
+            }
         }
 
         try{
 
             buildAutomation.appendTextToLog("Delete process started ... ");
 
-            if(!Validation.validateLoginSetup(project)){
-                buildAutomation.appendTextToLog("Delete already completed or setup not performed ");
-                return;
-            }
+//            if(!Validation.validateLoginSetup(project)){
+//                buildAutomation.appendTextToLog("Delete already completed or setup not performed ");
+//                return;
+//            }
             String pathJconfig = project.getJconfigPath();
             String loginPath = pathJconfig +"/global/xml/" + tempFile;
             File tempfile = new File(tempFile);
