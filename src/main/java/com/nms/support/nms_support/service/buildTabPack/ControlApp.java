@@ -38,6 +38,7 @@ public class ControlApp {
             buildAutomation.appendTextToLog("No projects found in the system.");
             return;
         }
+        logManager.clearAll();
         for (File f : files) {
             try {
                 Map<String, String> m = parseLog(f);

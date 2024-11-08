@@ -261,7 +261,12 @@ public class BuildAutomation implements Initializable {
             if (previousSelection != null && exeFiles.contains(previousSelection)) {
                 appName.getSelectionModel().select(previousSelection);
             } else if (!exeFiles.isEmpty()) {
-                appName.getSelectionModel().select(exeFiles.get(0));
+                if (exeFiles.contains("WebWorkspace.exe")) {
+                    appName.getSelectionModel().select("WebWorkspace.exe");
+                }
+                else {
+                    appName.getSelectionModel().select(exeFiles.getFirst());
+                }
             }
         });
     }

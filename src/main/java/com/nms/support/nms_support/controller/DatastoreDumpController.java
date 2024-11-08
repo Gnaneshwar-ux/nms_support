@@ -250,6 +250,7 @@ public class DatastoreDumpController {
 
     private void loadDatastore() {
         logger.info("Loading datastore");
+        datastoreRecords.clear();
         saveSSHDetails();
         if (!validation()) return;
 
@@ -299,9 +300,11 @@ public class DatastoreDumpController {
                     logger.info("File last modified time after execution: " + fileTimeAfter);
 
                     if (fileTimeBefore == null || fileTimeAfter.toInstant().isAfter(fileTimeBefore.toInstant())) {
+                        System.out.println("loading ds report from dump");
                         ObservableList<DataStoreRecord> records = ParseDataStoreReport.parseDSReport(reportFilePath.toString());
                         Platform.runLater(() -> datastoreRecords.setAll(records));  // Update the ObservableList
                         logger.info("DataStoreRecords updated successfully.");
+                        System.out.println("DataStoreRecords updated successfully.");
                     } else {
                         Platform.runLater(() -> DialogUtil.showError("Report Generation Error", "Report file was not updated after command execution.\n1. Is VPN Connected?\n2. Is client running?\n3. Please check URL, username, password..."));
                         logger.warning("Report file was not updated.");

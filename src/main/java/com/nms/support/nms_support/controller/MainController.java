@@ -3,14 +3,20 @@ package com.nms.support.nms_support.controller;
 import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.service.LogManager;
 import com.nms.support.nms_support.service.ProjectManager;
+import com.nms.support.nms_support.service.VpnManager;
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
+import com.nms.support.nms_support.service.globalPack.IconUtils;
 import com.nms.support.nms_support.service.globalPack.LoggerUtil;
+import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.fxml.Initializable;
 import javafx.scene.Parent;
+import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.ImageView;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
 
 import java.io.IOException;
 import java.net.URL;
@@ -31,9 +37,11 @@ public class MainController implements Initializable {
     public ComboBox<String> projectComboBox;
     public ProjectManager projectManager;
     public LogManager logManager;
+    public VpnManager vpnManager;
     public Button addButton;
     public Button delButton;
     public Tab dataStoreTab;
+    public Button openVpnButton;
     @FXML
     private Parent root;
     @FXML
@@ -51,6 +59,7 @@ public class MainController implements Initializable {
         String user = System.getProperty("user.name");
         projectManager = new ProjectManager("C:\\Users\\" + user + "\\Documents\\nms_support_data\\projects.json");
         logManager = new LogManager("C:\\Users\\" + user + "\\Documents\\nms_support_data\\logs.json");
+        vpnManager = new VpnManager("C:\\Users\\" + user + "\\Documents\\nms_support_data\\vpn.json");
 
         addButton.setOnAction(event -> addProject());
         delButton.setOnAction(event -> removeProject());
@@ -171,5 +180,24 @@ public class MainController implements Initializable {
         }
 
         logger.info("Project names reloaded in ComboBox.");
+    }
+
+    @FXML
+    private void openVpnManager(){
+        try {
+            // Load the dialog FXML file
+            FXMLLoader vpnloader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/vpn-manager.fxml"));
+            Parent root = vpnloader.load();
+            Stage dialogStage = new Stage();
+            IconUtils.setStageIcon(dialogStage);
+            dialogStage.initModality(Modality.APPLICATION_MODAL); // Makes it a modal dialog
+            dialogStage.setTitle("Cisco VPN Manager");
+            dialogStage.setScene(new Scene(root));
+
+            dialogStage.show(); // Show the dialog and wait for it to close
+            ((VpnController) vpnloader.getController()).setMainController(this);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }

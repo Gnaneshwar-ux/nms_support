@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.shape.Rectangle?>
+
+<!-- Root StackPane to layer main content and overlay -->
+<StackPane xmlns:fx="http://javafx.com/fxml" fx:controller="com.nms.support.nms_support.controller.VpnController">
+
+    <!-- Main Content in a VBox -->
+    <VBox alignment="CENTER" spacing="15" prefWidth="340" prefHeight="250">
+        <Label text="VPN Connection" styleClass="dialog-title" />
+
+        <!-- GridPane for Form Fields with Grow Capability -->
+        <GridPane hgap="10" vgap="10" alignment="CENTER">
+            <Label text="Username:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+            <TextField fx:id="usernameField" promptText="Enter username" prefWidth="250"
+                       GridPane.columnIndex="1" GridPane.rowIndex="0" />
+
+            <Label text="Password:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+            <PasswordField fx:id="passwordField" promptText="Enter password" prefWidth="250"
+                           GridPane.columnIndex="1" GridPane.rowIndex="1" />
+
+            <Label text="Host:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+            <ComboBox fx:id="hostComboBox" promptText="Enter or select host address" prefWidth="250" editable="true"
+                      GridPane.columnIndex="1" GridPane.rowIndex="2" />
+
+            <!-- Status Label -->
+            <Label GridPane.columnIndex="1" GridPane.rowIndex="3" fx:id="statusLabel" text="Status: Not Loaded" styleClass="status-label" />
+
+            <!-- Buttons for Connect and Cancel -->
+            <HBox GridPane.columnIndex="1" GridPane.rowIndex="4" spacing="10" alignment="CENTER">
+                <!-- Left-aligned Disconnect Button -->
+                <Button fx:id="disconnectButton" text="Disconnect" onAction="#handleDisconnectAction" />
+
+                <!-- Spacer that makes the second button go to the right -->
+                <Region HBox.hgrow="ALWAYS"/>
+
+                <!-- Right-aligned Connect Button -->
+                <Button fx:id="connectButton" text="Connect" onAction="#handleConnectAction" onKeyPressed="#handleEnterKey" />
+            </HBox>
+        </GridPane>
+    </VBox>
+
+    <!-- Loading Indicator Overlay -->
+    <StackPane fx:id="loadingOverlay" alignment="CENTER" visible="false">
+        <Rectangle width="340" height="250" opacity="0.1" style="-fx-fill: black;" />
+        <ProgressIndicator fx:id="progressIndicator" />
+    </StackPane>
+
+</StackPane>

@@ -4,11 +4,17 @@
 <?import javafx.scene.image.*?>
 
 <!-- Use a StackPane to allow dynamic resizing -->
+<?import javafx.geometry.Insets?>
 <StackPane fx:id="root" prefHeight="400.0" prefWidth="600.0" xmlns="http://javafx.com/javafx/17.0.2-ea"
            xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.nms.support.nms_support.controller.MainController">
     <!-- StackPane will automatically resize its content -->
     <VBox spacing="5" alignment="CENTER" styleClass="root-container">
         <!-- HBox to hold the ComboBox and theme toggle button -->
+        <BorderPane>
+            <padding>
+                <Insets top="6" left="6" right="6"/>
+            </padding>
+            <center>
         <HBox spacing="10" alignment="CENTER">
             <!-- ComboBox for theme selection -->
             <Label styleClass="label-common">Project</Label>
@@ -35,8 +41,14 @@
                     <Tooltip text="Delete selected project"/>
                 </tooltip>
             </Button>
-            <!--                <ImageView fx:id="themeIcon" onMouseClicked="#toggleTheme" fitWidth="30" fitHeight="30"/>-->
+
         </HBox>
+            </center>
+            <right>
+                <Button fx:id="openVpnButton" text="VPN" textAlignment="RIGHT" styleClass="button-common"
+                        onAction="#openVpnManager"/>
+        </right>
+        </BorderPane>
         <!-- TabPane set to fill the VBox -->
         <TabPane tabClosingPolicy="UNAVAILABLE" VBox.vgrow="ALWAYS" styleClass="tab-pane">
             <tabs>

@@ -136,4 +136,8 @@ public class LogManager implements IManager{
         }
         return false;
     }
+
+    public void clearAll(){
+        logWrapper.clearlogs();
+    }
 }

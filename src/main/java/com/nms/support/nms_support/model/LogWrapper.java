@@ -12,4 +12,8 @@ public class LogWrapper {
     public void setLogs(List<LogEntity> logs) {
         this.logs = logs;
     }
+
+    public void clearlogs(){
+        logs.clear();
+    }
 }
