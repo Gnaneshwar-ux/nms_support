@@ -263,6 +263,7 @@ public class DatastoreDumpController {
                 String dataStorePath = "C:/Users/" + user + "/Documents/nms_support_data/datastore_reports";
                 Path reportPath = Paths.get(dataStorePath);
                 FileTime fileTimeBefore = null;
+                FileTime fileTimeBeforeOriginal = null;
 
                 Files.createDirectories(reportPath);
                 logger.info("Directory created: " + dataStorePath);
@@ -270,6 +271,7 @@ public class DatastoreDumpController {
                 Path reportFilePath = reportPath.resolve("report_" + mainController.getSelectedProject().getName() + ".txt");
                 if (Files.exists(reportFilePath)) {
                     fileTimeBefore = Files.getLastModifiedTime(reportFilePath);
+                    fileTimeBeforeOriginal = fileTimeBefore;
                     logger.info("File last modified time before execution: " + fileTimeBefore);
                 }
 
@@ -284,25 +286,73 @@ public class DatastoreDumpController {
                 }
 
                 boolean isExecuted = ReportGenerator.execute(project, reportFilePath.toString());
-                if (!isExecuted) {
-                    Platform.runLater(() -> {
-                        DialogUtil.showError("Failed Generating Report", "Command failed execution\n1. Is VPN Connected?\n2. Is client running?\n3. Please check URL, username, password...");
-                        hideSpinner(); // Ensure spinner is hidden if execution fails
-                    });
-                    logger.warning("Report generation command failed");
-                    return;
+
+
+                // Wait for the file to stop updating for 3 seconds
+                long stableWaitTime = 3_000; // 3 seconds in milliseconds
+                long maxWaitTime = 15_000;   // Maximum total wait time
+                long startTime = System.currentTimeMillis();
+                boolean isUpdated = false;
+
+                while (System.currentTimeMillis() - startTime < maxWaitTime) {
+                    if (Files.exists(reportFilePath)) {
+                        FileTime fileTimeAfter = Files.getLastModifiedTime(reportFilePath);
+                        //System.out.println("out side loop");
+                        // Check if fileTimeBefore is null or updated
+                        if (fileTimeBefore == null || fileTimeAfter.toInstant().isAfter(fileTimeBefore.toInstant())) {
+                            fileTimeBefore = fileTimeAfter; // Update reference timestamp
+                            long stableStart = System.currentTimeMillis();
+                            // Wait to ensure no further updates for `stableWaitTime`
+                            while (System.currentTimeMillis() - stableStart < stableWaitTime) {
+                                FileTime currentFileTime = Files.getLastModifiedTime(reportFilePath);
+                                //System.out.println("in side loop");
+
+                                // If the file updates again, reset the stable check
+
+                                if (currentFileTime.toInstant().isAfter(fileTimeBefore.toInstant())) {
+                                    stableStart = System.currentTimeMillis();
+                                    fileTimeBefore = currentFileTime;
+                                }
+                                Thread.sleep(500); // Check every 500ms
+                            }
+
+                            // If file remains stable for the entire stableWaitTime, consider updated
+                            isUpdated = true;
+                            break; // Exit loop
+                        }
+                    }
+                    Thread.sleep(500); // Check for existence or modification every 500ms
                 }
 
-                Thread.sleep(3000); // Simulate delay for demo purposes
+                if (!isUpdated) {
+                    if (!isExecuted) {
+                        Platform.runLater(() -> {
+                            DialogUtil.showError("Failed Generating Report", "Command failed execution\n1. Is VPN Connected?\n2. Is client running?\n3. Please check URL, username, password...");
+                            hideSpinner(); // Ensure spinner is hidden if execution fails
+                        });
+                        logger.warning("Report generation command failed");
+                        return;
+                    }
+                    Platform.runLater(() -> DialogUtil.showError(
+                            "Report Generation Timeout",
+                            "Report file was not updated within the expected time.\n1. Is VPN Connected?\n2. Is client running?\n3. Please check URL, username, password..."
+                    ));
+                    logger.warning("File did not update within 15 seconds.");
+                    Platform.runLater(this::hideSpinner);
+                    return;
+                }
 
                 if (Files.exists(reportFilePath)) {
                     FileTime fileTimeAfter = Files.getLastModifiedTime(reportFilePath);
                     logger.info("File last modified time after execution: " + fileTimeAfter);
 
-                    if (fileTimeBefore == null || fileTimeAfter.toInstant().isAfter(fileTimeBefore.toInstant())) {
+                    if (fileTimeBeforeOriginal == null || fileTimeAfter.toInstant().isAfter(fileTimeBeforeOriginal.toInstant())) {
                         System.out.println("loading ds report from dump");
                         ObservableList<DataStoreRecord> records = ParseDataStoreReport.parseDSReport(reportFilePath.toString());
-                        Platform.runLater(() -> datastoreRecords.setAll(records));  // Update the ObservableList
+                        Platform.runLater(() -> {
+                            datastoreRecords.setAll(records);
+                            filterTable();
+                        });  // Update the ObservableList
                         logger.info("DataStoreRecords updated successfully.");
                         System.out.println("DataStoreRecords updated successfully.");
                     } else {

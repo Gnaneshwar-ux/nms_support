@@ -17,7 +17,7 @@ public class WritePropertiesFile {
 
     public static boolean updateFile(ProjectEntity project, String app) {
         Properties properties = new Properties();
-        String prefix = project.getName() + "_" + Mappings.getCodeFromApp(app);
+        String prefix = project.getLogId() + "_" + Mappings.getCodeFromApp(app);
 
         // Define the file path
         String user = System.getProperty("user.name");

@@ -28,32 +28,36 @@ public class DialogUtil {
     }
     // Show an error dialog with the specified title and message
     public static void showError(String title, String message) {
-        Alert alert = new Alert(Alert.AlertType.ERROR);
-        setAlertIcon(alert);
-        alert.setTitle(title);
-        alert.setHeaderText(null);
-        alert.setContentText(message);
-        int height = 150;
-        int count = 0;
-        for (String line : message.split("\n")) {
-            count += (int)Math.ceil(line.length()/64.0);
-        }
-        if(count>3){
-            height += (count-3)*20;
-        }
-        System.out.println(height);
-        alert.setWidth(450);
-        alert.setHeight(height);
-        alert.showAndWait();
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.ERROR);
+            setAlertIcon(alert);
+            alert.setTitle(title);
+            alert.setHeaderText(null);
+            alert.setContentText(message);
+            int height = 150;
+            int count = 0;
+            for (String line : message.split("\n")) {
+                count += (int) Math.ceil(line.length() / 64.0);
+            }
+            if (count > 3) {
+                height += (count - 3) * 20;
+            }
+            //System.out.println(height);
+            alert.setWidth(450);
+            alert.setHeight(height);
+            alert.showAndWait();
+        });
     }
 
     public static void showWarning(String title, String message) {
-        Alert alert = new Alert(AlertType.WARNING);
-        setAlertIcon(alert);
-        alert.setTitle(title);
-        alert.setHeaderText(null); // Optional: Can set to null to hide the header
-        alert.setContentText(message);
-        alert.showAndWait();
+        Platform.runLater(() -> {
+            Alert alert = new Alert(AlertType.WARNING);
+            setAlertIcon(alert);
+            alert.setTitle(title);
+            alert.setHeaderText(null); // Optional: Can set to null to hide the header
+            alert.setContentText(message);
+            alert.showAndWait();
+        });
     }
 
     // Show a confirmation dialog with the specified title, header, and content
@@ -87,12 +91,14 @@ public class DialogUtil {
 
     // Show an alert dialog with the specified type, title, and content
     public static void showAlert(Alert.AlertType type, String title, String content) {
-        Alert alert = new Alert(type);
-        setAlertIcon(alert);
-        alert.setTitle(title);
-        alert.setHeaderText(null);
-        alert.setContentText(content);
-        alert.showAndWait();
+        Platform.runLater(() -> {
+            Alert alert = new Alert(type);
+            setAlertIcon(alert);
+            alert.setTitle(title);
+            alert.setHeaderText(null);
+            alert.setContentText(content);
+            alert.showAndWait();
+        });
     }
 
     public static List<Map<String, String>> selectProcess(List<Map<String, String>> process) {

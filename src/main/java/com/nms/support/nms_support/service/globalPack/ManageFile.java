@@ -51,9 +51,9 @@ public class ManageFile {
                 String content = new String(Files.readAllBytes(path));
                 content = content.replace(oldText, newText);
                 Files.write(path, content.getBytes());
-                System.out.println("Replace text in files completed successfully.");
+                LoggerUtil.getLogger().info("Replace text in files completed successfully.");
             } catch (IOException e) {
-                System.err.println("Failed to process file: " + filePath);
+                LoggerUtil.getLogger().severe("Failed to replace text in file: " + filePath);
                 e.printStackTrace();
             }
         }

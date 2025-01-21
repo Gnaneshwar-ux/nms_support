@@ -384,7 +384,7 @@ public class ControlApp {
 
     public void viewLog(String app, ProjectEntity project) {
 
-        Platform.runLater(() -> {
+
             List<Map<String, String>> processList = getRunningProcessList(project, app, false);
 
             if (processList == null || processList.isEmpty()) {
@@ -406,7 +406,7 @@ public class ControlApp {
 
             // Check if Notepad++ exists
             ManageFile.open(filePath);
-        });
+
     }
 
     public static void addToBuildLog(ProjectEntity project, String logMessage, boolean clearLog) {

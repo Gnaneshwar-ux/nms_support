@@ -43,6 +43,7 @@ public class Validation {
         String username = project.getUsername();
         String password = project.getPassword();
         String autoLogin = project.getAutoLogin();
+        String loginId = project.getLogId();
 
         if (jconfigPath == null || jconfigPath.isEmpty()) {
             return false;
@@ -57,6 +58,9 @@ public class Validation {
             return false;
         }
         if (autoLogin == null || autoLogin.isEmpty()) {
+            return false;
+        }
+        if(loginId == null || loginId.isEmpty()) {
             return false;
         }
 

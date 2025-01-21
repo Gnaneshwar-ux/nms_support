@@ -51,11 +51,15 @@ public class LogManager implements IManager{
     public void initManager(File source) {
         ObjectMapper objectMapper = new ObjectMapper();
         try {
+            if (source.length() == 0) {
+                logWrapper = new LogWrapper();
+                return;
+            }
             logWrapper = objectMapper.readValue(source, LogWrapper.class);
             if (logWrapper == null) {
                 logWrapper = new LogWrapper();
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
             logWrapper = new LogWrapper();
         }

@@ -103,7 +103,7 @@ public class ParseDataStoreReport {
                         cellValue = "";
                 }
 
-                if (!filterValue.isEmpty() && !cellValue.contains(filterValue)) {
+                if (!filterValue.isEmpty() && !cellValue.toUpperCase().contains(filterValue.toUpperCase())) {
                     match = false;
                     break;
                 }

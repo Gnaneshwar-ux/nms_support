@@ -6,6 +6,8 @@ import com.splwg.oms.client.BaseEnvironmentManager;
 import com.splwg.oms.jbot.JBotTool;
 import com.splwg.oms.client.util.URLResource;
 import com.splwg.oms.client.control.Control;
+import com.splwg.oms.client.viewer.ViewerCanvas;
+import com.splwg.oms.client.viewer.Viewer;
 import com.splwg.oms.jbot.IDataStore;
 
 import javax.swing.*;
@@ -48,7 +50,7 @@ public class RestartToolsCommand extends JBotCommand {
 
         JPanel datastorePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
-        JLabel datastore = new JLabel("Datastores(global) : ");
+        JLabel datastore = new JLabel("Datastores(global): ");
         JTextField dsNames = new JTextField(30);
 
         datastorePanel.add(datastore);
@@ -57,7 +59,7 @@ public class RestartToolsCommand extends JBotCommand {
 
         JPanel configPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
-        JLabel antPathLabel = new JLabel("jconfig Path: ");
+        JLabel antPathLabel = new JLabel("                 jconfig Path: ");
         antPathField = new JTextField(30);
         JCheckBox checkBuild = new JCheckBox("Run Build");
         checkBuild.setSelected(true);
@@ -89,6 +91,21 @@ public class RestartToolsCommand extends JBotCommand {
                     return column == 0;
                 }
             };
+
+            // Add a listener to update the checkbox based on row selection
+            toolTable.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mouseClicked(java.awt.event.MouseEvent e) {
+                    int selectedRow = toolTable.getSelectedRow();
+                    int selectedColumn = toolTable.getSelectedColumn();
+
+                    // Ensure a valid row and column are selected
+                    if (selectedRow != -1 && selectedColumn > 0) { // Only toggle if the first column (checkbox) is clicked
+                        boolean currentValue = (Boolean) tableModel.getValueAt(selectedRow, 0);
+                        tableModel.setValueAt(!currentValue, selectedRow, 0);
+                    }
+                }
+            });
 
             List<String> controlTools = new ArrayList<>(); // To store tools containing "CONTROL"
 
@@ -122,7 +139,7 @@ public class RestartToolsCommand extends JBotCommand {
             dialog.add(scrollPane, BorderLayout.CENTER);
 
             JPanel buttonPanel = new JPanel();
-            JButton initButton = createStylishButton("Start Selected Tools");
+            JButton initButton = createStylishButton("Restart Selected Tools");
             JButton cancelButton = createStylishButton("Cancel");
 
             initButton.addActionListener(new ActionListener() {
@@ -180,7 +197,7 @@ public class RestartToolsCommand extends JBotCommand {
                             statusLabel.setText("All selected tools have been started.");
                             progressBar.setIndeterminate(false);
                             progressBar.setValue(100);
-                            JOptionPane.showMessageDialog(dialog, "Selected tools have been started.", "Success",
+                            JOptionPane.showMessageDialog(dialog, "Restart Tools Process Completed.", "Success",
                                     JOptionPane.INFORMATION_MESSAGE);
                             dialog.dispose();
                         }
@@ -188,9 +205,9 @@ public class RestartToolsCommand extends JBotCommand {
                         // Modified executeAnt to move publish calls here
                         private boolean executeAnt(String jconfigPath, JLabel statusLabel) {
                             try {
-                                publish("Ant config running...");
+                                publish("'ant init create_config' running...");
                                 createOrUpdateCacheFile(jconfigPath);
-                                ProcessBuilder processBuilder = new ProcessBuilder("cmd.exe", "/c", "cd " + jconfigPath + " && " + "ant config");
+                                ProcessBuilder processBuilder = new ProcessBuilder("cmd.exe", "/c", "cd " + jconfigPath + " && " + "ant init create_config");
                                 processBuilder.redirectErrorStream(true);
 
                                 Process process = processBuilder.start();
@@ -201,7 +218,9 @@ public class RestartToolsCommand extends JBotCommand {
                                     // Moved publish call here since it's inside SwingWorker now
                                     //publish("Running Ant command: " + line);
                                 }
-                                return process.waitFor() == 0;
+                                int resp = process.waitFor();
+                                System.out.println(resp);
+                                return 0 == resp;
                             } catch (IOException | InterruptedException e) {
                                 System.out.println("Error executing Ant command: " + e.getMessage());
                                 return false;
@@ -285,27 +304,95 @@ public class RestartToolsCommand extends JBotCommand {
     }
 
     private boolean handleTool(JBotTool tool, String toolname, String datastores) {
+        BaseEnvironmentManager bem = BaseEnvironmentManager.getEnvironment();
+        bem.setEnableShutdown(false);
         if (tool != null) {
             System.out.println("\nHandling tool: " + tool.getName());
             try {
                 clearCache();
-                System.out.println("before getOwnDataStore = "+tool.getOwnDataStore("DS_WA_ALARMS"));
+                //System.out.println("before getOwnDataStore = "+tool.getOwnDataStore("DS_WA_ALARMS"));
                 tool.clearGlobalDataExceptFor(getExceptList(tool, datastores));
-                System.out.println("after getOwnDataStore = "+tool.getOwnDataStore("DS_WA_ALARMS"));
+                //resetViewerGlobalProperties();
+                //System.out.println("after getOwnDataStore = "+tool.getOwnDataStore("DS_WA_ALARMS"));
                 System.out.println("Global datastore cleared");
                 if(!tool.close()) return false;
                 System.out.println("Tool closed");
-                tool.init();
+                //tool.init();
+//                bem.refresh();
+                //bem.loadGlobalPrefs("");
+//                restoreDefaults(boolean restoreSite, boolean removeFormats, boolean removeLegacyFilters, boolean removeNewFilters,
+//                boolean removeSorts, boolean removeTableLayouts, boolean removeFontSize, boolean removeOther)
+//                bem.getUserPreferences().restoreDefaults( false, false,
+//                 true,  true,
+//                false, false, false, false);
+                bem.getUserPreferences().clearPrefs();
+                System.out.println("BaseEnvironmentManger preferences cleared");
+                if(allToolsClosed()) {
+                    JBotTool newTool = bem.showTool(tool.getClass().getName(), toolname);
+                    //postToolRestart(newTool);
+                } else {
+                    JBotTool newTool = bem.startTool(tool.getClass().getName(), toolname);
+                    //postToolRestart(newTool);
+                }
                 System.out.println("Restarted tool: " + tool.getName());
-                System.out.println("after restart getOwnDataStore = "+tool.getOwnDataStore("DS_WA_ALARMS"));
+                //System.out.println("After restart getOwnDataStore = "+tool.getOwnDataStore("DS_WA_ALARMS"));
                 return true;
             } catch (Exception e) {
                 System.out.println("Error handling tool " + tool.getName() + ": " + e);
                 e.printStackTrace();
                 return false;
             }
+            finally {
+                bem.setEnableShutdown(true);
+            }
         }
         return false;
+    }
+
+//    private void postToolRestart(JBotTool tool){
+//        try {
+//            if (tool instanceof Viewer) {
+//                System.out.println("Instance of Viewer");
+//                Viewer viewer = (Viewer) tool;
+//                viewer.getViewerPanel().getViewerCanvas().init();
+//            }
+//        }
+//        catch (Exception e) {
+//            e.printStackTrace();
+//        }
+//
+//    }
+//
+//    private void resetViewerGlobalProperties() {
+//        try{
+//        // Get the Class object representing ViewerCanvas
+//        Class<?> clazz = ViewerCanvas.class;
+//
+//        // Get the Field object representing the "init_static_done" field
+//        Field field = clazz.getDeclaredField("init_static_done");
+//
+//        // Make the field accessible if it is private
+//        field.setAccessible(true);
+//
+//        // Set the static field to false
+//        field.set(null, false);
+//
+//        // Verify the field value
+//        boolean fieldValue = (boolean) field.get(null);
+//        System.out.println("init_static_done = " + fieldValue);
+//    } catch (Exception e) {
+//        e.printStackTrace();
+//    }
+//    }
+
+    private boolean allToolsClosed(){
+        int c= 0;
+        for (Window w : Window.getWindows()) {
+            if (w.isVisible()) {
+                c++;
+            }
+        }
+        return c <= 1;
     }
 
     private IDataStore[] getExceptList(JBotTool tool, String datastores) {
@@ -313,16 +400,16 @@ public class RestartToolsCommand extends JBotCommand {
         Map<String, IDataStore> localMap = tool.getLocalDataStoreMap();
 
         // Print keys in the global map
-        System.out.println("\nGlobal DataStore Keys:");
-        for (String key : globalMap.keySet()) {
-            System.out.println("\t"+key);
-        }
-
-        // Print keys in the local map
-        System.out.println("\nLocal DataStore Keys:");
-        for (String key : localMap.keySet()) {
-            System.out.println("\t"+key);
-        }
+//        System.out.println("\nGlobal DataStore Keys:");
+//        for (String key : globalMap.keySet()) {
+//            System.out.println("\t"+key);
+//        }
+//
+//        // Print keys in the local map
+//        System.out.println("\nLocal DataStore Keys:");
+//        for (String key : localMap.keySet()) {
+//            System.out.println("\t"+key);
+//        }
 
         // Create a list to store IDataStore values that are not in the excludeKeys
         List<IDataStore> result = new ArrayList<>();

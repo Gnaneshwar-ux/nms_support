@@ -41,7 +41,7 @@ public class DeleteLoginSetup {
 //                return;
 //            }
             String pathJconfig = project.getJconfigPath();
-            String loginPath = pathJconfig +"/global/xml/" + tempFile;
+            String loginPath = pathJconfig +"\\global\\xml\\" + tempFile;
             File tempfile = new File(tempFile);
             FileReader r = new FileReader(loginPath);
             BufferedWriter writer = new BufferedWriter(new FileWriter(tempfile));
@@ -91,7 +91,7 @@ public class DeleteLoginSetup {
             }
 
 
-            File targetDirLogin = new File(pathJconfig + "/global/xml/AUTO_LOGIN_COMMANDS.inc");
+            File targetDirLogin = new File(pathJconfig + "\\global\\xml\\AUTO_LOGIN_COMMANDS.inc");
 
             if(targetDirLogin.isFile()){
                 boolean isDeleted = targetDirLogin.delete();
@@ -102,7 +102,7 @@ public class DeleteLoginSetup {
 
             }
 
-            targetDirLogin = new File(pathJconfig + "/java/src/custom/LoadCredentialsExternalCommand.java");
+            targetDirLogin = new File(pathJconfig + "\\java\\src\\custom\\LoadCredentialsExternalCommand.java");
 
             if(targetDirLogin.isFile()){
                 boolean isDeleted = targetDirLogin.delete();

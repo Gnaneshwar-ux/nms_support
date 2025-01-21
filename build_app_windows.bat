@@ -87,7 +87,7 @@ call "%JAVA22_HOME%\bin\jpackage" ^
   --type %INSTALLER_TYPE% ^
   --dest target/installer ^
   --input target/installer/input/libs ^
-  --name nms_tools ^
+  --name NMS-DevTools ^
   --main-class com.nms.support.nms_support.FakeMain ^
   --main-jar %MAIN_JAR% ^
   --java-options -Xmx2048m ^

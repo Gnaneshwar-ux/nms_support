@@ -30,7 +30,7 @@ public class DeleteRestartSetup {
 //                return;
 //            }
             String pathJconfig = project.getJconfigPath();
-            String loginPath = pathJconfig +"/global/xml/" + tempFile;
+            String loginPath = pathJconfig +"\\global\\xml\\" + tempFile;
             File tempfile = new File(tempFile);
             FileReader r = new FileReader(loginPath);
             BufferedWriter writer = new BufferedWriter(new FileWriter(tempfile));
@@ -76,11 +76,11 @@ public class DeleteRestartSetup {
                 buildAutomation.appendTextToLog("MAIN_MENUBAR_BUTTONS.inc rollback done.");
             }
             else{
-                buildAutomation.appendTextToLog("WorkSpaceMenuBarTool.xml rollback failed.");
+                buildAutomation.appendTextToLog("MAIN_MENUBAR_BUTTONS.xml rollback failed.");
             }
 
 
-            File targetDirLogin = new File(pathJconfig + "/global/xml/RESTART_TOOLS_COMMANDS.inc");
+            File targetDirLogin = new File(pathJconfig + "\\global\\xml\\RESTART_TOOLS_COMMANDS.inc");
 
             if(targetDirLogin.isFile()){
                 boolean isDeleted = targetDirLogin.delete();
@@ -91,7 +91,7 @@ public class DeleteRestartSetup {
 
             }
 
-            targetDirLogin = new File(pathJconfig + "/java/src/custom/RestartToolsCommand.java");
+            targetDirLogin = new File(pathJconfig + "\\java\\src\\custom\\RestartToolsCommand.java");
 
             if(targetDirLogin.isFile()){
                 boolean isDeleted = targetDirLogin.delete();

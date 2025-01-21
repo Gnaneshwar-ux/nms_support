@@ -10,10 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 public class SetupAutoLogin {
 
@@ -35,7 +32,7 @@ public class SetupAutoLogin {
         //String propPath = "C:/Users/" + user + "/Documents";
 
         try {
-            if(!updateFile(project.getJconfigPath() + "/global/xml/", project.getExePath()+"/java/product/global/xml/"+tempFile, buildAutomation)){
+            if(!updateFile(project.getJconfigPath() + "\\global\\xml\\", project.getExePath()+"\\java\\product\\global\\xml\\"+tempFile, buildAutomation)){
                 buildAutomation.appendTextToLog("Update file failed");
                 System.out.println("Output 1");
                 return false;
@@ -227,7 +224,10 @@ public class SetupAutoLogin {
                 }
             }
 
+
             String[] command = {"cmd", "/c", "copy", tempFile, pathLogin};
+
+            System.out.println(Arrays.toString(command));
 
             ProcessBuilder processBuilder = new ProcessBuilder(command);
 

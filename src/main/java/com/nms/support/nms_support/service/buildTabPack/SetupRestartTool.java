@@ -29,7 +29,7 @@ public class SetupRestartTool {
         //String propPath = "C:/Users/" + user + "/Documents";
 
         try {
-            if(!updateFile(project.getJconfigPath() + "/global/xml/", project.getExePath()+"/java/product/global/xml/"+tempFile, buildAutomation)){
+            if(!updateFile(project.getJconfigPath() + "\\global\\xml\\", project.getExePath()+"\\java\\product\\global\\xml\\"+tempFile, buildAutomation)){
                 buildAutomation.appendTextToLog(tempFile+" update file failed");
                 return false;
             }

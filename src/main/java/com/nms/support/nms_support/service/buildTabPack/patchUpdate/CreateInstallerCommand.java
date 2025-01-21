@@ -159,6 +159,7 @@ public class CreateInstallerCommand {
 				return false;
 			}
 		}
+		String failed_setups="";
 		for (String product : products) {
 			this.launch4jDoc = docBuilder.newDocument();
 			Element launch4j = addElement(this.launch4jDoc, "launch4jConfig", (String) null);
@@ -285,8 +286,8 @@ public class CreateInstallerCommand {
 				launchXML.delete();
 			} catch (Exception e) {
 				buildAutomation.appendTextToLog("Not able to setup " + product);
+				failed_setups += product +", ";
 				e.printStackTrace();
-				return false;
 			}
 		}
 		String config = readFileAsString(dir_temp + "/nms.nsi");
@@ -314,7 +315,7 @@ public class CreateInstallerCommand {
 		File jarF = new File(dir, "nmslib/tools.jar");
 		File toolFile = new File(System.getenv("JAVA_HOME") + "/lib/tools.jar");
 		if (!toolFile.isFile()) {
-			buildAutomation.appendTextToLog("JDK_NOT_FOUND");
+			buildAutomation.appendTextToLog("JDK_NOT_FOUND at "+toolFile.getPath());
 			return false;
 		}
 		InputStream uis = null;
@@ -341,6 +342,7 @@ public class CreateInstallerCommand {
 
 		ManageFile.replaceTextInFiles(List.of(dir_temp+"/java/ant/build.properties"),"NMS_HOME", envVarName);
 		ManageFile.replaceTextInFiles(List.of(dir_temp+"/java/ant/build.xml"),"NMS_HOME", envVarName);
+		buildAutomation.appendTextToLog("Failed setup for: "+failed_setups);
 		return true;
 	}
 

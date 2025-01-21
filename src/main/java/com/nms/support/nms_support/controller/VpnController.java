@@ -40,7 +40,6 @@ public class VpnController {
     public void loadData() {
         // Show loading overlay and set initial status before starting the task
         showLoadingOverlay(true);
-        setStatusRunning();
 
         // Create a Task to perform data loading in the background
         Task<Void> loadDataTask = new Task<>() {
@@ -69,29 +68,34 @@ public class VpnController {
                 if (vpncliPathCache == null) {
                     vpncliPath = findVpnCliPath();
                     vpncliPathCache = vpncliPath; // Cache the result
-                    System.out.println("searched for vpncli.exe");
+                    LoggerUtil.getLogger().info("searched for vpncli.exe");
+                    if(vpncliPath == null){
+                        DialogUtil.showError("Error","Cannot find vpncli.exe file");
+                        closeDialog();
+                        return null;
+                    }
                 } else {
                     vpncliPath = vpncliPathCache; // Use cached result
-                    System.out.println("Loaded from Cache vpncli.exe");
+                    LoggerUtil.getLogger().info("Loaded from Cache vpncli.exe");
                 }
 
-                System.out.println(vpncliPath);
+                killVpnTasks();
+
+                LoggerUtil.getLogger().info(vpncliPath);
                 return null;
             }
 
             @Override
             protected void succeeded() {
                 super.succeeded();
-                // After loading data, update status and hide overlay on the JavaFX Application Thread
-                setStatus();
+
                 showLoadingOverlay(false);
             }
 
             @Override
             protected void failed() {
                 super.failed();
-                // Handle any error that occurred during loadData execution
-                setStatus();  // Optional method to handle errors
+
                 showLoadingOverlay(false);
             }
         };
@@ -102,15 +106,20 @@ public class VpnController {
 
 
     private void setStatus(){
-        Platform.runLater(() -> setVpnStatus(getConnectionStatus().contains("Connected")));
-        setDelay(50);
+        while (true){
+            String status = getConnectionStatus();
+            if(status.contains("Reconnecting")){
+                setVpnStatus(status);
+                setDelay(1000);
+                continue;
+            }
+            setVpnStatus(status);
+            break;
+        }
     }
     private void setStatusRunning(){
-
-        Platform.runLater(() ->{statusLabel.setStyle("-fx-text-fill: brown;");
-            statusLabel.setText("Status: Running...");}
-        );
-        setDelay(50);
+            statusLabel.setStyle("-fx-text-fill: brown;");
+            statusLabel.setText("Status: Running...");
     }
     private void setDelay(int milliseconds){
         try {
@@ -122,20 +131,19 @@ public class VpnController {
 
     public void handleConnectAction(ActionEvent actionEvent) {
         // Show loading overlay and disable input fields
-        setStatusRunning();
+
         showLoadingOverlay(true);
         saveVpn();
-
         // Simulate a delay or loading process
         new Thread(() -> {
             try {
                 VpnDetails vpn = mainController.vpnManager.getVpnDetails();
+                killVpnTasks();
                 createVpnCredsFile(vpn.getUsername(),vpn.getPassword(), hostComboBox.getValue());
             } catch (Exception e) {
                 e.printStackTrace();
             } finally {
-                setStatus();
-                Platform.runLater(() -> showLoadingOverlay(false));
+                showLoadingOverlay(false);
             }
         }).start();
     }
@@ -161,12 +169,11 @@ public class VpnController {
     public void handleDisconnectAction(ActionEvent actionEvent) {
         // Show loading overlay and set initial status before starting the task
         showLoadingOverlay(true);
-        setStatusRunning();
-
         // Create a Task to run vpnDisconnect() on a separate thread
         Task<Void> disconnectTask = new Task<>() {
             @Override
             protected Void call() {
+                killVpnTasks();
                 vpnDisconnect();
                 return null;
             }
@@ -174,16 +181,14 @@ public class VpnController {
             @Override
             protected void succeeded() {
                 super.succeeded();
-                // After disconnect, update status and hide overlay on the JavaFX Application Thread
-                setStatus();
+
                 showLoadingOverlay(false);
             }
 
             @Override
             protected void failed() {
                 super.failed();
-                // Handle any error that occurred during vpnDisconnect execution
-                setStatus();  // Optional method to handle errors
+
                 showLoadingOverlay(false);
             }
         };
@@ -200,22 +205,35 @@ public class VpnController {
 
     // Method to control the loading overlay visibility
     private void showLoadingOverlay(boolean isLoading) {
-        loadingOverlay.setVisible(isLoading);
-        usernameField.setDisable(isLoading);
-        passwordField.setDisable(isLoading);
-        hostComboBox.setDisable(isLoading);
-        connectButton.setDisable(isLoading);
-        disconnectButton.setDisable(isLoading);
+        Platform.runLater(() -> {
+
+            if (isLoading) {
+                setStatusRunning();
+            } else {
+                setStatus();
+            }
+            loadingOverlay.setVisible(isLoading);
+            usernameField.setDisable(isLoading);
+            passwordField.setDisable(isLoading);
+            hostComboBox.setDisable(isLoading);
+            connectButton.setDisable(isLoading);
+            disconnectButton.setDisable(isLoading);
+
+        });
+        setDelay(50);
     }
 
-    public void setVpnStatus(boolean status){
-        if (status){
-            statusLabel.setText("Status: Connected.");
+    public void setVpnStatus(String status){
+        if (status.contains("Connected")){
             statusLabel.setStyle("-fx-text-fill: green;");
-        } else {
-            statusLabel.setText("Status: Disconnected.");
+        }
+        else if (status.contains("Reconnecting") || status.contains("Connecting")){
+            statusLabel.setStyle("-fx-text-fill: blue;");
+        }
+        else {
             statusLabel.setStyle("-fx-text-fill: red;");
         }
+        statusLabel.setText("Status: "+status);
     }
 
     public static String findVpnCliPath() {
@@ -268,15 +286,34 @@ public class VpnController {
 
             // Capture standard output
             boolean forState = command.contains("state");
+            String prevLine = "";
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     if(forState && line.contains("VPN")){
+                        commandStatus = true;
+                        process.destroy();
+                        killVpnTasks();
+                        while (process.isAlive());
                         return output.toString();
                     }
+                    if(line.contains("error:")){
+                        commandStatus = false;
+                        process.destroy();
+                        killVpnTasks();
+                        while (process.isAlive());
+                        return line;
+                    }
+                    if(line.contains("Login failed")){
+                        commandStatus = false;
+                        process.destroy();
+                        killVpnTasks();
+                        while (process.isAlive());
+                        return line + " Please check username and password.";
+                    }
+                    prevLine = line;
                     LoggerUtil.getLogger().info(line);
                     output.append(line).append(System.lineSeparator());
-                    Thread.sleep(20);
                 }
             }
 
@@ -298,18 +335,20 @@ public class VpnController {
                 int exitCode = process.exitValue();
                 commandStatus = exitCode == 0;
                 output.append("Exit Code: ").append(exitCode).append(System.lineSeparator());
+
             }
         } catch (IOException | InterruptedException e) {
             output.append("Exception: ").append(e.getMessage()).append(System.lineSeparator());
             commandStatus = false;
         }
 
-        return output.toString();
+        LoggerUtil.getLogger().info(output.toString());
+        return "Unknown Error Occurred see logs";
     }
 
     private String getConnectionStatus(){
         String resp = executeCommand(vpncliPath+"\\vpncli.exe state");
-
+        LoggerUtil.getLogger().info(resp);
         String[] lines = resp.split(System.lineSeparator());
 
         String lastState = "State not found"; // Default value if no state is found
@@ -319,6 +358,7 @@ public class VpnController {
             if (line.toLowerCase().contains("state:")) { // Case-insensitive search
                 lastState = line.split(":")[1].trim(); // Extract the state and update lastState
             }
+
         }
 
         return lastState;
@@ -344,14 +384,14 @@ public class VpnController {
                 writer.write(user + "\n");
                 writer.write(password + "\n");
 //                writer.write("exit" + "\n");
-                System.out.println("vpncreds.txt created at: " + vpnCredsFile.getAbsolutePath());
+                LoggerUtil.getLogger().info("vpncreds.txt created at: " + vpnCredsFile.getAbsolutePath());
             }
 
             // Execute the VPN connection command
             executeVpnCommand(vpnCredsFile.getAbsolutePath());
 
         } catch (IOException e) {
-            System.out.println("Error creating vpncreds.txt: " + e.getMessage());
+            LoggerUtil.getLogger().severe("Error creating vpncreds.txt: " + e.getMessage());
         }
     }
 
@@ -361,16 +401,17 @@ public class VpnController {
 
         try {
             // Execute the command
-            System.out.println("Executing command: " + command);
+            LoggerUtil.getLogger().info("Executing command: " + command);
             String resp = executeCommand(command);
-            //System.out.println(resp);
+            LoggerUtil.getLogger().info(resp);
+
             if(!commandStatus){
-                DialogUtil.showError("Error vpn command",resp);
+                DialogUtil.showError("Error VPN Connection",resp);
             }
             // After execution, delete the temporary vpncreds.txt file
-            deleteVpnCredsFile(vpnCredsFilePath);
+            //deleteVpnCredsFile(vpnCredsFilePath);
         } catch (Exception e) {
-            System.out.println("Error executing VPN command: " + e.getMessage());
+            LoggerUtil.getLogger().info("Error executing VPN command: " + e.getMessage());
             DialogUtil.showError("Error vpn command",e.getMessage());
         }
     }
@@ -382,13 +423,13 @@ public class VpnController {
                 // Delete the file after command execution
                 boolean deleted = file.delete();
                 if (deleted) {
-                    System.out.println("vpncreds.txt deleted from: " + filePath);
+                    LoggerUtil.getLogger().info("vpncreds.txt deleted from: " + filePath);
                 } else {
-                    System.out.println("Failed to delete vpncreds.txt");
+                    LoggerUtil.getLogger().info("Failed to delete vpncreds.txt");
                 }
             }
         } catch (Exception e) {
-            System.out.println("Error deleting vpncreds.txt: " + e.getMessage());
+            LoggerUtil.getLogger().info("Error deleting vpncreds.txt: " + e.getMessage());
         }
     }
 
@@ -401,6 +442,34 @@ public class VpnController {
         // Check if the Enter key is pressed
         if (event.getCode() == KeyCode.ENTER) {
             handleConnectAction(new ActionEvent());  // Trigger the connect action
+        }
+    }
+
+    public void killVpnTasks(){
+        killTask("csc_ui.exe");
+        killTask("vpncli.exe");
+    }
+
+    public static boolean killTask(String exeName) {
+        try {
+            // Execute the taskkill command for the given exe name
+            String command = "taskkill /IM " + exeName + " /F";
+            Process process = Runtime.getRuntime().exec(command);
+
+            // Capture and display the output
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    LoggerUtil.getLogger().info(line);
+                }
+            }
+
+            // Wait for the process to complete
+            int exitCode = process.waitFor();
+            return exitCode == 0;
+        } catch (Exception e) {
+            LoggerUtil.getLogger().severe("Error killing task: " + e.getMessage());
+            return false;
         }
     }
 }

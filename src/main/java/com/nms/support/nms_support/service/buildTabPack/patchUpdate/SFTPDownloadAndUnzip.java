@@ -3,6 +3,7 @@ package com.nms.support.nms_support.service.buildTabPack.patchUpdate;
 import com.jcraft.jsch.*;
 import com.nms.support.nms_support.controller.BuildAutomation;
 import com.nms.support.nms_support.model.ProjectEntity;
+import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 
 import java.io.*;
 import java.nio.file.*;
@@ -24,7 +25,8 @@ public class SFTPDownloadAndUnzip {
 //        String remoteHost = "ugbu-ash-120.sniadprshared1.gbucdsint02iad.oraclevcn.com";
 //        String username = "evergy1";
 //        String password = "Plannine1!";
-        String remoteHost = project.getHost();
+        String remoteHost = project.getHost().split(":")[0];
+        String port = project.getHost().split(":").length > 1? project.getHost().split(":")[1]:"22";
         String username = project.getHostUser();
         String password = project.getHostPass();
         String remoteDir = "java/";
@@ -35,7 +37,7 @@ public class SFTPDownloadAndUnzip {
         try {
             buildAutomation.appendTextToLog("Connecting to server...");
             JSch jsch = new JSch();
-            Session session = jsch.getSession(username, remoteHost, 22);
+            Session session = jsch.getSession(username, remoteHost, Integer.parseInt(port));
             session.setPassword(password);
             session.setConfig("StrictHostKeyChecking", "no");
             session.connect();
@@ -117,7 +119,7 @@ public class SFTPDownloadAndUnzip {
 
             buildAutomation.appendTextToLog("Java Download and extraction completed successfully.");
         } catch (Exception e) {
-            e.printStackTrace();
+            LoggerUtil.getLogger().severe(e.getMessage());
         }
     }
 

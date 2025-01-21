@@ -1,4 +1,4 @@
-<Perform name="Window" category="windowOpened">
+<Perform name="Window" category="windowActivated">
     <Command value="custom.LoadCredentialsExternalCommand"/>
     <Command value="CheckPasswordCommand" when="(DS_LOGIN_ENTRY.autoLogin)"/>
     <Command value="PopulateWorkspacesCommand" when="(DS_LOGIN_ENTRY.autoLogin)"/>

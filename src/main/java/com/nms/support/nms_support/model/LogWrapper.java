@@ -14,6 +14,8 @@ public class LogWrapper {
     }
 
     public void clearlogs(){
-        logs.clear();
+        if(logs != null){
+            logs.clear();
+        }
     }
 }

@@ -39,7 +39,7 @@
                             <RowConstraints percentHeight="10" />
                             <RowConstraints percentHeight="10" />
                         </rowConstraints>
-                        <Label styleClass="label-common" text="Project:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                        <Label styleClass="label-common" text="Project Code:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
                         <ComboBox fx:id="projectLogComboBox" prefWidth="1000" GridPane.columnIndex="1" GridPane.rowIndex="0" />
                         <Button fx:id="reloadButton" styleClass="button-icon" GridPane.columnIndex="2" GridPane.rowIndex="0" >
                             <graphic>

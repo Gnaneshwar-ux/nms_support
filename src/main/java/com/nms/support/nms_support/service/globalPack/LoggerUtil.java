@@ -24,7 +24,8 @@ public class LoggerUtil {
 
                 // Create a FileHandler
                 String user = System.getProperty("user.name");
-                FileHandler fileHandler = new FileHandler("C:\\Users\\" + user +"\\Documents\\nms_support_data\\nms_support.log", false); // 'true' to append to the existing file
+                String logPath = "C:\\Users\\" + user +"\\Documents\\nms_support_data\\nms_support.log";
+                FileHandler fileHandler = new FileHandler(logPath, false); // 'true' to append to the existing file
                 fileHandler.setLevel(Level.ALL);
                 fileHandler.setFormatter(new SimpleFormatter());
 

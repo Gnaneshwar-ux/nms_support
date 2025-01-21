@@ -14,6 +14,7 @@ import com.splwg.oms.jbot.AbstractDataStore;
 import com.splwg.oms.jbot.JBotObjectNotFoundException;
 import javax.swing.JOptionPane;
 import com.splwg.oms.client.login.LoginHelper;
+import com.splwg.oms.util.BuildInformation;
 
 
 public class LoadCredentialsExternalCommand extends JBotCommand{
@@ -24,9 +25,18 @@ public class LoadCredentialsExternalCommand extends JBotCommand{
 		String projectName = (String) System.getProperty("PROJECT_NAME");
 		//String systemName = (String) this.dataManager.getValue("system_name");
 
+		//IDataStore buildinfo = (DefaultDataStore) getDataStore("DS_BUILD_INFORMATION");
+
+		BuildInformation buildinfo = BuildInformation.getInfo("CLIENT_TOOL");
+
+		String CLIENT_TOOL_PROJECT_NAME = (String)buildinfo.getProperties().get("CLIENT_TOOL_PROJECT_NAME");
+		String CLIENT_TOOL_CVS_TAG = (String) buildinfo.getProperties().get("CLIENT_TOOL_CVS_TAG");
+		String projectCode = CLIENT_TOOL_PROJECT_NAME+"#"+CLIENT_TOOL_CVS_TAG;
+
 		//System.out.println("System: " + system);
 		System.out.println("System Code: " + systemCode);
 		System.out.println("Project Name: "+ projectName);
+		System.out.println("Project Code: "+ projectCode);
 		//System.out.println("System Name: " + systemName);
 		
 		IDataStore cred = (DefaultDataStore)getDataStore("DS_LOGIN_ENTRY");
@@ -40,9 +50,11 @@ public class LoadCredentialsExternalCommand extends JBotCommand{
 			Properties p = new Properties();
 			p.load(file);
 
-			String proj = projectName+"_"+systemCode+"_";
+			String proj = projectCode+"_"+systemCode+"_";
+
+			boolean loginFailed = cred.getValue("autoLogin") == null;
 			
-			if(p.getProperty(proj+"autoLogin").toLowerCase().equals("true"))
+			if(loginFailed && p.getProperty(proj+"autoLogin").toLowerCase().equals("true"))
 			{
 			cred.setValue("USER",p.getProperty(proj+"username"));
 			cred.setValue("PASSWORD", p.getProperty(proj + "password"));

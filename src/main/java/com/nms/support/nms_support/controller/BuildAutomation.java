@@ -177,7 +177,7 @@ public class BuildAutomation implements Initializable {
                 // Start the task on a new thread
                 new Thread(task).start();
             } else {
-                System.out.println("No input provided.");
+                LoggerUtil.getLogger().info("No input provided.");
             }
         });
     }

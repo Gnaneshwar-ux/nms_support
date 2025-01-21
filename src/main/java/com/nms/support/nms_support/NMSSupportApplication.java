@@ -20,7 +20,7 @@ public class NMSSupportApplication extends Application {
         Scene scene = new Scene(mainLoader.load(), 1000, 600);
         scene.getStylesheets().add(Objects.requireNonNull(getClass().getResource("styles/light/components/entity-card.css")).toExternalForm());
         scene.getStylesheets().add(Objects.requireNonNull(getClass().getResource("styles/light/main-view.css")).toExternalForm());
-        stage.setTitle("NMS Support");
+        stage.setTitle("NMS DevTools");
         stage.setScene(scene);
         stage.setMaximized(true);
         stage.show();
