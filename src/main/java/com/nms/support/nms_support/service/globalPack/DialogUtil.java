@@ -1,19 +1,20 @@
 package com.nms.support.nms_support.service.globalPack;
 
+import com.nms.support.nms_support.model.ProjectEntity;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.collections.FXCollections;
 import javafx.collections.transformation.FilteredList;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.control.Alert.AlertType;
-import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.GridPane;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.VBox;
+import javafx.scene.layout.*;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -72,11 +73,11 @@ public class DialogUtil {
     }
 
     // Show a text input dialog with the specified title, header, and content
-    public static CompletableFuture<Optional<String>> showTextInputDialog(String title, String header, String content) {
+    public static CompletableFuture<Optional<String>> showTextInputDialog(String title, String header, String content, String v1) {
         CompletableFuture<Optional<String>> future = new CompletableFuture<>();
 
         Platform.runLater(() -> {
-            TextInputDialog dialog = new TextInputDialog();
+            TextInputDialog dialog = new TextInputDialog(v1);
             IconUtils.setStageIcon((Stage)dialog.getDialogPane().getScene().getWindow());
             dialog.setTitle(title);
             dialog.setHeaderText(header);
@@ -185,7 +186,7 @@ public class DialogUtil {
         return selectedProcesses;
     }
 
-    public static CompletableFuture<Optional<String[]>> showTwoInputDialog(String title, String message1, String message2, String desc1, String desc2) {
+    public static CompletableFuture<Optional<String[]>> showTwoInputDialog(String title, String message1, String message2, String desc1, String desc2, String v1, String v2) {
         CompletableFuture<Optional<String[]>> future = new CompletableFuture<>();
 
         // Ensure that the dialog runs on the JavaFX application thread
@@ -199,9 +200,9 @@ public class DialogUtil {
             dialog.getDialogPane().getButtonTypes().addAll(okButtonType, ButtonType.CANCEL);
 
             // Create the text fields
-            TextField field1 = new TextField();
+            TextField field1 = new TextField(v1);
             field1.prefWidth(100);
-            TextField field2 = new TextField();
+            TextField field2 = new TextField(v2);
             field2.prefWidth(100);
 
             // Create a grid pane and add the fields with labels
@@ -235,5 +236,144 @@ public class DialogUtil {
         });
 
         return future;
+    }
+
+    public static CompletableFuture<Boolean> showProjectSetupDialog(String defaultEnvVarValue, ProjectEntity project) {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+
+        Platform.runLater(() -> {
+            Stage dialogStage = new Stage();
+            dialogStage.setTitle("Initial Project Setup");
+            dialogStage.initModality(Modality.APPLICATION_MODAL);
+
+            GridPane grid = new GridPane();
+            grid.setHgap(10);
+            grid.setVgap(10);
+            grid.setPadding(new Insets(20));
+            ColumnConstraints col1 = new ColumnConstraints();
+            col1.setPercentWidth(30);
+            ColumnConstraints col2 = new ColumnConstraints();
+            col2.setPercentWidth(70);
+            grid.getColumnConstraints().addAll(col1, col2);
+
+            TextField projectDirField = new TextField();
+            TextField productDirField = new TextField();
+            TextField nmsAppUrlField = new TextField();
+            TextField envVarField = new TextField(defaultEnvVarValue);
+            TextField nmsHostField = new TextField();
+            TextField hostUserField = new TextField();
+            PasswordField hostPassField = new PasswordField();
+
+            grid.add(new Label("Project Dir*:"), 0, 0);
+            grid.add(projectDirField, 1, 0);
+
+            grid.add(new Label("Product Dir*:"), 0, 1);
+            grid.add(productDirField, 1, 1);
+
+            grid.add(new Label("NMS App URL*:"), 0, 2);
+            grid.add(nmsAppUrlField, 1, 2);
+
+            grid.add(new Label("ENV Var:"), 0, 3);
+            grid.add(envVarField, 1, 3);
+
+            grid.add(new Label("NMS HOST*:"), 0, 4);
+            grid.add(nmsHostField, 1, 4);
+
+            grid.add(new Label("HOST USER*:"), 0, 5);
+            grid.add(hostUserField, 1, 5);
+
+            grid.add(new Label("HOST PASS*:"), 0, 6);
+            grid.add(hostPassField, 1, 6);
+
+            Button setupButton = new Button("Setup");
+            Button skipButton = new Button("Skip");
+
+            HBox buttonBox = new HBox(10, setupButton, skipButton);
+            buttonBox.setAlignment(Pos.CENTER_RIGHT);
+            buttonBox.setPadding(new Insets(10, 0, 0, 0));
+
+            VBox root = new VBox(10, grid, buttonBox);
+            root.setPadding(new Insets(15));
+            root.setPrefWidth(450);
+
+            setupButton.setOnAction(event -> {
+                String projectDir = projectDirField.getText().trim();
+                String productDir = productDirField.getText().trim();
+                String nmsAppUrl = nmsAppUrlField.getText().trim();
+                String envVar = envVarField.getText().trim();
+                String nmsHost = nmsHostField.getText().trim();
+                String hostUser = hostUserField.getText().trim();
+                String hostPass = hostPassField.getText().trim();
+
+                if (projectDir.isEmpty() || productDir.isEmpty() || nmsAppUrl.isEmpty() ||
+                        nmsHost.isEmpty() || hostUser.isEmpty() || hostPass.isEmpty()) {
+
+                    showError("Missing Fields", "Please fill in all mandatory (*) fields.");
+                    return;
+                }
+
+                File projDir = new File(projectDir);
+                if (!projDir.exists() || !projDir.isDirectory()) {
+                    showError("Invalid Directory", "Project Dir does not exist or is not a directory.");
+                    return;
+                }
+
+                boolean hasBuildXml = searchFile(projDir, "build.xml");
+                boolean hasBuildProps = searchFile(projDir, "build.properties");
+
+                if (!hasBuildXml || !hasBuildProps) {
+                    showError("Build Files Missing",
+                            "Project Dir must contain 'build.xml' and 'build.properties'. Make sure given project jconfig path.");
+                    return;
+                }
+
+                File productDirFile = new File(productDir);
+                if (!productDirFile.exists()) {
+                    boolean res = productDirFile.mkdirs();
+                    if (!res) {
+                        showError("Failed to create product dir",
+                                "System not able to create specified product dir. please create dir manually.");
+                        return;
+                    }
+                }
+
+                project.setJconfigPath(projectDir);
+                project.setExePath(productDir);
+                project.setNmsEnvVar(envVar);
+                project.setNmsAppURL(nmsAppUrl);
+                project.setHost(nmsHost);
+                project.setHostUser(hostUser);
+                project.setHostPass(hostPass);
+
+                future.complete(true);
+                dialogStage.close();
+            });
+
+            skipButton.setOnAction(event -> {
+                future.complete(false);
+                dialogStage.close();
+            });
+
+            Scene scene = new Scene(root);
+            dialogStage.setScene(scene);
+            dialogStage.showAndWait();
+        });
+
+        return future;
+    }
+
+    private static boolean searchFile(File root, String fileName) {
+        if (root == null || !root.exists()) return false;
+
+        File[] files = root.listFiles();
+        if (files == null) return false;
+
+        for (File file : files) {
+            if (file.getName().equalsIgnoreCase(fileName)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -52,7 +52,7 @@ public class CreateInstallerCommand {
 	private static final String JRE_TEMPLATE = "Section \"-jre\"\n" + "    File /r /x .svn \"%JRE%\"\n" + "SectionEnd\n"
 			+ "\n" + "Section \"-un.jre\"\n" + "    RMDir /r \"$INSTDIR\\%JRE_DEST%\"\n" + "SectionEnd\n";
 
-	private static BuildAutomation buildAutomation;
+	private  BuildAutomation buildAutomation;
 
 	public boolean execute(String appURL, String envVarName, ProjectEntity project, BuildAutomation buildAutomation) throws Exception {
 
@@ -66,7 +66,13 @@ public class CreateInstallerCommand {
 		else {
 			if(!doesEnvVariableExist(envVarName)){
 				buildAutomation.appendTextToLog("Provided ENV VAR not exists("+ envVarName +"). Exiting Upgrade process");
-				return false;
+				boolean b = createUserEnvVar(envVarName, project.getExePath());
+				if(b){
+					buildAutomation.appendTextToLog("Created new ENV VAR = "+envVarName+" with value = "+project.getExePath());
+				} else {
+					buildAutomation.appendTextToLog("Failed Attempt to create env var.");
+					return false;
+				}
 			}
 		}
 
@@ -75,17 +81,18 @@ public class CreateInstallerCommand {
 		String serverURL = adjustUrl(appURL);
 		boolean state =cleanDirectory(Path.of(dir_temp));
 		if(!state)return false;
+		SFTPDownloadAndUnzip.start(dir_temp, project, buildAutomation);
      	buildAutomation.appendTextToLog("Loading Resources..");
 
 		FileFetcher.loadResources(dir_temp,serverURL, buildAutomation);
 
-		SFTPDownloadAndUnzip.start(dir_temp, project, buildAutomation);
 
 
 		try {
 			processDirectory(dir_temp);
 		} catch (IOException e) {
 			e.printStackTrace();
+			buildAutomation.appendTextToLog(e.getMessage());
 			buildAutomation.appendTextToLog("process dir failed");
 			return false;
 		}
@@ -346,22 +353,35 @@ public class CreateInstallerCommand {
 		return true;
 	}
 
-	private boolean createEnvVar(String variableName, String variableValue){
+	private boolean createUserEnvVar(String variableName, String variableValue) {
 		try {
+			// Quote the value to support spaces and special characters
+			String command = String.format("setx %s \"%s\"", variableName, variableValue);
 
-			// Command to set the environment variable
-			String command = "setx " + variableName + " " + variableValue;
-
-			// Execute the command
+			// Run using cmd
 			ProcessBuilder processBuilder = new ProcessBuilder("cmd.exe", "/c", command);
 			Process process = processBuilder.start();
-			int exitCode = process.waitFor();
 
+			// Print output (for debugging)
+			try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+				 BufferedReader errReader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
+
+				String line;
+				while ((line = reader.readLine()) != null) {
+					System.out.println("OUTPUT: " + line);
+				}
+
+				while ((line = errReader.readLine()) != null) {
+					System.err.println("ERROR: " + line);
+				}
+			}
+
+			int exitCode = process.waitFor();
 			if (exitCode == 0) {
-				System.out.println("System variable set successfully.");
+				System.out.println("User environment variable set successfully.");
 				return true;
 			} else {
-				System.out.println("Failed to set system variable. Exit code: " + exitCode);
+				System.err.println("Failed to set environment variable. Exit code: " + exitCode);
 				return false;
 			}
 		} catch (IOException | InterruptedException e) {
@@ -369,6 +389,7 @@ public class CreateInstallerCommand {
 			return false;
 		}
 	}
+
 
 	public static boolean doesEnvVariableExist(String varName) {
 		// Get the map of environment variables
@@ -466,7 +487,7 @@ public class CreateInstallerCommand {
 		}
 	}
 
-	public static void processDirectory(String baseDir) throws IOException {
+	public  void processDirectory(String baseDir) throws IOException {
 		File javaLibDir = new File(baseDir, "java/lib");
 		File nmsLibDir = new File(baseDir, "nmslib");
 		File productDir = new File(baseDir, "java/product");
@@ -543,7 +564,7 @@ public class CreateInstallerCommand {
 		return null;
 	}
 
-	private static void copyDirectory(File source, File destination) throws IOException {
+	private  void copyDirectory(File source, File destination) throws IOException {
 		if (!source.exists()) {
 			throw new IOException("Source directory does not exist: " + source.getAbsolutePath());
 		}
@@ -574,7 +595,7 @@ public class CreateInstallerCommand {
 		}
 	}
 
-	public static String adjustUrl(String urlString) {
+	public  String adjustUrl(String urlString) {
 		try {
 			URL url = new URL(urlString);
 			// Construct the base URL up to /nms/
@@ -586,7 +607,7 @@ public class CreateInstallerCommand {
 		}
 	}
 
-	public static boolean cleanDirectory(Path dir) throws IOException {
+	public  boolean cleanDirectory(Path dir) throws IOException {
 		if (!Files.exists(dir)) {
 			buildAutomation.appendTextToLog("Directory does not exist: " + dir);
 			return false;

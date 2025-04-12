@@ -207,7 +207,7 @@ public class RestartToolsCommand extends JBotCommand {
                             try {
                                 publish("'ant init create_config' running...");
                                 createOrUpdateCacheFile(jconfigPath);
-                                ProcessBuilder processBuilder = new ProcessBuilder("cmd.exe", "/c", "cd " + jconfigPath + " && " + "ant init create_config");
+                                ProcessBuilder processBuilder = new ProcessBuilder("cmd.exe", "/c", "cd /d " + jconfigPath + " && " + "ant init create_config");
                                 processBuilder.redirectErrorStream(true);
 
                                 Process process = processBuilder.start();

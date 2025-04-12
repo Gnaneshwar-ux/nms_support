@@ -1,9 +1,11 @@
 package com.nms.support.nms_support.controller;
 
 import com.nms.support.nms_support.model.ProjectEntity;
-import com.nms.support.nms_support.service.LogManager;
-import com.nms.support.nms_support.service.ProjectManager;
-import com.nms.support.nms_support.service.VpnManager;
+import com.nms.support.nms_support.service.buildTabPack.patchUpdate.CreateInstallerCommand;
+import com.nms.support.nms_support.service.globalPack.ManageFile;
+import com.nms.support.nms_support.service.userdata.LogManager;
+import com.nms.support.nms_support.service.userdata.ProjectManager;
+import com.nms.support.nms_support.service.userdata.VpnManager;
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
 import com.nms.support.nms_support.service.globalPack.IconUtils;
 import com.nms.support.nms_support.service.globalPack.LoggerUtil;
@@ -24,8 +26,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.ResourceBundle;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+
+import static com.nms.support.nms_support.service.globalPack.DialogUtil.showProjectSetupDialog;
 
 public class MainController implements Initializable {
 
@@ -33,6 +38,7 @@ public class MainController implements Initializable {
 
     @FXML
     public ComboBox<String> themeComboBox;
+    @FXML
     public Tab buildTab;
     public ComboBox<String> projectComboBox;
     public ProjectManager projectManager;
@@ -40,12 +46,18 @@ public class MainController implements Initializable {
     public VpnManager vpnManager;
     public Button addButton;
     public Button delButton;
+    @FXML
     public Tab dataStoreTab;
     public Button openVpnButton;
+//    @FXML
+//    public Tab projectTab;
     @FXML
     private Parent root;
     @FXML
     private ImageView themeIcon;
+
+    BuildAutomation buildAutomation;
+
 
     @Override
     public void initialize(URL url, ResourceBundle resourceBundle) {
@@ -67,16 +79,20 @@ public class MainController implements Initializable {
         loadTabContent();
         projectComboBox.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> setTabState(newValue));
         setTabState("None");
+
+
     }
 
     private void setTabState(String newValue) {
         if(newValue != null && newValue.equals("None")){
             buildTab.setDisable(true);
             dataStoreTab.setDisable(true);
+            //projectTab.setDisable(true);
         }
         else{
             buildTab.setDisable(false);
             dataStoreTab.setDisable(false);
+            //projectTab.setDisable(false);
         }
     }
 
@@ -84,7 +100,7 @@ public class MainController implements Initializable {
         try {
             FXMLLoader buildLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/build-automation.fxml"));
             Parent buildContent = buildLoader.load();
-            BuildAutomation buildAutomation = buildLoader.getController();
+            buildAutomation = buildLoader.getController();
             buildAutomation.setMainController(this);
             buildTab.setContent(buildContent);
 
@@ -94,8 +110,15 @@ public class MainController implements Initializable {
             dataStoreAutomation.setMainController(this);
             dataStoreTab.setContent(dataStoreContent);
 
+//            FXMLLoader projectLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/project-details.fxml"));
+//            Parent projectContent = projectLoader.load();
+//            ProjectDetailsController projectAutomation = projectLoader.getController();
+//            projectAutomation.setMainController(this);
+//            projectTab.setContent(projectContent);
+
             logger.info("Tab content loaded successfully.");
         } catch (IOException e) {
+            e.printStackTrace();
             logger.severe("Error loading tab content: " + e.getMessage());
         }
     }
@@ -126,7 +149,8 @@ public class MainController implements Initializable {
         DialogUtil.showTextInputDialog(
                 "Add Project",
                 "Enter the name of the new project:",
-                "Project Name:"
+                "Project Name:",
+                        ""
         ).thenAccept(result -> {
             if (result.isPresent()) {
 
@@ -149,16 +173,76 @@ public class MainController implements Initializable {
                 ProjectEntity newProject = new ProjectEntity(projectName);
                 projectManager.addProject(newProject);
                 projectManager.saveData();
+                requestProjectSetup(newProject);
                 reloadProjectNamesCB(); // Refresh ComboBox with updated list
-                projectComboBox.setValue(projectName);
-                DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Project Added", "Project added successfully.");
-                logger.info("New project added: " + projectName);
+                projectComboBox.setValue(newProject.getName());
             }
             } else {
                 System.out.println("No input provided.");
             }
         });
     }
+
+    private void requestProjectSetup(ProjectEntity newProject) {
+        showProjectSetupDialog(newProject.getName() + "_HOME_DEVTOOL", newProject)
+                .thenAccept(setupChosen -> {
+                    Platform.runLater(() -> {
+                        reloadProjectNamesCB();
+                        projectComboBox.setValue(newProject.getName());
+
+                        if (setupChosen) {
+                            logger.info("User chose to setup.");
+                            buildAutomation.appendTextToLog("User chose to Setup");
+                            projectManager.saveData();
+                            DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Project Added", "Project added successfully. Setup Initiated.");
+                            logger.info("New project added: " + newProject.getName());
+
+                            // ✅ Run heavy work in background
+                            new Thread(() -> {
+                                buildAutomation.clearLog();
+                                CreateInstallerCommand cic = new CreateInstallerCommand();
+                                boolean resp = false;
+                                try {
+                                    resp = cic.execute(newProject.getNmsAppURL(), newProject.getNmsEnvVar(), newProject, buildAutomation);
+                                    if (resp) {
+                                        buildAutomation.populateAppNameComboBox(newProject.getExePath());
+                                        String env_name = newProject.getNmsEnvVar();
+                                        ManageFile.replaceTextInFiles(
+                                                List.of(newProject.getJconfigPath() + "/build.properties"), "NMS_HOME", env_name);
+                                        ManageFile.replaceTextInFiles(
+                                                List.of(newProject.getJconfigPath() + "/build.xml"), "NMS_HOME", env_name);
+
+                                        Platform.runLater(() -> {
+                                            buildAutomation.appendTextToLog("Replaced NMS_HOME with " + env_name + " in project build files");
+
+                                        });
+                                        ManageFile.replaceTextInFiles(
+                                                List.of(newProject.getExePath() + "/java/ant/build.properties"), "NMS_HOME", env_name);
+                                        ManageFile.replaceTextInFiles(
+                                                List.of(newProject.getExePath() + "/java/ant/build.xml"), "NMS_HOME", env_name);
+
+                                        Platform.runLater(() -> {
+                                            buildAutomation.appendTextToLog("Replaced NMS_HOME with " + env_name + " in Product build files");
+                                            buildAutomation.appendTextToLog("\nSetup completed.");
+                                        });
+                                    } else {
+                                        Platform.runLater(() -> buildAutomation.appendTextToLog("\nSetup failed."));
+                                    }
+                                } catch (Exception e) {
+                                    logger.severe(e.getMessage());
+                                    Platform.runLater(() -> buildAutomation.appendTextToLog(e.getMessage()));
+                                }
+                            }).start();
+
+                        } else {
+                            logger.info("User skipped setup.");
+                            DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Project Added", "Project added successfully. Setup Skipped.");
+                            logger.info("New project added: " + newProject.getName());
+                        }
+                    });
+                });
+    }
+
 
     public ProjectEntity getSelectedProject() {
         String selectedProjectName = projectComboBox.getValue();
@@ -200,4 +284,6 @@ public class MainController implements Initializable {
             e.printStackTrace();
         }
     }
+
+
 }

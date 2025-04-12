@@ -4,6 +4,8 @@ import com.nms.support.nms_support.model.LogEntity;
 import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.service.buildTabPack.*;
 import com.nms.support.nms_support.service.buildTabPack.patchUpdate.CreateInstallerCommand;
+import com.nms.support.nms_support.service.database.FireData;
+import com.nms.support.nms_support.service.globalPack.AppDetails;
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
 import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 import com.nms.support.nms_support.service.globalPack.ManageFile;
@@ -76,7 +78,7 @@ public class BuildAutomation implements Initializable {
         restartButton.setOnAction(event -> restart());
         reloadUsersButton.setOnAction(event -> initializeUserTypes());
         replaceProjectBuild.setOnAction(event -> {
-            DialogUtil.showTextInputDialog("ENV INPUT","Enter env var name created for this project:","Ex: OPAL_HOME").thenAccept(result->{
+            DialogUtil.showTextInputDialog("ENV INPUT","Enter env var name created for this project:","Ex: OPAL_HOME",  mainController.getSelectedProject().getNmsEnvVar()).thenAccept(result->{
                 if(result.isPresent()){
                     String env_name = result.get().trim();
                     ManageFile.replaceTextInFiles(List.of(jconfigPath.getText()+"/build.properties"),"NMS_HOME", env_name);
@@ -90,7 +92,7 @@ public class BuildAutomation implements Initializable {
         });
 
         replaceProductBuild.setOnAction(event -> {
-            DialogUtil.showTextInputDialog("ENV INPUT","Enter env var name created for this product:","Ex: OPAL_HOME").thenAccept(result->{
+            DialogUtil.showTextInputDialog("ENV INPUT","Enter env var name created for this product:","Ex: OPAL_HOME", mainController.getSelectedProject().getNmsEnvVar()).thenAccept(result->{
                 if(result.isPresent()){
                     String env_name = result.get().trim();
                     ManageFile.replaceTextInFiles(List.of(webWorkspacePath.getText()+"/java/ant/build.properties"),"NMS_HOME", env_name);
@@ -109,6 +111,50 @@ public class BuildAutomation implements Initializable {
 
         appendTextToLog("Hi " + System.getProperty("user.name") + "!\uD83E\uDD17");
 
+        String currentVersion = AppDetails.getApplicationVersion();
+        appendTextToLog("\n\nCurrent Version: " + currentVersion);
+
+
+        LogNewVersionDetails();
+
+
+
+    }
+
+    public void LogNewVersionDetails() {
+        // Create a Task to perform the operation on a separate thread
+        Task<Void> task = new Task<Void>() {
+            @Override
+            protected Void call() throws Exception {
+                // Perform HTTP request and retrieve data
+                HashMap<String, String> vData = FireData.readVersionData();
+                if (vData != null) {
+                    // Get the version data
+                    String latestVersion = vData.get("version");
+                    String description = vData.get("description");
+
+                    // Update the UI safely using Platform.runLater
+                    Platform.runLater(() -> {
+                        appendTextToLog("Latest Available: " + latestVersion);
+                        appendTextToLog("New Version Description: " + description);
+                    });
+                }
+
+                return null;
+            }
+
+            @Override
+            protected void failed() {
+                // Handle any exception
+                Throwable exception = getException();
+                Platform.runLater(() -> appendTextToLog("Error: " + exception.getMessage()));
+            }
+        };
+
+        // Run the task in a separate thread
+        Thread thread = new Thread(task);
+        thread.setDaemon(true); // Ensure the thread stops when the application exits
+        thread.start();
     }
 
     private void patchUpgrade() {
@@ -124,21 +170,25 @@ public class BuildAutomation implements Initializable {
                     "Please make sure the following fields are filled in the Build Automation Tab:\nWebWorkspace.exe path\n");
             return;
         }
-
+        ProjectEntity selProject = mainController.getSelectedProject();
         DialogUtil.showTwoInputDialog(
                 "Patch Upgrade",
                 "Provide Application URL:",
                 "Provide Environment Variable Name:",
                 "Ex: https://ugbu-ash-147...com:7057/nms/",
-                "Required field"
+                "Required field",
+                selProject.getNmsAppURL(),
+                selProject.getNmsEnvVar()
         ).thenAccept(result -> {
             if (result.isPresent()) {
                 String[] inputs = result.get();
                 String url = inputs[0];
                 String envVarName = inputs[1];
 
+                selProject.setNmsAppURL(url);
+                selProject.setNmsEnvVar(envVarName);
                 CreateInstallerCommand cic = new CreateInstallerCommand();
-
+                mainController.projectManager.saveData();
                 // Create a Task to run the long-running process
                 Task<Void> task = new Task<Void>() {
                     @Override
@@ -146,9 +196,10 @@ public class BuildAutomation implements Initializable {
                         try {
                             logger.info("Starting CreateInstallerCommand execution.");
                             appendTextToLog("Patch Upgrade process begin");
-                            boolean resp = cic.execute(url, envVarName, mainController.getSelectedProject(), BuildAutomation.this);
+                            boolean resp = cic.execute(url, envVarName, selProject, BuildAutomation.this);
                             if(resp){
                                 appendTextToLog("\nPatch upgrade completed.");
+                                populateAppNameComboBox(selProject.getExePath());
                             }else{
                                 appendTextToLog("\nPatch upgrade failed.");
                             }

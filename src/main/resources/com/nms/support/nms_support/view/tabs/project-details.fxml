@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import java.lang.*?>
+<?import java.util.*?>
+<?import javafx.collections.*?>
+<?import javafx.geometry.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.stage.DirectoryChooser?>
+
+<AnchorPane xmlns="http://javafx.com/javafx"
+            xmlns:fx="http://javafx.com/fxml"
+            stylesheets="@../../styles/light/tabs/datastore-dump.css"
+            fx:controller="com.nms.support.nms_support.controller.ProjectDetailsController"
+            prefHeight="600.0" prefWidth="800.0">
+
+    <GridPane fx:id="mainGrid" hgap="10.0" vgap="10.0"  AnchorPane.topAnchor="0.0"
+               AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0">
+        <padding>
+            <Insets top="6" left="6" right="6" bottom="6"/>
+        </padding>
+        <!-- Server Details Section -->
+        <TitledPane  text="Server Details" collapsible="false" GridPane.valignment="TOP" GridPane.columnIndex="0" GridPane.rowIndex="0" GridPane.hgrow="ALWAYS" >
+            <GridPane hgap="5.0" vgap="5.0">
+                <padding>
+                    <Insets top="6" left="6" right="6" bottom="6"/>
+                </padding>
+                <Label text="Host Address:" GridPane.rowIndex="0" GridPane.columnIndex="0" />
+                <TextField fx:id="hostAddressField" GridPane.rowIndex="0" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
+
+                <Label text="Host User:" GridPane.rowIndex="1" GridPane.columnIndex="0" />
+                <TextField fx:id="hostUserField" GridPane.rowIndex="1" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
+
+                <Label text="Password:" GridPane.rowIndex="2" GridPane.columnIndex="0" />
+                <PasswordField fx:id="hostPasswordField" GridPane.rowIndex="2" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
+
+                <Label text="Port:" GridPane.rowIndex="3" GridPane.columnIndex="0" />
+                <Spinner fx:id="portSpinner" GridPane.rowIndex="3" GridPane.columnIndex="1" editable="true" GridPane.hgrow="ALWAYS"/>
+            </GridPane>
+        </TitledPane>
+
+        <!-- Project Folder Details Section -->
+        <TitledPane text="Project Environment Details" GridPane.valignment="TOP" collapsible="false" GridPane.columnIndex="1" GridPane.rowIndex="0" GridPane.hgrow="ALWAYS" >
+            <GridPane hgap="5.0" vgap="5.0">
+                <padding>
+                    <Insets top="6" left="6" right="6" bottom="6"/>
+                </padding>
+                <Label text="Project Folder:" GridPane.rowIndex="0" GridPane.columnIndex="0" />
+                <TextField fx:id="projectFolderField" GridPane.rowIndex="0" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
+                <Button text="Select" fx:id="projectFolderBtn" GridPane.rowIndex="0" GridPane.columnIndex="2" />
+
+                <Label text="Product Folder:" GridPane.rowIndex="1" GridPane.columnIndex="0" />
+                <TextField fx:id="productFolderField" GridPane.rowIndex="1" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
+                <Button text="Select" fx:id="productFolderBtn" GridPane.rowIndex="1" GridPane.columnIndex="2" />
+
+                <Label text="Environment Variables:" GridPane.rowIndex="2" GridPane.columnIndex="0" />
+                <TextField fx:id="envVariableField" GridPane.rowIndex="2" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
+            </GridPane>
+        </TitledPane>
+
+        <!-- Database Details Section -->
+        <TitledPane text="Database Details" collapsible="false" GridPane.valignment="TOP" GridPane.columnIndex="0" GridPane.rowIndex="1" GridPane.hgrow="ALWAYS" >
+            <GridPane hgap="5.0" vgap="5.0">
+                <padding>
+                    <Insets top="6" left="6" right="6" bottom="6"/>
+                </padding>
+                <Label text="DB Host:" GridPane.rowIndex="0" GridPane.columnIndex="0" />
+                <TextField fx:id="dbHostField" GridPane.rowIndex="0" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
+
+                <Label text="DB User:" GridPane.rowIndex="1" GridPane.columnIndex="0" />
+                <TextField fx:id="dbUserField" GridPane.rowIndex="1" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
+
+                <Label text="Password:" GridPane.rowIndex="2" GridPane.columnIndex="0" />
+                <PasswordField fx:id="dbPasswordField" GridPane.rowIndex="2" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
+
+                <Label text="Port:" GridPane.rowIndex="3" GridPane.columnIndex="0" />
+                <Spinner fx:id="dbPortSpinner" GridPane.rowIndex="3" GridPane.columnIndex="1" editable="true" GridPane.hgrow="ALWAYS"/>
+
+                <Label text="SID:" GridPane.rowIndex="4" GridPane.columnIndex="0" />
+                <TextField fx:id="dbSidField" GridPane.rowIndex="4" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
+            </GridPane>
+        </TitledPane>
+
+        <!-- Placeholder for Additional Sections -->
+        <TitledPane text="Additional Section" GridPane.valignment="TOP" collapsible="false" GridPane.columnIndex="1" GridPane.rowIndex="1" GridPane.hgrow="ALWAYS" >
+            <VBox spacing="5.0" VBox.vgrow="ALWAYS">
+                <Label text="This section can be expanded to add more details." />
+            </VBox>
+        </TitledPane>
+    </GridPane>
+
+    <StackPane fx:id="overlayPane" visible="false" AnchorPane.topAnchor="0.0" AnchorPane.bottomAnchor="0.0"
+               AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0">
+        <ProgressIndicator fx:id="loadingIndicator" maxWidth="80.0" maxHeight="80.0" />
+    </StackPane>
+</AnchorPane>

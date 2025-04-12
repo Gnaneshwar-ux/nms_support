@@ -1,4 +1,4 @@
-package com.nms.support.nms_support.service;
+package com.nms.support.nms_support.service.userdata;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nms.support.nms_support.model.LogEntity;

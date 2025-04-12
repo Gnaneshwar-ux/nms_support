@@ -13,6 +13,7 @@ module com.nms.support.nms_support {
     requires java.desktop;
     requires jsch;
     requires java.logging;
+    requires com.hierynomus.sshj;
 
     opens com.nms.support.nms_support.model to javafx.base,com.fasterxml.jackson.databind;
     opens com.nms.support.nms_support to javafx.fxml;

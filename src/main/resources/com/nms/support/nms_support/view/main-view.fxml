@@ -52,13 +52,18 @@
         <!-- TabPane set to fill the VBox -->
         <TabPane tabClosingPolicy="UNAVAILABLE" VBox.vgrow="ALWAYS" styleClass="tab-pane">
             <tabs>
-                <!-- First Tab -->
+
+<!--                <Tab fx:id="projectTab" text="Project Details" styleClass="tab" >-->
+
+<!--                </Tab>-->
+
+
                 <Tab fx:id="buildTab" text="Build Automation" styleClass="tab" >
-                    <!-- content will be loaded in the BuildAutomation controller -->
+
                 </Tab>
 
                 <Tab fx:id="dataStoreTab" text="View DataStores" styleClass="tab" >
-                    <!-- content will be loaded in the BuildAutomation controller -->
+
                 </Tab>
             </tabs>
         </TabPane>

@@ -17,6 +17,14 @@
         <maven.compiler.release>22</maven.compiler.release>
     </properties>
 
+    <repositories>
+        <repository>
+            <id>repo_1</id>
+            <url>https://mvnrepository.com/</url>
+        </repository>
+    </repositories>
+
+
     <dependencies>
         <dependency>
             <groupId>org.openjfx</groupId>
@@ -114,11 +122,68 @@
             <artifactId>jackson-databind</artifactId>
             <version>2.14.2</version>
         </dependency>
+        <dependency>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>properties-maven-plugin</artifactId>
+            <version>1.2.1</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/com.hierynomus/sshj -->
+        <dependency>
+            <groupId>com.hierynomus</groupId>
+            <artifactId>sshj</artifactId>
+            <version>0.35.0</version>
+            <type>jar</type>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.0-alpha1</version>
+            <type>jar</type><!-- Or the version matching your SLF4J version -->
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j-impl</artifactId>
+            <version>2.14.1</version>
+            <type>jar</type><!-- Or use the latest version of Log4j 2 -->
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>2.14.1</version>
+            <type>jar</type>
+        </dependency>
+
 
     </dependencies>
 
+
+
     <build>
             <plugins>
+
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>properties-maven-plugin</artifactId>
+                    <version>1.2.1</version>
+                    <executions>
+                        <execution>
+                            <phase>initialize</phase>
+                            <goals>
+                                <goal>read-project-properties</goal>
+                            </goals>
+                            <configuration>
+                                <files>
+                                    <file>src/main/resources/application.properties</file>
+                                </files>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
@@ -151,18 +216,7 @@
                         </execution>
                     </executions>
                 </plugin>
-<!--                <plugin>-->
-<!--                    <groupId>org.openjfx</groupId>-->
-<!--                    <artifactId>javafx-maven-plugin</artifactId>-->
-<!--                    <version>0.0.8</version>-->
-<!--                    <executions>-->
-<!--                        <execution>-->
-<!--                            <configuration>-->
-<!--                                <mainClass>com.nms.support.nms_support.FakeMain</mainClass>-->
-<!--                            </configuration>-->
-<!--                        </execution>-->
-<!--                    </executions>-->
-<!--                </plugin>-->
+
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-jar-plugin</artifactId>
@@ -222,8 +276,9 @@
                         <workingDirectory>${project.basedir}</workingDirectory>
                         <executable>build_app_windows.bat</executable>
                         <environmentVariables>
+                            <!--suppress UnresolvedMavenProperty -->
                             <APP_VERSION>
-                                1.1.2
+                                ${app.version}
                             </APP_VERSION>
                             <PROJECT_VERSION>
                                 ${project.version}
@@ -231,6 +286,8 @@
                         </environmentVariables>
                     </configuration>
                 </plugin>
+
+
             </plugins>
     </build>
 </project>

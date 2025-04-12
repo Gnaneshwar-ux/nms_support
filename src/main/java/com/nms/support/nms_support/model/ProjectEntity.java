@@ -18,6 +18,9 @@ public class ProjectEntity {
     private String hostUser;
     private String hostPass;
     private String dataStoreUser;
+    private String nmsAppURL;
+    private String nmsEnvVar;
+
     public List<String> getTypes(String app) {
         if (types.containsKey(app)) return types.get(app);
         return null;
@@ -172,5 +175,21 @@ public class ProjectEntity {
 
     public void setPrevTypeSelected(HashMap<String, String> prevTypeSelected) {
         this.prevTypeSelected = prevTypeSelected;
+    }
+
+    public String getNmsAppURL() {
+        return nmsAppURL;
+    }
+
+    public void setNmsAppURL(String nmsAppURL) {
+        this.nmsAppURL = nmsAppURL;
+    }
+
+    public String getNmsEnvVar() {
+        return nmsEnvVar;
+    }
+
+    public void setNmsEnvVar(String nmsEnvVar) {
+        this.nmsEnvVar = nmsEnvVar;
     }
 }

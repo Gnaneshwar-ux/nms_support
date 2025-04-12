@@ -3,8 +3,8 @@ package com.nms.support.nms_support.service.buildTabPack;
 import com.nms.support.nms_support.controller.BuildAutomation;
 import com.nms.support.nms_support.model.LogEntity;
 import com.nms.support.nms_support.model.ProjectEntity;
-import com.nms.support.nms_support.service.LogManager;
-import com.nms.support.nms_support.service.ProjectManager;
+import com.nms.support.nms_support.service.userdata.LogManager;
+import com.nms.support.nms_support.service.userdata.ProjectManager;
 
 import java.io.*;
 import java.text.SimpleDateFormat;
@@ -12,7 +12,6 @@ import java.util.*;
 
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
 import com.nms.support.nms_support.service.globalPack.ManageFile;
-import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.scene.control.Alert;
 
@@ -199,6 +198,11 @@ public class ControlApp {
                 try {
                     ProcessBuilder builder = new ProcessBuilder("cmd.exe", "/c", type + " && exit 0 || exit 1");
                     builder.directory(new File(finalPath));
+                    Map<String, String> env = builder.environment();
+                    env.put(project.getNmsEnvVar(), project.getExePath());
+
+                    buildAutomation.appendTextToLog("Injecting ENV dynamically for this build | "+project.getNmsEnvVar()+" - "+project.getExePath());
+
                     Process process = builder.start();
 
                     BufferedReader stdInput = new BufferedReader(new InputStreamReader(process.getInputStream()));

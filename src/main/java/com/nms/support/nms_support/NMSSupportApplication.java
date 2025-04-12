@@ -4,6 +4,7 @@ package com.nms.support.nms_support;
 import com.nms.support.nms_support.controller.BuildAutomation;
 import com.nms.support.nms_support.service.globalPack.IconUtils;
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
@@ -23,8 +24,10 @@ public class NMSSupportApplication extends Application {
         stage.setTitle("NMS DevTools");
         stage.setScene(scene);
         stage.setMaximized(true);
+        
         stage.show();
     }
+
 
     public static void main(String[] args) {
         launch();
