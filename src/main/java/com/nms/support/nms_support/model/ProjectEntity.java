@@ -20,6 +20,7 @@ public class ProjectEntity {
     private String dataStoreUser;
     private String nmsAppURL;
     private String nmsEnvVar;
+    private String svnRepo;
 
     public List<String> getTypes(String app) {
         if (types.containsKey(app)) return types.get(app);
@@ -191,5 +192,12 @@ public class ProjectEntity {
 
     public void setNmsEnvVar(String nmsEnvVar) {
         this.nmsEnvVar = nmsEnvVar;
+    }
+
+    public void setSvnRepo(String svnRepo) {
+        this.svnRepo = svnRepo;
+    }
+    public String getSvnRepo(){
+        return this.svnRepo;
     }
 }

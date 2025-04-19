@@ -78,6 +78,17 @@ public class CreateInstallerCommand {
 
 		dir_temp = project.getExePath(); // where all the installer and extracted java folder is placed
 		installer_loc = project.getExePath();
+		File folder = new File(installer_loc);
+		if (!folder.exists()) {
+			boolean created = folder.mkdirs(); // Creates directory including any necessary but nonexistent parent directories
+			if (created) {
+				System.out.println("Folder created: " + installer_loc);
+			} else {
+				System.out.println("Failed to create folder: " + installer_loc);
+			}
+		} else {
+			System.out.println("Folder already exists: " + installer_loc);
+		}
 		String serverURL = adjustUrl(appURL);
 		boolean state =cleanDirectory(Path.of(dir_temp));
 		if(!state)return false;

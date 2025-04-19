@@ -14,6 +14,7 @@ module com.nms.support.nms_support {
     requires jsch;
     requires java.logging;
     requires com.hierynomus.sshj;
+    requires svnkit;
 
     opens com.nms.support.nms_support.model to javafx.base,com.fasterxml.jackson.databind;
     opens com.nms.support.nms_support to javafx.fxml;

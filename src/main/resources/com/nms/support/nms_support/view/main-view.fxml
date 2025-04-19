@@ -45,7 +45,7 @@
         </HBox>
             </center>
             <right>
-                <Button fx:id="openVpnButton" text="VPN" textAlignment="RIGHT" styleClass="button-common"
+                <Button fx:id="openVpnButton" text="VPN" textAlignment="RIGHT" visible="false" styleClass="button-common"
                         onAction="#openVpnManager"/>
         </right>
         </BorderPane>

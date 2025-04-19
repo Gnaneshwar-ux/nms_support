@@ -1,6 +1,8 @@
 package com.nms.support.nms_support.service.globalPack;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.FileHandler;
 import java.util.logging.Level;
@@ -49,5 +51,16 @@ public class LoggerUtil {
 
     public static Logger getLogger() {
         return logger;
+    }
+
+    public static void error(Exception e) {
+
+        // Convert stack trace to string
+        StringWriter sw = new StringWriter();
+        e.printStackTrace(new PrintWriter(sw));
+        String exceptionAsString = sw.toString();
+
+        // Log it
+        logger.severe("Exception occurred: " + exceptionAsString);
     }
 }

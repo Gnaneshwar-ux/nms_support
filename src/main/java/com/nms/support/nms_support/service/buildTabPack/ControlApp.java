@@ -63,17 +63,17 @@ public class ControlApp {
         //propPath = "C:/Users/" + user + "/Documents";
         File directory = null;
         try {
-            directory = new File("C:\\Users\\" + user + "\\AppData\\Local\\Temp\\OracleNMS");
+            directory = new File(getLogDirectoryPath());
         } catch (Exception e) {
             buildAutomation.appendTextToLog(e.toString());
-
+            return null;
         }
+        buildAutomation.appendTextToLog("Searching Logs at : "+directory.getAbsolutePath());
+
         File[] logfiles = null;
-        if (directory != null) {
+        if (directory.exists()) {
             logfiles = directory.listFiles((dir, name) -> name.toLowerCase().contains(app.toLowerCase()) && new File(dir, name).isFile());
         }
-
-
 
         if (logfiles != null) {
             Arrays.sort(logfiles, new Comparator<File>() {
@@ -93,14 +93,15 @@ public class ControlApp {
             });
         } else {
             DialogUtil.showWarning("Warning","Before using this application you must run the WebWorkspace atleast once manually.");
+
             return null;
         }
 
-        if (logfiles.length <= 50) {
+        if (logfiles.length <= 100) {
             return logfiles;
         }
 
-        return Arrays.copyOf(logfiles,50);
+        return Arrays.copyOf(logfiles,100);
     }
 
     //This method parse the log files and create map for required fields
@@ -142,10 +143,10 @@ public class ControlApp {
             }
 
             if (line.contains("/version.xml")) {
-                if (line.contains("AppData") && line.contains(".nms")) {
+                if (!line.contains("working")) {
                     launcher = "JNLP";
                 } else {
-                    launcher = "Local";
+                    launcher = "EXE";
                 }
                 c = true;
             }
@@ -402,8 +403,8 @@ public class ControlApp {
                 return;
             }
 
-            String user = System.getProperty("user.name");
-            String pathLog = "C:\\Users\\" + user + "\\AppData\\Local\\Temp\\OracleNMS\\";
+
+            String pathLog = getLogDirectoryPath();
             String filePath = pathLog + selectedProcesses.get(0).get("FILE");
 
             buildAutomation.appendTextToLog(selectedProcesses.get(0).get("FILE"));
@@ -452,6 +453,33 @@ public class ControlApp {
         } catch (IOException e) {
             DialogUtil.showAlert(Alert.AlertType.ERROR, "Exception while writing to log", e.getMessage());
         }
+    }
+
+
+    public static String getLogDirectoryPath() {
+        String path;
+        File dir = null;
+
+        if (System.getProperty("os.name").startsWith("Windows")) {
+            path = System.getProperty("java.io.tmpdir");
+        } else {
+            path = System.getenv("APPDATA");
+
+            if (path == null) {
+                path = System.getenv("NMS_LOG_DIR");
+                if (path != null) {
+                    dir = new File(path);
+                } else {
+                    path = System.getProperty("java.io.tmpdir") + "/" + System.getProperty("user.name");
+                }
+            }
+        }
+
+        if (dir == null) {
+            dir = new File(path, "OracleNMS");
+        }
+
+        return dir.getAbsolutePath();
     }
 
 }

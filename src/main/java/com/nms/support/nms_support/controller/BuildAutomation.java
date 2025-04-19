@@ -244,7 +244,7 @@ public class BuildAutomation implements Initializable {
         this.mainController = mainController;
         controlApp = new ControlApp(this, this.mainController.logManager, mainController.projectManager);
 
-        this.mainController.projectComboBox.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> loadProjectDetails(newValue));
+        this.mainController.projectComboBox.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> loadProjectDetails());
         initializeProjectLogComboBox();
     }
 
@@ -322,8 +322,8 @@ public class BuildAutomation implements Initializable {
         });
     }
 
-    private void loadProjectDetails(String projectName) {
-        logger.fine("Loading project details for: " + projectName);
+    public void loadProjectDetails() {
+        logger.fine("Loading project details for: " + mainController.getSelectedProject().getName());
         clearFields();
         ProjectEntity project = mainController.getSelectedProject();
         if (project != null) {
@@ -487,7 +487,7 @@ public class BuildAutomation implements Initializable {
         }
     }
 
-    private void build() {
+    public void build() {
         ProjectEntity project  = mainController.getSelectedProject();
         String app = getSelectedAppName();
         try {

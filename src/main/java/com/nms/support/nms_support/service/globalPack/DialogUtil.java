@@ -13,6 +13,7 @@ import javafx.scene.control.Alert.AlertType;
 import javafx.scene.layout.*;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
+import org.tmatesoft.svn.core.SVNException;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -145,13 +146,13 @@ public class DialogUtil {
         filterCheckBox.setSelected(true);
         filterCheckBox.setOnAction(e -> {
             if (filterCheckBox.isSelected()) {
-                filteredData.setPredicate(p -> "Local".equalsIgnoreCase(p.get("LAUNCHER")));
+                filteredData.setPredicate(p -> "EXE".equalsIgnoreCase(p.get("LAUNCHER")));
             } else {
                 filteredData.setPredicate(p -> true);
             }
         });
 
-        filteredData.setPredicate(p -> "Local".equalsIgnoreCase(p.get("LAUNCHER")));
+        filteredData.setPredicate(p -> "EXE".equalsIgnoreCase(p.get("LAUNCHER")));
 
         HBox hbox = new HBox(filterCheckBox);
         hbox.setStyle("-fx-padding: 10px;");
@@ -238,65 +239,124 @@ public class DialogUtil {
         return future;
     }
 
-    public static CompletableFuture<Boolean> showProjectSetupDialog(String defaultEnvVarValue, ProjectEntity project) {
+    public static CompletableFuture<Boolean> showProjectSetupDialog(
+            String defaultEnvVarValue, ProjectEntity project) {
+
         CompletableFuture<Boolean> future = new CompletableFuture<>();
 
         Platform.runLater(() -> {
             Stage dialogStage = new Stage();
+
+            IconUtils.setStageIcon(dialogStage);
             dialogStage.setTitle("Initial Project Setup");
             dialogStage.initModality(Modality.APPLICATION_MODAL);
 
+            // --- Grid and Column Setup ---
             GridPane grid = new GridPane();
             grid.setHgap(10);
             grid.setVgap(10);
             grid.setPadding(new Insets(20));
-            ColumnConstraints col1 = new ColumnConstraints();
-            col1.setPercentWidth(30);
-            ColumnConstraints col2 = new ColumnConstraints();
-            col2.setPercentWidth(70);
-            grid.getColumnConstraints().addAll(col1, col2);
 
-            TextField projectDirField = new TextField();
-            TextField productDirField = new TextField();
-            TextField nmsAppUrlField = new TextField();
-            TextField envVarField = new TextField(defaultEnvVarValue);
-            TextField nmsHostField = new TextField();
-            TextField hostUserField = new TextField();
+            // Three columns: label (30%), field (50%), button (20%)
+            ColumnConstraints col1 = new ColumnConstraints(); col1.setPercentWidth(30);
+            ColumnConstraints col2 = new ColumnConstraints(); col2.setPercentWidth(50);
+            ColumnConstraints col3 = new ColumnConstraints(); col3.setPercentWidth(20);
+            grid.getColumnConstraints().addAll(col1, col2, col3);
+
+            // --- Fields ---
+            TextField projectDirField   = new TextField();
+            projectDirField.setPromptText("expects /jconfig inside");
+            TextField productDirField   = new TextField();
+            TextField nmsAppUrlField    = new TextField();
+            TextField envVarField       = new TextField(defaultEnvVarValue);
+            TextField nmsHostField      = new TextField();
+            TextField hostUserField     = new TextField();
             PasswordField hostPassField = new PasswordField();
+            TextField svnRepoField      = new TextField();
+            svnRepoField.setText("https://adc4110315.us.oracle.com/svn/nms-projects/trunk/projects");
+            svnRepoField.setDisable(true);
 
-            grid.add(new Label("Project Dir*:"), 0, 0);
-            grid.add(projectDirField, 1, 0);
+            // Make all text‐fields grow to fill column width
+            for (Control ctl : new Control[]{ projectDirField, productDirField,
+                    nmsAppUrlField, envVarField, nmsHostField,
+                    hostUserField, hostPassField, svnRepoField }) {
+                ctl.setMaxWidth(Double.MAX_VALUE);
+                GridPane.setHgrow(ctl, Priority.ALWAYS);
+            }
 
-            grid.add(new Label("Product Dir*:"), 0, 1);
-            grid.add(productDirField, 1, 1);
+            // --- Browse Button ---
+            Button browseBtn = new Button("Browse...");
+            browseBtn.setDisable(true);
+            browseBtn.setOnAction(e -> {
+                // launch Swing browser off the FX thread:
+                new Thread(() -> {
+                    try {
+                        browseBtn.setDisable(true);
+                        String picked = new SVNAutomationTool()
+                                .browseAndSelectFolder(svnRepoField.getText());
+                        if (picked != null) {
+                            Platform.runLater(() -> svnRepoField.setText(picked));
+                        }
+                        browseBtn.setDisable(false);
+                    } catch (SVNException ex) {
+                        Platform.runLater(() ->
+                                showError("SVN Browse Failed", ex.getMessage()));
+                        browseBtn.setDisable(false);
+                    }
+                }).start();
+            });
 
-            grid.add(new Label("NMS App URL*:"), 0, 2);
-            grid.add(nmsAppUrlField, 1, 2);
+            // --- Place rows in grid ---
+            int row = 0;
+            grid.add(new Label("Project Folder*:"), 0, row);
+            grid.add(projectDirField, 1, row, 2, 1); row++;
 
-            grid.add(new Label("ENV Var:"), 0, 3);
-            grid.add(envVarField, 1, 3);
+            grid.add(new Label("Product Dir*:"), 0, row);
+            grid.add(productDirField, 1, row, 2, 1); row++;
 
-            grid.add(new Label("NMS HOST*:"), 0, 4);
-            grid.add(nmsHostField, 1, 4);
+            grid.add(new Label("NMS App URL*:"), 0, row);
+            grid.add(nmsAppUrlField, 1, row, 2, 1); row++;
 
-            grid.add(new Label("HOST USER*:"), 0, 5);
-            grid.add(hostUserField, 1, 5);
+            grid.add(new Label("ENV Var:"), 0, row);
+            grid.add(envVarField, 1, row, 2, 1); row++;
 
-            grid.add(new Label("HOST PASS*:"), 0, 6);
-            grid.add(hostPassField, 1, 6);
+            grid.add(new Label("NMS HOST*:"), 0, row);
+            grid.add(nmsHostField, 1, row, 2, 1); row++;
 
+            grid.add(new Label("HOST USER*:"), 0, row);
+            grid.add(hostUserField, 1, row, 2, 1); row++;
+
+            grid.add(new Label("HOST PASS*:"), 0, row);
+            grid.add(hostPassField, 1, row, 2, 1); row++;
+
+            // SVN Repo URL row: label, field, button
+            grid.add(new Label("SVN Repo URL:"), 0, row);
+            grid.add(svnRepoField, 1, row);
+            grid.add(browseBtn, 2, row);
+            row++;
+
+            // Enable SVN checkbox below the SVN row
+            CheckBox svnCheckBox = new CheckBox("Enable SVN Checkout");
+            grid.add(svnCheckBox, 1, row, 2, 1);
+            row++;
+
+            // Toggle SVN field & button based on checkbox
+            svnCheckBox.selectedProperty().addListener((obs, was, isNow) -> {
+                svnRepoField.setDisable(!isNow);
+                browseBtn.setDisable(!isNow);
+            });
+
+            // --- Buttons ---
             Button setupButton = new Button("Setup");
-            Button skipButton = new Button("Skip");
-
+            Button skipButton  = new Button("Skip");
             HBox buttonBox = new HBox(10, setupButton, skipButton);
             buttonBox.setAlignment(Pos.CENTER_RIGHT);
             buttonBox.setPadding(new Insets(10, 0, 0, 0));
 
-            VBox root = new VBox(10, grid, buttonBox);
-            root.setPadding(new Insets(15));
-            root.setPrefWidth(450);
-
+            // --- Validation & Completion ---
             setupButton.setOnAction(event -> {
+                // ... existing validation for mandatory fields ...
+                // SVN URL write‐back
                 String projectDir = projectDirField.getText().trim();
                 String productDir = productDirField.getText().trim();
                 String nmsAppUrl = nmsAppUrlField.getText().trim();
@@ -318,14 +378,7 @@ public class DialogUtil {
                     return;
                 }
 
-                boolean hasBuildXml = searchFile(projDir, "build.xml");
-                boolean hasBuildProps = searchFile(projDir, "build.properties");
 
-                if (!hasBuildXml || !hasBuildProps) {
-                    showError("Build Files Missing",
-                            "Project Dir must contain 'build.xml' and 'build.properties'. Make sure given project jconfig path.");
-                    return;
-                }
 
                 File productDirFile = new File(productDir);
                 if (!productDirFile.exists()) {
@@ -333,6 +386,19 @@ public class DialogUtil {
                     if (!res) {
                         showError("Failed to create product dir",
                                 "System not able to create specified product dir. please create dir manually.");
+                        return;
+                    }
+                }
+                if (svnCheckBox.isSelected() && !svnRepoField.getText().trim().isEmpty()) {
+                    project.setSvnRepo(svnRepoField.getText().trim());
+                } else {
+                    project.setSvnRepo("NULL");
+                    boolean hasBuildXml = searchFile(projDir, "build.xml");
+                    boolean hasBuildProps = searchFile(projDir, "build.properties");
+
+                    if (!hasBuildXml || !hasBuildProps) {
+                        showError("Build Files Missing",
+                                "Project Dir must contain 'build.xml' and 'build.properties'. Make sure given project jconfig path.");
                         return;
                     }
                 }
@@ -344,23 +410,28 @@ public class DialogUtil {
                 project.setHost(nmsHost);
                 project.setHostUser(hostUser);
                 project.setHostPass(hostPass);
-
+                // ... finish populating project and close ...
                 future.complete(true);
                 dialogStage.close();
             });
-
             skipButton.setOnAction(event -> {
+                project.setSvnRepo("NULL");
                 future.complete(false);
                 dialogStage.close();
             });
 
-            Scene scene = new Scene(root);
-            dialogStage.setScene(scene);
+            // --- Assemble Scene ---
+            VBox root = new VBox(10, grid, buttonBox);
+            root.setPadding(new Insets(15));
+            root.setPrefWidth(600);
+            dialogStage.setScene(new Scene(root));
             dialogStage.showAndWait();
         });
 
         return future;
     }
+
+
 
     private static boolean searchFile(File root, String fileName) {
         if (root == null || !root.exists()) return false;

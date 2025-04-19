@@ -1,14 +1,12 @@
 package com.nms.support.nms_support.controller;
 
 import com.nms.support.nms_support.model.ProjectEntity;
+import com.nms.support.nms_support.service.buildTabPack.ControlApp;
 import com.nms.support.nms_support.service.buildTabPack.patchUpdate.CreateInstallerCommand;
-import com.nms.support.nms_support.service.globalPack.ManageFile;
+import com.nms.support.nms_support.service.globalPack.*;
 import com.nms.support.nms_support.service.userdata.LogManager;
 import com.nms.support.nms_support.service.userdata.ProjectManager;
 import com.nms.support.nms_support.service.userdata.VpnManager;
-import com.nms.support.nms_support.service.globalPack.DialogUtil;
-import com.nms.support.nms_support.service.globalPack.IconUtils;
-import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
@@ -20,17 +18,20 @@ import javafx.scene.image.ImageView;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.ResourceBundle;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 import static com.nms.support.nms_support.service.globalPack.DialogUtil.showProjectSetupDialog;
+import static com.nms.support.nms_support.service.globalPack.SVNAutomationTool.deleteFolderContents;
 
 public class MainController implements Initializable {
 
@@ -154,9 +155,6 @@ public class MainController implements Initializable {
         ).thenAccept(result -> {
             if (result.isPresent()) {
 
-
-
-
             String projectName = result.get().trim();
             if (projectName.isEmpty()) {
                 DialogUtil.showAlert(Alert.AlertType.WARNING, "Invalid Input", "Project name cannot be empty.");
@@ -197,15 +195,49 @@ public class MainController implements Initializable {
                             DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Project Added", "Project added successfully. Setup Initiated.");
                             logger.info("New project added: " + newProject.getName());
 
-                            // ✅ Run heavy work in background
-                            new Thread(() -> {
-                                buildAutomation.clearLog();
-                                CreateInstallerCommand cic = new CreateInstallerCommand();
-                                boolean resp = false;
+                            AtomicBoolean statusSVN = new AtomicBoolean(false);
+                            Thread tSvn = new Thread(() -> {
                                 try {
-                                    resp = cic.execute(newProject.getNmsAppURL(), newProject.getNmsEnvVar(), newProject, buildAutomation);
-                                    if (resp) {
-                                        buildAutomation.populateAppNameComboBox(newProject.getExePath());
+                                    if (newProject.getSvnRepo() != null && !newProject.getSvnRepo().equals("NULL")) {
+
+                                        File jconfigFolder = new File(newProject.getJconfigPath());
+
+                                        if (jconfigFolder.exists() && jconfigFolder.isDirectory() &&
+                                                jconfigFolder.listFiles() != null && jconfigFolder.listFiles().length > 0) {
+
+                                            final boolean[] proceed = {false};
+                                            CountDownLatch latch = new CountDownLatch(1);
+
+                                            Platform.runLater(() -> {
+                                                Optional<ButtonType> result = DialogUtil.showConfirmationDialog(
+                                                        "SVN Checkout",
+                                                        "The project folder chosen is not empty. Do you want to proceed with clean checkout?",
+                                                        "Ok to delete project directory."
+                                                );
+
+                                                if (result.isPresent() && result.get() == ButtonType.OK) {
+                                                    proceed[0] = true;
+                                                }
+                                                latch.countDown();
+                                            });
+
+                                            // Wait for the user to respond
+                                            latch.await();
+
+                                            if (!proceed[0]) {
+                                                statusSVN.set(false);
+                                                return;
+                                            }
+                                        }
+
+                                        // Clean folder before checkout
+                                        SVNAutomationTool.deleteFolderContents(jconfigFolder);
+
+                                        // Perform SVN checkout
+                                        SVNAutomationTool.performCheckout(newProject.getSvnRepo(), newProject.getJconfigPath(), buildAutomation);
+
+                                        // Replace variables in build files
+                                        newProject.setJconfigPath(newProject.getJconfigPath() + "\\jconfig");
                                         String env_name = newProject.getNmsEnvVar();
                                         ManageFile.replaceTextInFiles(
                                                 List.of(newProject.getJconfigPath() + "/build.properties"), "NMS_HOME", env_name);
@@ -214,8 +246,28 @@ public class MainController implements Initializable {
 
                                         Platform.runLater(() -> {
                                             buildAutomation.appendTextToLog("Replaced NMS_HOME with " + env_name + " in project build files");
-
                                         });
+                                    }
+
+                                    statusSVN.set(true);
+
+                                } catch (Exception e) {
+                                    Platform.runLater(() -> buildAutomation.appendTextToLog("Error during SVN setup: " + e.getMessage()));
+                                    e.printStackTrace();
+                                }
+                            });
+
+                            // ✅ Run heavy work in background
+                            AtomicBoolean statusTPatch = new AtomicBoolean(false);
+                            Thread tPatch = new Thread(() -> {
+                                buildAutomation.clearLog();
+                                CreateInstallerCommand cic = new CreateInstallerCommand();
+                                boolean resp = false;
+                                try {
+                                    resp = cic.execute(newProject.getNmsAppURL(), newProject.getNmsEnvVar(), newProject, buildAutomation);
+                                    if (resp) {
+                                        buildAutomation.populateAppNameComboBox(newProject.getExePath());
+                                        String env_name = newProject.getNmsEnvVar();
                                         ManageFile.replaceTextInFiles(
                                                 List.of(newProject.getExePath() + "/java/ant/build.properties"), "NMS_HOME", env_name);
                                         ManageFile.replaceTextInFiles(
@@ -228,11 +280,34 @@ public class MainController implements Initializable {
                                     } else {
                                         Platform.runLater(() -> buildAutomation.appendTextToLog("\nSetup failed."));
                                     }
+                                    statusTPatch.set(true);
                                 } catch (Exception e) {
                                     logger.severe(e.getMessage());
                                     Platform.runLater(() -> buildAutomation.appendTextToLog(e.getMessage()));
                                 }
-                            }).start();
+                            });
+
+                            Thread tFinal = new Thread(() -> {
+                                try {
+                                    tSvn.wait();
+                                    tPatch.wait();
+                                    if(statusSVN.get() && statusTPatch.get()){
+
+                                        buildAutomation.appendTextToLog("***********Project setup process completed initiated build process*********");
+
+                                        buildAutomation.buildMode.setId("Ant clean config");
+                                        buildAutomation.build();
+                                    }
+                                    buildAutomation.loadProjectDetails();
+                                }
+                                catch (Exception e){
+                                    LoggerUtil.error(e);
+                                }
+                            });
+
+                            tSvn.start();
+                            tPatch.start();
+                            tFinal.start();
 
                         } else {
                             logger.info("User skipped setup.");
@@ -269,21 +344,24 @@ public class MainController implements Initializable {
     @FXML
     private void openVpnManager(){
         try {
-            // Load the dialog FXML file
-            FXMLLoader vpnloader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/vpn-manager.fxml"));
-            Parent root = vpnloader.load();
-            Stage dialogStage = new Stage();
-            IconUtils.setStageIcon(dialogStage);
-            dialogStage.initModality(Modality.APPLICATION_MODAL); // Makes it a modal dialog
-            dialogStage.setTitle("Cisco VPN Manager");
-            dialogStage.setScene(new Scene(root));
-
-            dialogStage.show(); // Show the dialog and wait for it to close
-            ((VpnController) vpnloader.getController()).setMainController(this);
+//            // Load the dialog FXML file
+//            FXMLLoader vpnloader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/vpn-manager.fxml"));
+//            Parent root = vpnloader.load();
+//            Stage dialogStage = new Stage();
+//            IconUtils.setStageIcon(dialogStage);
+//            dialogStage.initModality(Modality.APPLICATION_MODAL); // Makes it a modal dialog
+//            dialogStage.setTitle("Cisco VPN Manager");
+//            dialogStage.setScene(new Scene(root));
+//
+//            dialogStage.show(); // Show the dialog and wait for it to close
+//            ((VpnController) vpnloader.getController()).setMainController(this);
+            //SVNAutomationTool.start();
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
+
+
 
 
 }

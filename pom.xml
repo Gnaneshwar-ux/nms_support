@@ -157,6 +157,12 @@
             <type>jar</type>
         </dependency>
 
+        <dependency>
+            <groupId>org.tmatesoft.svnkit</groupId>
+            <artifactId>svnkit</artifactId>
+            <version>1.10.3</version>
+        </dependency>
+
 
     </dependencies>
 
