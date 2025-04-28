@@ -24,10 +24,14 @@ public class NMSSupportApplication extends Application {
         stage.setTitle("NMS DevTools");
         stage.setScene(scene);
         stage.setMaximized(true);
-        
         stage.show();
     }
 
+    @Override
+    public void stop(){
+        Platform.exit();
+        System.exit(0);
+    }
 
     public static void main(String[] args) {
         launch();

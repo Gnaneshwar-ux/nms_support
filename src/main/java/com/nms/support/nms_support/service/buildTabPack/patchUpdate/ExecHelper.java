@@ -10,7 +10,6 @@ public class ExecHelper {
 		try {
 			return exec(args, 0L);
 		} catch (TimeoutException e) {
-
 			throw new RuntimeException(e);
 		}
 	}

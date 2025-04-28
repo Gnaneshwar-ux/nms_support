@@ -12,7 +12,7 @@
            screen when the user logs out if it is started using webstart.
            If this is false, or if the application installer is used, 
            the application will exit on logoff. -->
-      <BooleanProperty name="restart_app_on_logout" value="true"/>
+      <BooleanProperty name="restart_app_on_logout" value="false"/>
       <BooleanProperty name="use_watermark" value="true"/>
     </GlobalProperties>
     <ToolBehavior>

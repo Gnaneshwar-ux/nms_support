@@ -120,6 +120,7 @@ public class SFTPDownloadAndUnzip {
             buildAutomation.appendTextToLog("Java Download and extraction completed successfully.");
         } catch (Exception e) {
             LoggerUtil.getLogger().severe(e.getMessage());
+            LoggerUtil.error(e);
         }
     }
 

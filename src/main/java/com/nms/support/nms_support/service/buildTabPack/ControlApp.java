@@ -3,6 +3,7 @@ package com.nms.support.nms_support.service.buildTabPack;
 import com.nms.support.nms_support.controller.BuildAutomation;
 import com.nms.support.nms_support.model.LogEntity;
 import com.nms.support.nms_support.model.ProjectEntity;
+import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 import com.nms.support.nms_support.service.userdata.LogManager;
 import com.nms.support.nms_support.service.userdata.ProjectManager;
 
@@ -200,10 +201,10 @@ public class ControlApp {
                     ProcessBuilder builder = new ProcessBuilder("cmd.exe", "/c", type + " && exit 0 || exit 1");
                     builder.directory(new File(finalPath));
                     Map<String, String> env = builder.environment();
-                    env.put(project.getNmsEnvVar(), project.getExePath());
-
-                    buildAutomation.appendTextToLog("Injecting ENV dynamically for this build | "+project.getNmsEnvVar()+" - "+project.getExePath());
-
+                    if(project.getNmsEnvVar() != null) {
+                        env.put(project.getNmsEnvVar(), project.getExePath());
+                        buildAutomation.appendTextToLog("Injecting ENV dynamically for this build | " + project.getNmsEnvVar() + " - " + project.getExePath());
+                    }
                     Process process = builder.start();
 
                     BufferedReader stdInput = new BufferedReader(new InputStreamReader(process.getInputStream()));
@@ -224,9 +225,10 @@ public class ControlApp {
 
                         return true;
                     }
-                } catch (IOException e) {
+                } catch (Exception e) {
                     updateMessage("Error** Invalid Jconfig path.\n");
                     updateMessage(e.toString() + "\n");
+                    LoggerUtil.error(e);
                     return false;
                 }
             }
@@ -407,7 +409,7 @@ public class ControlApp {
             String pathLog = getLogDirectoryPath();
             String filePath = pathLog + selectedProcesses.get(0).get("FILE");
 
-            buildAutomation.appendTextToLog(selectedProcesses.get(0).get("FILE"));
+            buildAutomation.appendTextToLog(filePath);
 
             // Check if Notepad++ exists
             ManageFile.open(filePath);
@@ -479,7 +481,7 @@ public class ControlApp {
             dir = new File(path, "OracleNMS");
         }
 
-        return dir.getAbsolutePath();
+        return dir.getAbsolutePath()+"\\";
     }
 
 }

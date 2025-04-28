@@ -79,7 +79,7 @@ public class MainController implements Initializable {
         reloadProjectNamesCB();
         loadTabContent();
         projectComboBox.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> setTabState(newValue));
-        setTabState("None");
+         setTabState("None");
 
 
     }
@@ -119,7 +119,7 @@ public class MainController implements Initializable {
 
             logger.info("Tab content loaded successfully.");
         } catch (IOException e) {
-            e.printStackTrace();
+            LoggerUtil.error(e);
             logger.severe("Error loading tab content: " + e.getMessage());
         }
     }
@@ -192,8 +192,7 @@ public class MainController implements Initializable {
                             logger.info("User chose to setup.");
                             buildAutomation.appendTextToLog("User chose to Setup");
                             projectManager.saveData();
-                            DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Project Added", "Project added successfully. Setup Initiated.");
-                            logger.info("New project added: " + newProject.getName());
+                             logger.info("New project added: " + newProject.getName());
 
                             AtomicBoolean statusSVN = new AtomicBoolean(false);
                             Thread tSvn = new Thread(() -> {
@@ -237,7 +236,9 @@ public class MainController implements Initializable {
                                         SVNAutomationTool.performCheckout(newProject.getSvnRepo(), newProject.getJconfigPath(), buildAutomation);
 
                                         // Replace variables in build files
-                                        newProject.setJconfigPath(newProject.getJconfigPath() + "\\jconfig");
+                                        if(!newProject.getJconfigPath().contains("jconfig")) {
+                                            newProject.setJconfigPath(newProject.getJconfigPath() + "\\jconfig");
+                                        }
                                         String env_name = newProject.getNmsEnvVar();
                                         ManageFile.replaceTextInFiles(
                                                 List.of(newProject.getJconfigPath() + "/build.properties"), "NMS_HOME", env_name);
@@ -252,8 +253,9 @@ public class MainController implements Initializable {
                                     statusSVN.set(true);
 
                                 } catch (Exception e) {
+                                    LoggerUtil.error(e);
                                     Platform.runLater(() -> buildAutomation.appendTextToLog("Error during SVN setup: " + e.getMessage()));
-                                    e.printStackTrace();
+
                                 }
                             });
 
@@ -283,21 +285,19 @@ public class MainController implements Initializable {
                                     statusTPatch.set(true);
                                 } catch (Exception e) {
                                     logger.severe(e.getMessage());
+                                    LoggerUtil.error(e);
                                     Platform.runLater(() -> buildAutomation.appendTextToLog(e.getMessage()));
                                 }
                             });
 
                             Thread tFinal = new Thread(() -> {
                                 try {
-                                    tSvn.wait();
-                                    tPatch.wait();
+                                    tSvn.join();
+                                    tPatch.join();
                                     if(statusSVN.get() && statusTPatch.get()){
-
                                         buildAutomation.appendTextToLog("***********Project setup process completed initiated build process*********");
-
-                                        buildAutomation.buildMode.setId("Ant clean config");
-                                        buildAutomation.build();
                                     }
+                                    DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Project Added", "Project added successfully. Check the setup status in log and Perform 'ant clean config'.");
                                     buildAutomation.loadProjectDetails();
                                 }
                                 catch (Exception e){
@@ -333,7 +333,9 @@ public class MainController implements Initializable {
 
         projectNames.add(0, "None"); // Add "None" as the first item
         projectComboBox.getItems().setAll(projectNames);
-
+        Platform.runLater(() -> {
+            projectComboBox.requestLayout();
+        });
         if (projectComboBox.getValue() == null || !projectNames.contains(projectComboBox.getValue())) {
             projectComboBox.setValue("None"); // Set default value if current selection is not valid
         }
@@ -344,19 +346,20 @@ public class MainController implements Initializable {
     @FXML
     private void openVpnManager(){
         try {
-//            // Load the dialog FXML file
-//            FXMLLoader vpnloader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/vpn-manager.fxml"));
-//            Parent root = vpnloader.load();
-//            Stage dialogStage = new Stage();
-//            IconUtils.setStageIcon(dialogStage);
-//            dialogStage.initModality(Modality.APPLICATION_MODAL); // Makes it a modal dialog
-//            dialogStage.setTitle("Cisco VPN Manager");
-//            dialogStage.setScene(new Scene(root));
-//
-//            dialogStage.show(); // Show the dialog and wait for it to close
-//            ((VpnController) vpnloader.getController()).setMainController(this);
-            //SVNAutomationTool.start();
+            // Load the dialog FXML file
+            FXMLLoader vpnloader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/vpn-manager.fxml"));
+            Parent root = vpnloader.load();
+            Stage dialogStage = new Stage();
+            IconUtils.setStageIcon(dialogStage);
+            dialogStage.initModality(Modality.APPLICATION_MODAL); // Makes it a modal dialog
+            dialogStage.setTitle("Cisco VPN Manager");
+            dialogStage.setScene(new Scene(root));
+
+            dialogStage.show(); // Show the dialog and wait for it to close
+            ((VpnController) vpnloader.getController()).setMainController(this);
+
         } catch (Exception e) {
+            LoggerUtil.error(e);
             e.printStackTrace();
         }
     }

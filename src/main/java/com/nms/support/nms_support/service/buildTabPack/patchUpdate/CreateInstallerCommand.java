@@ -26,6 +26,7 @@ import javax.xml.transform.stream.StreamResult;
 import com.nms.support.nms_support.controller.BuildAutomation;
 import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
+import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 import com.nms.support.nms_support.service.globalPack.ManageFile;
 import javafx.application.Platform;
 import javafx.scene.control.TextInputDialog;
@@ -90,9 +91,11 @@ public class CreateInstallerCommand {
 			System.out.println("Folder already exists: " + installer_loc);
 		}
 		String serverURL = adjustUrl(appURL);
+
 		boolean state =cleanDirectory(Path.of(dir_temp));
 		if(!state)return false;
 		SFTPDownloadAndUnzip.start(dir_temp, project, buildAutomation);
+
      	buildAutomation.appendTextToLog("Loading Resources..");
 
 		FileFetcher.loadResources(dir_temp,serverURL, buildAutomation);
@@ -103,6 +106,7 @@ public class CreateInstallerCommand {
 			processDirectory(dir_temp);
 		} catch (IOException e) {
 			e.printStackTrace();
+			LoggerUtil.error(e);
 			buildAutomation.appendTextToLog(e.getMessage());
 			buildAutomation.appendTextToLog("process dir failed");
 			return false;
@@ -173,6 +177,7 @@ public class CreateInstallerCommand {
 				buildAutomation.appendTextToLog("JRE directory copied successfully.");
 			} catch (IOException e) {
 				e.printStackTrace();
+				LoggerUtil.error(e);
 				buildAutomation.appendTextToLog("jre files copy process failed");
 				return false;
 			}
@@ -186,7 +191,8 @@ public class CreateInstallerCommand {
 			String jnlpName = props.getProperty(product + ".jnlpName", product);
 			String iUrl = serverURL + jnlpName + ".jnlp";
 			String saveClasspath = null;
-			try (InputStream is = getInputStreamFromURL(iUrl)) {
+
+			try (InputStream is = getInputStreamFromURL(iUrl.replace("http:","https:"))) {
 				str.append(TEMPLATE.replace("%long%", name).replace("%short%", jnlpName));
 				Document document = docBuilder.parse(is);
 
@@ -199,6 +205,7 @@ public class CreateInstallerCommand {
 				for (int i = 0; i < list.getLength(); i++) {
 					Node node = list.item(i);
 					String value = node.getTextContent();
+
 					if (value.equals("-p")) {
 						inSystemProps = !inSystemProps;
 
@@ -214,6 +221,7 @@ public class CreateInstallerCommand {
 							systemProps.add("-D" + value + "=\"" + setting + "\"");
 						}
 					} else {
+
 						saveClasspath = value;
 					}
 				}
@@ -274,8 +282,10 @@ public class CreateInstallerCommand {
 				addElement(launch4j, "outfile", (new File(dir, jnlpName + ".exe")).getPath());
 				ArrayList<String> cpList = new ArrayList<>();
 				cpList.add("java/working/config");
-				for (String jar : saveClasspath.split("\\;")) {
-					cpList.add("nmslib/" + jar);
+				if(saveClasspath != null) {
+					for (String jar : saveClasspath.split(";")) {
+						cpList.add("nmslib/" + jar);
+					}
 				}
 				for (String cp : cpList) {
 					addElement(classPath, "cp", cp);
@@ -306,6 +316,7 @@ public class CreateInstallerCommand {
 				buildAutomation.appendTextToLog("Not able to setup " + product);
 				failed_setups += product +", ";
 				e.printStackTrace();
+				LoggerUtil.error(e);
 			}
 		}
 		String config = readFileAsString(dir_temp + "/nms.nsi");
@@ -397,6 +408,7 @@ public class CreateInstallerCommand {
 			}
 		} catch (IOException | InterruptedException e) {
 			e.printStackTrace();
+			LoggerUtil.error(e);
 			return false;
 		}
 	}
@@ -614,6 +626,7 @@ public class CreateInstallerCommand {
 			return adjustedUrl;
 		} catch (MalformedURLException e) {
 			e.printStackTrace();
+			LoggerUtil.error(e);
 			return null;
 		}
 	}

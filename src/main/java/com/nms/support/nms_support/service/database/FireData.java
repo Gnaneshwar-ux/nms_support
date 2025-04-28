@@ -1,11 +1,13 @@
 package com.nms.support.nms_support.service.database;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -55,8 +57,11 @@ public class FireData {
             System.out.println("Version Data as HashMap: " + dataMap.toString());
             return dataMap;
 
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (UnknownHostException uhe){
+            LoggerUtil.getLogger().info("Unknown Host Exception Raise... System may be on VPN!");
+            return null;
+        }catch (Exception e) {
+            LoggerUtil.error(e);
             return null;
         }
     }

@@ -5,10 +5,7 @@ import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.service.buildTabPack.*;
 import com.nms.support.nms_support.service.buildTabPack.patchUpdate.CreateInstallerCommand;
 import com.nms.support.nms_support.service.database.FireData;
-import com.nms.support.nms_support.service.globalPack.AppDetails;
-import com.nms.support.nms_support.service.globalPack.DialogUtil;
-import com.nms.support.nms_support.service.globalPack.LoggerUtil;
-import com.nms.support.nms_support.service.globalPack.ManageFile;
+import com.nms.support.nms_support.service.globalPack.*;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.concurrent.Task;
@@ -16,7 +13,9 @@ import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.scene.control.*;
 import javafx.scene.layout.AnchorPane;
+import javafx.stage.Stage;
 
+import java.awt.event.KeyEvent;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
@@ -37,6 +36,7 @@ public class BuildAutomation implements Initializable {
     public TextArea buildLog;
     public Button reloadButton;
     public TextField jconfigPath;
+
     public TextField webWorkspacePath;
     public TextField usernameField;
     public ComboBox<String> userTypeComboBox;
@@ -65,6 +65,12 @@ public class BuildAutomation implements Initializable {
     @FXML
     public void initialize(URL url, ResourceBundle resourceBundle) {
         logger.info("Initializing BuildAutomation");
+        Platform.runLater(
+                ()->{
+                    DialogUtil.directoryChooserListener((Stage) jconfigPath.getScene().getWindow(), jconfigPath);
+                    DialogUtil.directoryChooserListener((Stage) webWorkspacePath.getScene().getWindow(), webWorkspacePath);
+                }
+        );
 
         reloadButton.setOnAction(event -> reloadLogNames());
         updateButton.setOnAction(event -> save());
@@ -84,6 +90,7 @@ public class BuildAutomation implements Initializable {
                     ManageFile.replaceTextInFiles(List.of(jconfigPath.getText()+"/build.properties"),"NMS_HOME", env_name);
                     ManageFile.replaceTextInFiles(List.of(jconfigPath.getText()+"/build.xml"),"NMS_HOME", env_name);
                     appendTextToLog("Replaced NMS_HOME with "+env_name+" in build.xml and build.properties files");
+                    mainController.getSelectedProject().setNmsEnvVar(env_name);
                 }else {
                     appendTextToLog("Input of env var name empty or cancelled");
                 }
@@ -98,6 +105,7 @@ public class BuildAutomation implements Initializable {
                     ManageFile.replaceTextInFiles(List.of(webWorkspacePath.getText()+"/java/ant/build.properties"),"NMS_HOME", env_name);
                     ManageFile.replaceTextInFiles(List.of(webWorkspacePath.getText()+"/java/ant/build.xml"),"NMS_HOME", env_name);
                     appendTextToLog("Replaced NMS_HOME with "+env_name+" in build.xml and build.properties files");
+                    mainController.getSelectedProject().setNmsEnvVar(env_name);
                 }else {
                     appendTextToLog("Input of env var name empty or cancelled");
                 }
@@ -109,12 +117,15 @@ public class BuildAutomation implements Initializable {
         buildMode.getSelectionModel().select(0);
         appName.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> appNameChange(newValue));
 
-        appendTextToLog("Hi " + System.getProperty("user.name") + "!\uD83E\uDD17");
+        appendTextToLog("Hello, " + System.getProperty("user.name") + "! Welcome back! 😊\n\n");
 
         String currentVersion = AppDetails.getApplicationVersion();
+
+
+        appendTextToLog("Shortcuts:");
+        appendTextToLog("   1. Use Ctrl + Space in Textbox to quickly search for a folder in the explorer.\n");
+
         appendTextToLog("\n\nCurrent Version: " + currentVersion);
-
-
         LogNewVersionDetails();
 
 
@@ -244,7 +255,7 @@ public class BuildAutomation implements Initializable {
         this.mainController = mainController;
         controlApp = new ControlApp(this, this.mainController.logManager, mainController.projectManager);
 
-        this.mainController.projectComboBox.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> loadProjectDetails());
+        this.mainController.projectComboBox.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> {if(!Objects.equals(newValue, "None")) loadProjectDetails();});
         initializeProjectLogComboBox();
     }
 
@@ -384,7 +395,7 @@ public class BuildAutomation implements Initializable {
             attachDeleteProcess(buildTask, project,app, true);
 
         } catch (InterruptedException e) {
-            logger.severe("Exception in build() method: " + e.getMessage());
+            LoggerUtil.error(e);
             appendTextToLog("Exception in build() method");
         }
     }
@@ -397,7 +408,7 @@ public class BuildAutomation implements Initializable {
                 DeleteRestartSetup.delete(project, this, false);
                 //this.appendTextToLog("Delete process completed\n");
             } catch (IOException e) {
-                e.printStackTrace();
+                LoggerUtil.error(e);
                 appendTextToLog(e.toString());
                 throw new RuntimeException(e);
             }
@@ -416,7 +427,7 @@ public class BuildAutomation implements Initializable {
                 DeleteRestartSetup.delete(project, this, false);
                 //this.appendTextToLog("Delete process completed\n");
             } catch (IOException e) {
-                e.printStackTrace();
+                LoggerUtil.error(e);
                 appendTextToLog(e.toString());
                 throw new RuntimeException(e);
             }
@@ -472,7 +483,7 @@ public class BuildAutomation implements Initializable {
             }
             controlApp.start(app, project);
         } catch (IOException | InterruptedException e) {
-            logger.severe("Exception in start() method: " + e.getMessage());
+            LoggerUtil.error(e);
         }
     }
 
@@ -483,6 +494,7 @@ public class BuildAutomation implements Initializable {
             return controlApp.stopProject(appName.getValue(), mainController.getSelectedProject());
         } catch (IOException e) {
             logger.severe("IOException in stop() method: " + e.getMessage());
+            LoggerUtil.error(e);
             return false;
         }
     }
@@ -516,6 +528,7 @@ public class BuildAutomation implements Initializable {
             attachDeleteProcess(buildTask, project, app,false);
         } catch (InterruptedException e) {
             logger.severe("InterruptedException in build() method: " + e.getMessage());
+            LoggerUtil.error(e);
             appendTextToLog(e.toString());
         }
     }
@@ -527,7 +540,9 @@ public class BuildAutomation implements Initializable {
             DeleteLoginSetup.delete(mainController.getSelectedProject(), this,true);
             DeleteRestartSetup.delete(mainController.getSelectedProject(), this,true);
         } catch (IOException e) {
+
             logger.severe("IOException in deleteSetup() method: " + e.getMessage());
+            LoggerUtil.error(e);
         }
     }
 
@@ -609,6 +624,7 @@ public class BuildAutomation implements Initializable {
             } catch (Exception e) {
                 logger.severe("Exception in setup: " + e.getMessage());
                 appendTextToLog("Exception in setup: " + e.toString());
+                LoggerUtil.error(e);
                 return false;
             }
         }
@@ -634,6 +650,7 @@ public class BuildAutomation implements Initializable {
             } catch (Exception e) {
                 logger.severe("Exception in Restart tools setup: " + e.getMessage());
                 appendTextToLog("Exception in Restart tools setup: " + e.toString());
+                LoggerUtil.error(e);
                 return false;
             }
     }

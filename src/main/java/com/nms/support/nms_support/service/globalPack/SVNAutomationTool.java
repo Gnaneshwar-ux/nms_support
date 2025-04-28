@@ -1,6 +1,9 @@
 package com.nms.support.nms_support.service.globalPack;
 
 import com.nms.support.nms_support.controller.BuildAutomation;
+import javafx.embed.swing.JFXPanel;
+import javafx.scene.Group;
+import javafx.scene.Scene;
 import javafx.stage.Stage;
 import org.tmatesoft.svn.core.*;
 import org.tmatesoft.svn.core.auth.*;
@@ -9,17 +12,15 @@ import org.tmatesoft.svn.core.wc.*;
 
 import java.util.*;
 import javax.swing.*;
-import javax.swing.Timer;
 import javax.swing.event.*;
 import javax.swing.plaf.basic.BasicProgressBarUI;
 import javax.swing.tree.*;
 import java.awt.*;
-import java.awt.List;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.IOException;
-
+import javafx.stage.Window;
 
 public class SVNAutomationTool {
 
@@ -154,27 +155,49 @@ public class SVNAutomationTool {
         File svnMetadata = new File(folder, ".svn");
         if (svnMetadata.exists()) {
             doSVNCleanup(folder);
+            try {
+                Thread.sleep(500); // Small wait after cleanup
+            } catch (InterruptedException ignored) {}
         }
 
         for (File file : folder.listFiles()) {
             if (file.isDirectory()) {
                 deleteFolderContents(file);
             }
+
+            // Try to make file writable first (for read-only .svn files)
+            file.setWritable(true);
+
             if (!file.delete()) {
-                throw new IOException("Failed to delete file: " + file.getAbsolutePath());
+                // Try deleting again after small wait
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException ignored) {}
+
+                if (!file.delete()) {
+                    LoggerUtil.getLogger().info("Failed to delete file even after retry: " + file.getAbsolutePath());
+
+                }
             }
         }
     }
 
+
     public static void doSVNCleanup(File folder) {
+        SVNClientManager clientManager = null;
         try {
-            SVNClientManager clientManager = SVNClientManager.newInstance();
+            clientManager = SVNClientManager.newInstance();
             SVNWCClient wcClient = clientManager.getWCClient();
             wcClient.doCleanup(folder);
-            System.out.println("SVN cleanup completed successfully for: " + folder.getAbsolutePath());
+
+            LoggerUtil.getLogger().info("SVN cleanup completed successfully for: " + folder.getAbsolutePath());
         } catch (SVNException e) {
             System.err.println("SVN cleanup failed for: " + folder.getAbsolutePath());
-            e.printStackTrace();
+            LoggerUtil.error(e);
+        } finally {
+            if (clientManager != null) {
+                clientManager.dispose();  // VERY IMPORTANT
+            }
         }
     }
 
@@ -227,11 +250,21 @@ public class SVNAutomationTool {
      * Shows a modal dialog where user can browse one level at a time,
      * search, and double-click or press Select to choose a folder.
      * Blocks until user selects or cancels.
-     * @param baseUrl the root SVN URL to browse
+     *
+     * @param fxOwner
+     * @param baseUrl  the root SVN URL to browse
      * @return the selected folder URL (full), or null if cancelled
      */
-    public String browseAndSelectFolder(String baseUrl) throws SVNException {
+    public String browseAndSelectFolder(Window fxOwner, String baseUrl) throws SVNException {
         // Prepare repository
+
+        java.awt.Window swingParent = SwingUtilities.getWindowAncestor(
+                new JFXPanel() {{ setScene(new Scene(new Group())); setVisible(false); }}
+        );
+        if (swingParent == null && fxOwner instanceof Stage) {
+            swingParent = new JFrame();  // fallback if owner conversion fails
+        }
+
         SVNURL svnurl = SVNURL.parseURIEncoded(baseUrl);
         repository = SVNRepositoryFactory.create(svnurl);
         repository.setAuthenticationManager(authManager);
@@ -329,9 +362,10 @@ public class SVNAutomationTool {
         });
 
         // Main dialog
-        JDialog dlg = new JDialog((Frame) null, "SVN Folder Browser", true);
+        JDialog dlg = new JDialog( swingParent, "SVN Folder Browser", Dialog.ModalityType.APPLICATION_MODAL);
         dlg.setLayout(new BorderLayout(5, 5));
-
+        dlg.setAlwaysOnTop(true);
+        dlg.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         JPanel top = new JPanel(new BorderLayout(5, 5));
         top.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 10));
         top.add(new JLabel("Search:"), BorderLayout.WEST);
@@ -342,7 +376,7 @@ public class SVNAutomationTool {
         JButton btnSelect = new JButton("Select");
         btnSelect.addActionListener(e -> {
             TreePath sp = tree.getSelectionPath();
-            if (sp != null) {
+            if (sp != null && !sp.getLastPathComponent().toString().contains("Loading.")) {
                 chosen[0] = buildPath((DefaultMutableTreeNode) sp.getLastPathComponent());
                 dlg.dispose();
             } else {
@@ -356,8 +390,8 @@ public class SVNAutomationTool {
 
         dlg.setSize(600, 450);
         dlg.setLocationRelativeTo(null);
-
-        // Start loading folders BEFORE showing the dialog
+        // Show dialog after load starts
+        // Start loading folders AFTER showing the dialog
         SwingWorker<Void, Void> loader = new SwingWorker<>() {
             protected Void doInBackground() throws Exception {
                 root.removeAllChildren();
@@ -369,9 +403,10 @@ public class SVNAutomationTool {
                 SwingUtilities.invokeLater(() -> model.reload());
             }
         };
-        loader.execute();  // Start async load
 
-        dlg.setVisible(true);  // Show dialog after load starts
+        loader.execute();  // Start async load
+        dlg.setVisible(true);
+
 
         if (chosen[0] == null) return null;
         String sel = chosen[0].startsWith("/") ? chosen[0] : "/" + chosen[0];
@@ -380,15 +415,20 @@ public class SVNAutomationTool {
 
 
     /** Load *one* level of subdirs under given path into parent node **/
-    private void loadChildren(DefaultMutableTreeNode parent, String path) throws SVNException {
-        @SuppressWarnings("unchecked")
-        Collection<SVNDirEntry> ents = repository.getDir(path, -1, null, (Collection<?>)null);
-        for(SVNDirEntry e: ents){
-            if(e.getKind()==SVNNodeKind.DIR){
-                DefaultMutableTreeNode c = new DefaultMutableTreeNode(e.getName());
-                c.add(new DefaultMutableTreeNode("loading..."));
-                parent.add(c);
+    private void loadChildren(DefaultMutableTreeNode parentNode, String parentPath) throws SVNException {
+
+        try {
+            Collection<SVNDirEntry> entries = repository.getDir(parentPath, -1, null, (Collection<?>) null);
+            for (SVNDirEntry entry : entries) {
+                if (entry.getKind() == SVNNodeKind.DIR) {
+                    DefaultMutableTreeNode child = new DefaultMutableTreeNode(entry.getName());
+                    child.add(new DefaultMutableTreeNode("loading...")); // Lazy load
+                    parentNode.add(child);
+                }
             }
+        } catch (SVNException e) {
+            e.printStackTrace();
+            LoggerUtil.error(e);
         }
     }
 
@@ -425,12 +465,5 @@ public class SVNAutomationTool {
         d.setLocationRelativeTo(null);
         d.setAlwaysOnTop(true);
         return d;
-    }
-
-    /** Standalone test **/
-    public static void start() throws SVNException {
-        String sel = new SVNAutomationTool()
-                .browseAndSelectFolder("https://adc4110315.us.oracle.com/svn/nms-projects/trunk/projects");
-        System.out.println("Selected: " + sel);
     }
 }

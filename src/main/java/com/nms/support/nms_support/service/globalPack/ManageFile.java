@@ -1,5 +1,6 @@
 package com.nms.support.nms_support.service.globalPack;
 
+import javafx.application.Platform;
 import javafx.scene.control.Alert;
 
 import java.io.File;
@@ -35,11 +36,16 @@ public class ManageFile {
             if (exitCode == 0) {
                 return true;
             } else {
-                DialogUtil.showAlert(Alert.AlertType.ERROR, "Failed to open file", "The process returned a non-zero exit code: " + exitCode);
+                Platform.runLater(() ->
+                        DialogUtil.showAlert(Alert.AlertType.ERROR, "Failed to open file", "The process returned a non-zero exit code: " + exitCode)
+                );
                 return false;
             }
         } catch (Exception ex) {
-            DialogUtil.showAlert(Alert.AlertType.ERROR, "Exception while opening log", ex.getMessage());
+            Platform.runLater(
+                    ()->DialogUtil.showAlert(Alert.AlertType.ERROR, "Exception while opening log", ex.getMessage())
+            );
+
             return false;
         }
     }

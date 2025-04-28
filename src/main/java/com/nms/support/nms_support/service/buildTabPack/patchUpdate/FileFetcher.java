@@ -1,6 +1,8 @@
 package com.nms.support.nms_support.service.buildTabPack.patchUpdate;
 
 import com.nms.support.nms_support.controller.BuildAutomation;
+import com.nms.support.nms_support.model.LogEntity;
+import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 
 import javax.net.ssl.*;
 import java.io.*;
@@ -43,6 +45,7 @@ public class FileFetcher {
             } catch (IOException e) {
             	Failed.add(jarFile);
                 e.printStackTrace();
+                LoggerUtil.error(e);
             }
         }
         
@@ -85,6 +88,7 @@ public class FileFetcher {
             }
         } catch (IOException e) {
             e.printStackTrace();
+            LoggerUtil.error(e);
         }
 
         return jarFiles;
@@ -117,6 +121,7 @@ public class FileFetcher {
             HttpsURLConnection.setDefaultHostnameVerifier(allHostsValid);
         } catch (Exception e) {
             e.printStackTrace();
+            LoggerUtil.error(e);
         }
     }
 
@@ -147,6 +152,7 @@ public class FileFetcher {
             }
         } catch (IOException e) {
             e.printStackTrace();
+            LoggerUtil.error(e);
         }
     }
 }
