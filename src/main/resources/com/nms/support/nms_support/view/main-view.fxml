@@ -2,10 +2,11 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 <?import javafx.scene.image.*?>
+<?import org.kordamp.ikonli.javafx.*?>
 
 <!-- Use a StackPane to allow dynamic resizing -->
 <?import javafx.geometry.Insets?>
-<StackPane fx:id="root" prefHeight="400.0" prefWidth="600.0" xmlns="http://javafx.com/javafx/17.0.2-ea"
+<StackPane fx:id="root"  xmlns="http://javafx.com/javafx/17.0.2-ea"
            xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.nms.support.nms_support.controller.MainController">
     <!-- StackPane will automatically resize its content -->
     <VBox spacing="5" alignment="CENTER" styleClass="root-container">
@@ -15,57 +16,68 @@
                 <Insets top="6" left="6" right="6"/>
             </padding>
             <center>
-        <HBox spacing="10" alignment="CENTER">
-            <!-- ComboBox for theme selection -->
-            <Label styleClass="label-common">Project</Label>
-            <ComboBox fx:id="projectComboBox" prefWidth="200"/>
-            <Button fx:id="addButton" alignment="CENTER" prefWidth="104.0"
-                    styleClass="button-icon" >
-                <graphic>
-                    <ImageView fitWidth="20" fitHeight="20">
-                        <Image url="@../images/icons/add.png"/>
-                    </ImageView>
-                </graphic>
-                <tooltip>
-                    <Tooltip text="Add a project"/>
-                </tooltip>
-            </Button>
-            <Button fx:id="delButton" alignment="CENTER" prefWidth="104.0"
-                    styleClass="button-icon">
-                <graphic>
-                    <ImageView fitWidth="20" fitHeight="20">
-                        <Image url="@../images/icons/delete.png"/>
-                    </ImageView>
-                </graphic>
-                <tooltip>
-                    <Tooltip text="Delete selected project"/>
-                </tooltip>
-            </Button>
+                <HBox spacing="6" alignment="CENTER">
 
-        </HBox>
+                    <Label styleClass="main-label">Project</Label>
+                    <ComboBox fx:id="projectComboBox" styleClass="main-combo" />
+                    <Button fx:id="addButton" alignment="CENTER" prefWidth="32.0" styleClass="button-icon">
+                        <graphic>
+                            <ImageView fitWidth="18" fitHeight="18">
+                                <Image url="@../images/icons/add.png"/>
+                            </ImageView>
+                        </graphic>
+                        <tooltip>
+                            <Tooltip text="Add a project"/>
+                        </tooltip>
+                    </Button>
+                    <Button fx:id="delButton" alignment="CENTER" prefWidth="32.0" styleClass="button-icon">
+                        <graphic>
+                            <ImageView fitWidth="18" fitHeight="18">
+                                <Image url="@../images/icons/delete.png"/>
+                            </ImageView>
+                        </graphic>
+                        <tooltip>
+                            <Tooltip text="Delete selected project"/>
+                        </tooltip>
+                    </Button>
+                    <Button fx:id="editProjectButton" alignment="CENTER" prefWidth="32.0" styleClass="button-icon">
+                        <graphic>
+                            <FontIcon iconLiteral="fa-pencil" iconSize="18" />
+                        </graphic>
+                        <tooltip>
+                            <Tooltip text="Edit project name"/>
+                        </tooltip>
+                    </Button>
+                    <Button fx:id="mainSaveButton" styleClass="button-icon">
+                        <graphic>
+                            <FontIcon iconLiteral="fa-save" iconSize="18" />
+                        </graphic>
+                        <tooltip>
+                            <Tooltip text="Save changes (CTRL + S)"/>
+                        </tooltip>
+                    </Button>
+                </HBox>
             </center>
             <right>
-                <Button fx:id="openVpnButton" text="VPN" textAlignment="RIGHT" visible="false" styleClass="button-common"
+                <Button fx:id="openVpnButton" text="VPN" textAlignment="RIGHT" visible="false"
+                        styleClass="button-common"
                         onAction="#openVpnManager"/>
-        </right>
+            </right>
         </BorderPane>
         <!-- TabPane set to fill the VBox -->
-        <TabPane tabClosingPolicy="UNAVAILABLE" VBox.vgrow="ALWAYS" styleClass="tab-pane">
-            <tabs>
-
-<!--                <Tab fx:id="projectTab" text="Project Details" styleClass="tab" >-->
-
-<!--                </Tab>-->
-
-
-                <Tab fx:id="buildTab" text="Build Automation" styleClass="tab" >
+        <TabPane tabClosingPolicy="UNAVAILABLE" VBox.vgrow="ALWAYS" styleClass="tab-pane main-tab-pane compact-tab-pane">
+                <Tab fx:id="projectTab" text="Project Configuration" styleClass="main-tab compact-tab" >
 
                 </Tab>
 
-                <Tab fx:id="dataStoreTab" text="View DataStores" styleClass="tab" >
 
-                </Tab>
-            </tabs>
+            <Tab fx:id="buildTab" text="Application Management" styleClass="main-tab compact-tab">
+
+            </Tab>
+
+            <Tab fx:id="dataStoreTab" text="Datastore Explorer" styleClass="main-tab compact-tab">
+
+            </Tab>
         </TabPane>
     </VBox>
 </StackPane>

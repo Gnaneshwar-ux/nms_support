@@ -1,96 +1,118 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<?import java.lang.*?>
-<?import java.util.*?>
-<?import javafx.collections.*?>
 <?import javafx.geometry.*?>
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
-<?import javafx.stage.DirectoryChooser?>
+<?import org.kordamp.ikonli.javafx.*?>
 
-<AnchorPane xmlns="http://javafx.com/javafx"
-            xmlns:fx="http://javafx.com/fxml"
-            stylesheets="@../../styles/light/tabs/datastore-dump.css"
-            fx:controller="com.nms.support.nms_support.controller.ProjectDetailsController"
-            prefHeight="600.0" prefWidth="800.0">
-
-    <GridPane fx:id="mainGrid" hgap="10.0" vgap="10.0"  AnchorPane.topAnchor="0.0"
-               AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0">
-        <padding>
-            <Insets top="6" left="6" right="6" bottom="6"/>
-        </padding>
-        <!-- Server Details Section -->
-        <TitledPane  text="Server Details" collapsible="false" GridPane.valignment="TOP" GridPane.columnIndex="0" GridPane.rowIndex="0" GridPane.hgrow="ALWAYS" >
-            <GridPane hgap="5.0" vgap="5.0">
+<AnchorPane stylesheets="@../../styles/light/tabs/project-details.css" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.nms.support.nms_support.controller.ProjectDetailsController" focusTraversable="false">
+    <!-- Modern header -->
+    <VBox spacing="18" AnchorPane.topAnchor="0" AnchorPane.leftAnchor="0" AnchorPane.rightAnchor="0" AnchorPane.bottomAnchor="0" focusTraversable="false">
+        <ScrollPane fx:id="rootScroller" fitToWidth="true" fitToHeight="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" VBox.vgrow="ALWAYS" focusTraversable="false">
+            <FlowPane fx:id="cardPane" hgap="32" vgap="32" styleClass="bg-solid responsive-pane" prefWrapLength="0" alignment="TOP_LEFT" focusTraversable="false">
                 <padding>
-                    <Insets top="6" left="6" right="6" bottom="6"/>
+                    <Insets top="32" right="32" bottom="32" left="32" />
                 </padding>
-                <Label text="Host Address:" GridPane.rowIndex="0" GridPane.columnIndex="0" />
-                <TextField fx:id="hostAddressField" GridPane.rowIndex="0" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
-
-                <Label text="Host User:" GridPane.rowIndex="1" GridPane.columnIndex="0" />
-                <TextField fx:id="hostUserField" GridPane.rowIndex="1" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
-
-                <Label text="Password:" GridPane.rowIndex="2" GridPane.columnIndex="0" />
-                <PasswordField fx:id="hostPasswordField" GridPane.rowIndex="2" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
-
-                <Label text="Port:" GridPane.rowIndex="3" GridPane.columnIndex="0" />
-                <Spinner fx:id="portSpinner" GridPane.rowIndex="3" GridPane.columnIndex="1" editable="true" GridPane.hgrow="ALWAYS"/>
-            </GridPane>
-        </TitledPane>
-
-        <!-- Project Folder Details Section -->
-        <TitledPane text="Project Environment Details" GridPane.valignment="TOP" collapsible="false" GridPane.columnIndex="1" GridPane.rowIndex="0" GridPane.hgrow="ALWAYS" >
-            <GridPane hgap="5.0" vgap="5.0">
-                <padding>
-                    <Insets top="6" left="6" right="6" bottom="6"/>
-                </padding>
-                <Label text="Project Folder:" GridPane.rowIndex="0" GridPane.columnIndex="0" />
-                <TextField fx:id="projectFolderField" GridPane.rowIndex="0" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
-                <Button text="Select" fx:id="projectFolderBtn" GridPane.rowIndex="0" GridPane.columnIndex="2" />
-
-                <Label text="Product Folder:" GridPane.rowIndex="1" GridPane.columnIndex="0" />
-                <TextField fx:id="productFolderField" GridPane.rowIndex="1" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
-                <Button text="Select" fx:id="productFolderBtn" GridPane.rowIndex="1" GridPane.columnIndex="2" />
-
-                <Label text="Environment Variables:" GridPane.rowIndex="2" GridPane.columnIndex="0" />
-                <TextField fx:id="envVariableField" GridPane.rowIndex="2" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
-            </GridPane>
-        </TitledPane>
-
-        <!-- Database Details Section -->
-        <TitledPane text="Database Details" collapsible="false" GridPane.valignment="TOP" GridPane.columnIndex="0" GridPane.rowIndex="1" GridPane.hgrow="ALWAYS" >
-            <GridPane hgap="5.0" vgap="5.0">
-                <padding>
-                    <Insets top="6" left="6" right="6" bottom="6"/>
-                </padding>
-                <Label text="DB Host:" GridPane.rowIndex="0" GridPane.columnIndex="0" />
-                <TextField fx:id="dbHostField" GridPane.rowIndex="0" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
-
-                <Label text="DB User:" GridPane.rowIndex="1" GridPane.columnIndex="0" />
-                <TextField fx:id="dbUserField" GridPane.rowIndex="1" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
-
-                <Label text="Password:" GridPane.rowIndex="2" GridPane.columnIndex="0" />
-                <PasswordField fx:id="dbPasswordField" GridPane.rowIndex="2" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
-
-                <Label text="Port:" GridPane.rowIndex="3" GridPane.columnIndex="0" />
-                <Spinner fx:id="dbPortSpinner" GridPane.rowIndex="3" GridPane.columnIndex="1" editable="true" GridPane.hgrow="ALWAYS"/>
-
-                <Label text="SID:" GridPane.rowIndex="4" GridPane.columnIndex="0" />
-                <TextField fx:id="dbSidField" GridPane.rowIndex="4" GridPane.columnIndex="1" GridPane.hgrow="ALWAYS"/>
-            </GridPane>
-        </TitledPane>
-
-        <!-- Placeholder for Additional Sections -->
-        <TitledPane text="Additional Section" GridPane.valignment="TOP" collapsible="false" GridPane.columnIndex="1" GridPane.rowIndex="1" GridPane.hgrow="ALWAYS" >
-            <VBox spacing="5.0" VBox.vgrow="ALWAYS">
-                <Label text="This section can be expanded to add more details." />
-            </VBox>
-        </TitledPane>
-    </GridPane>
-
-    <StackPane fx:id="overlayPane" visible="false" AnchorPane.topAnchor="0.0" AnchorPane.bottomAnchor="0.0"
-               AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0">
-        <ProgressIndicator fx:id="loadingIndicator" maxWidth="80.0" maxHeight="80.0" />
-    </StackPane>
+                <!-- ====================== CARD 1 ================================= -->
+                <VBox spacing="12" styleClass="card">
+                    <HBox alignment="CENTER_LEFT" spacing="8">
+                        <FontIcon iconLiteral="fa-linux" iconSize="18" styleClass="card-icon" />
+                        <Label styleClass="card-title" text="Linux Server" />
+                        <Button fx:id="linuxImportBtn" styleClass="transparent-icon-btn" onAction="#importLinuxServerData">
+                            <tooltip><Tooltip text="Import Linux Server data from another project" /></tooltip>
+                            <graphic><FontIcon iconLiteral="fa-download" iconSize="14" /></graphic>
+                        </Button>
+                        <Button fx:id="sshOpenBtn" styleClass="icon-btn" visible="false">
+                            <tooltip><Tooltip text="Open SSH client" /></tooltip>
+                            <graphic><FontIcon iconLiteral="fa-desktop" iconSize="14" /></graphic>
+                        </Button>
+                    </HBox>
+                    <Label styleClass="field-label" text="Host Address" /> <TextField fx:id="hostAddressField" />
+                    <Label styleClass="field-label" text="User" /> <TextField fx:id="hostUserField" />
+                    <Label styleClass="field-label" text="Password" /> <PasswordField fx:id="hostPasswordField" />
+                    <Label styleClass="field-label" text="Port" /> <TextField fx:id="portField" />
+                    <Label styleClass="field-label" text="App URL" /> <TextField fx:id="appUrlField" />
+                </VBox>
+                <!-- ====================== CARD 2 ================================= -->
+                <VBox spacing="12" styleClass="card">
+                    <HBox alignment="CENTER_LEFT" spacing="8">
+                        <FontIcon iconLiteral="fa-database" iconSize="18" styleClass="card-icon" />
+                        <Label styleClass="card-title" text="Oracle DB" />
+                        <Button fx:id="dbImportBtn" styleClass="transparent-icon-btn" onAction="#importOracleDbData">
+                            <tooltip><Tooltip text="Import Oracle DB data from another project" /></tooltip>
+                            <graphic><FontIcon iconLiteral="fa-download" iconSize="14" /></graphic>
+                        </Button>
+                        <Button fx:id="dbOpenBtn" styleClass="icon-btn" visible="false">
+                            <tooltip><Tooltip text="Open in SQL Developer" /></tooltip>
+                            <graphic><FontIcon iconLiteral="fa-database" iconSize="14" /></graphic>
+                        </Button>
+                    </HBox>
+                    <Label styleClass="field-label" text="DB Host" /> <TextField fx:id="dbHostField" />
+                    <Label styleClass="field-label" text="Port" /> <TextField fx:id="dbPortField" />
+                    <Label styleClass="field-label" text="User" /> <TextField fx:id="dbUserField" />
+                    <Label styleClass="field-label" text="Password" /> <PasswordField fx:id="dbPasswordField" />
+                    <Label styleClass="field-label" text="SID" /> <TextField fx:id="dbSidField" />
+                </VBox>
+                <!-- ====================== CARD 3 ================================= -->
+                <VBox spacing="12" styleClass="card">
+                    <HBox alignment="CENTER_LEFT" spacing="8">
+                        <FontIcon iconLiteral="fa-folder-open" iconSize="17" styleClass="card-icon" />
+                        <Label styleClass="card-title" text="Project Folders" />
+                        <Button fx:id="foldersImportBtn" styleClass="transparent-icon-btn" onAction="#importProjectFoldersData">
+                            <tooltip><Tooltip text="Import Project Folders data from another project" /></tooltip>
+                            <graphic><FontIcon iconLiteral="fa-download" iconSize="14" /></graphic>
+                        </Button>
+                    </HBox>
+                    <Label styleClass="field-label" text="Project Folder" />
+                    <HBox spacing="6">
+                        <TextField fx:id="projectFolderField" HBox.hgrow="ALWAYS" />
+                        <Button fx:id="projectFolderBtn" styleClass="icon-btn" onAction="#browseProjectFolder">
+                            <tooltip><Tooltip text="Browse" /></tooltip>
+                            <graphic><FontIcon iconLiteral="fa-folder" iconSize="14" /></graphic>
+                        </Button>
+                        <Button fx:id="replaceProjectBuildBtn" styleClass="icon-btn" onAction="#replaceProjectBuild">
+                            <tooltip><Tooltip text="Replace NMS_HOME in project build files" /></tooltip>
+                            <graphic><FontIcon iconLiteral="fa-exchange" iconSize="14" /></graphic>
+                        </Button>
+                    </HBox>
+                    <Label styleClass="field-label" text="Product Folder" />
+                    <HBox spacing="6">
+                        <TextField fx:id="productFolderField" HBox.hgrow="ALWAYS" />
+                        <Button fx:id="productFolderBtn" styleClass="icon-btn" onAction="#browseProductFolder">
+                            <tooltip><Tooltip text="Browse" /></tooltip>
+                            <graphic><FontIcon iconLiteral="fa-folder" iconSize="14" /></graphic>
+                        </Button>
+                        <Button fx:id="replaceProductBuildBtn" styleClass="icon-btn" onAction="#replaceProductBuild">
+                            <tooltip><Tooltip text="Replace NMS_HOME in product build files" /></tooltip>
+                            <graphic><FontIcon iconLiteral="fa-exchange" iconSize="14" /></graphic>
+                        </Button>
+                    </HBox>
+                    <Label styleClass="field-label" text="Env Variable" /> <HBox spacing="6">
+                        <TextField fx:id="envVarField" HBox.hgrow="ALWAYS" />
+                        <Button fx:id="envVarSearchBtn" styleClass="icon-btn" onAction="#showEnvVarDialog">
+                            <graphic>
+                                <FontIcon iconLiteral="fa-search" iconSize="16" />
+                            </graphic>
+                            <tooltip><Tooltip text="Search Env Variable" /></tooltip>
+                        </Button>
+                    </HBox>
+                    <Label styleClass="field-label" text="SVN URL" />
+                    <HBox spacing="6">
+                        <TextField fx:id="svnUrlField" HBox.hgrow="ALWAYS" />
+                        <Button fx:id="svnBrowseBtn" styleClass="icon-btn" onAction="#browseSvnUrl">
+                            <tooltip><Tooltip text="Browse SVN URL" /></tooltip>
+                            <graphic><FontIcon iconLiteral="fa-globe" iconSize="14" /></graphic>
+                        </Button>
+                    </HBox>
+                    <HBox spacing="8" alignment="CENTER" style="-fx-padding: 16 0 0 0;">
+                        <Button fx:id="localSetupBtn" styleClass="wide-btn" onAction="#startLocalSetup" text="Local Setup / Upgrade" />
+                    </HBox>
+                </VBox>
+            </FlowPane>
+        </ScrollPane>
+        <!-- busy-overlay stays unchanged -->
+        <StackPane fx:id="overlayPane" visible="false" AnchorPane.bottomAnchor="0" AnchorPane.leftAnchor="0" AnchorPane.rightAnchor="0" AnchorPane.topAnchor="0">
+            <ProgressIndicator fx:id="loadingIndicator" maxHeight="80" maxWidth="80" />
+        </StackPane>
+    </VBox>
 </AnchorPane>

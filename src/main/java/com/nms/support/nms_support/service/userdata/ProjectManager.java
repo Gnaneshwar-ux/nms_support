@@ -8,6 +8,7 @@ import com.nms.support.nms_support.model.ProjectWrapper;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 public class ProjectManager implements IManager {
@@ -76,6 +77,24 @@ public class ProjectManager implements IManager {
             projects = new ArrayList<>();
             projectWrapper.setProjects(projects);
         }
+        
+        // Set order to be the highest (most recent) - projects with higher order appear first
+        // Use a more reliable ordering system that resets periodically to prevent overflow
+        int maxOrder = projects.stream()
+                .mapToInt(ProjectEntity::getOrder)
+                .max()
+                .orElse(-1);
+        
+        // If we're getting close to Integer.MAX_VALUE, reset all orders to prevent overflow
+        if (maxOrder > Integer.MAX_VALUE - 1000) {
+            resetProjectOrders();
+            maxOrder = projects.stream()
+                    .mapToInt(ProjectEntity::getOrder)
+                    .max()
+                    .orElse(-1);
+        }
+        
+        project.setOrder(maxOrder + 1);
         projects.add(project);
     }
 
@@ -111,7 +130,12 @@ public class ProjectManager implements IManager {
     }
 
     public List<ProjectEntity> getProjects() {
-        return projectWrapper != null ? projectWrapper.getProjects() : new ArrayList<>();
+        List<ProjectEntity> projects = projectWrapper != null ? projectWrapper.getProjects() : new ArrayList<>();
+        if (projects != null) {
+            // Sort by order in descending order (highest order first - most recent first)
+            projects.sort(Comparator.comparingInt(ProjectEntity::getOrder).reversed());
+        }
+        return projects;
     }
 
     public void setProjects(List<ProjectEntity> projects) {
@@ -157,5 +181,99 @@ public class ProjectManager implements IManager {
             }
         }
         return null;
+    }
+
+    /**
+     * Gets a project by name (alias for getProjectByName for consistency)
+     */
+    public ProjectEntity getProject(String projectName) {
+        return getProjectByName(projectName);
+    }
+
+    /**
+     * Checks if a project with the given name exists
+     */
+    public boolean projectExists(String projectName) {
+        return getProjectByName(projectName) != null;
+    }
+    
+    /**
+     * Reorders projects based on the provided list of project names
+     * @param projectNamesInOrder List of project names in the desired order
+     */
+    public void reorderProjects(List<String> projectNamesInOrder) {
+        List<ProjectEntity> projects = projectWrapper.getProjects();
+        if (projects == null || projectNamesInOrder == null) {
+            return;
+        }
+        
+        // Create a map for quick lookup
+        java.util.Map<String, ProjectEntity> projectMap = new java.util.HashMap<>();
+        for (ProjectEntity project : projects) {
+            projectMap.put(project.getName(), project);
+        }
+        
+        // Update order based on the provided list (first item gets highest order)
+        for (int i = 0; i < projectNamesInOrder.size(); i++) {
+            String projectName = projectNamesInOrder.get(i);
+            ProjectEntity project = projectMap.get(projectName);
+            if (project != null) {
+                // Higher order means appears first (most recent)
+                project.setOrder(projectNamesInOrder.size() - i);
+            }
+        }
+    }
+    
+    /**
+     * Moves a project to the top (most recent position)
+     * @param projectName Name of the project to move to top
+     */
+    public void moveProjectToTop(String projectName) {
+        List<ProjectEntity> projects = projectWrapper.getProjects();
+        if (projects == null) {
+            return;
+        }
+        
+        ProjectEntity targetProject = null;
+        int maxOrder = -1;
+        
+        // Find the target project and current max order
+        for (ProjectEntity project : projects) {
+            if (project.getName().equals(projectName)) {
+                targetProject = project;
+            }
+            maxOrder = Math.max(maxOrder, project.getOrder());
+        }
+        
+        if (targetProject != null) {
+            // Check if we need to reset orders to prevent overflow
+            if (maxOrder > Integer.MAX_VALUE - 1000) {
+                resetProjectOrders();
+                maxOrder = projects.stream()
+                        .mapToInt(ProjectEntity::getOrder)
+                        .max()
+                        .orElse(-1);
+            }
+            targetProject.setOrder(maxOrder + 1);
+        }
+    }
+    
+    /**
+     * Resets all project orders to prevent integer overflow
+     * Maintains relative order but uses smaller numbers
+     */
+    private void resetProjectOrders() {
+        List<ProjectEntity> projects = projectWrapper.getProjects();
+        if (projects == null || projects.isEmpty()) {
+            return;
+        }
+        
+        // Sort projects by current order to maintain relative order
+        projects.sort(Comparator.comparingInt(ProjectEntity::getOrder).reversed());
+        
+        // Reset orders starting from 0
+        for (int i = 0; i < projects.size(); i++) {
+            projects.get(i).setOrder(i);
+        }
     }
 }

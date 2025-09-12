@@ -16,48 +16,106 @@ public class SetupRestartTool {
     static javax.swing.JTextArea send;
 
     public static boolean execute(ProjectEntity project, BuildAutomation buildAutomation){
+        buildAutomation.appendTextToLog("=== RESTART TOOLS SETUP PROCESS INITIATED ===");
+        buildAutomation.appendTextToLog("Timestamp: " + java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        
+        buildAutomation.appendTextToLog("PROJECT CONFIGURATION:");
+        buildAutomation.appendTextToLog("• Project Folder: " + (project.getProjectFolderPath() != null ? project.getProjectFolderPath() : "NOT SET"));
+        buildAutomation.appendTextToLog("• JConfig Path: " + (project.getJconfigPathForBuild() != null ? project.getJconfigPathForBuild() : "NOT SET"));
+        buildAutomation.appendTextToLog("• Executable Path: " + (project.getExePath() != null ? project.getExePath() : "NOT SET"));
+        buildAutomation.appendTextToLog("• Username: " + (project.getUsername() != null ? project.getUsername() : "NOT SET"));
+        buildAutomation.appendTextToLog("• Auto Login: " + (project.getAutoLogin() != null ? project.getAutoLogin() : "NOT SET"));
+        buildAutomation.appendTextToLog("• System User: " + System.getProperty("user.name"));
 
-        buildAutomation.appendTextToLog("jconfig path : "+project.getJconfigPath()+"\n");
-        buildAutomation.appendTextToLog(".exe path : "+project.getExePath()+"\n");
-        buildAutomation.appendTextToLog("Username : "+project.getUsername()+"\n");
-        buildAutomation.appendTextToLog("Autologin : "+project.getAutoLogin()+"\n");
+        // Validate required configuration
+        if (project.getJconfigPathForBuild() == null || project.getJconfigPathForBuild().trim().isEmpty()) {
+            buildAutomation.appendTextToLog("ERROR: JConfig path configuration missing");
+            buildAutomation.appendTextToLog("DETAILS: JConfig path is required for restart tools setup but is null or empty");
+            buildAutomation.appendTextToLog("RESOLUTION: Configure JConfig path in Project Configuration tab under 'JConfig Path' field");
+            return false;
+        }
 
-        String user = System.getProperty("user.name");
-
-        buildAutomation.appendTextToLog("System user : "+user+"\n");
-
-        //String propPath = "C:/Users/" + user + "/Documents";
+        if (project.getExePath() == null || project.getExePath().trim().isEmpty()) {
+            buildAutomation.appendTextToLog("ERROR: Executable path configuration missing");
+            buildAutomation.appendTextToLog("DETAILS: Executable path is required for restart tools setup but is null or empty");
+            buildAutomation.appendTextToLog("RESOLUTION: Configure executable path in Project Configuration tab under 'Executable Path' field");
+            return false;
+        }
 
         try {
-            if(!updateFile(project.getJconfigPath() + "\\global\\xml\\", project.getExePath()+"\\java\\product\\global\\xml\\"+tempFile, buildAutomation)){
-                buildAutomation.appendTextToLog(tempFile+" update file failed");
+            buildAutomation.appendTextToLog("STEP 1: Updating " + tempFile + " configuration file...");
+            String primaryPath = project.getJconfigPathForBuild() + "\\global\\xml\\";
+            String alternatePath = project.getExePath() + "\\java\\product\\global\\xml\\" + tempFile;
+            
+            buildAutomation.appendTextToLog("• Primary Path: " + primaryPath);
+            buildAutomation.appendTextToLog("• Alternate Path: " + alternatePath);
+            
+            if(!updateFile(primaryPath, alternatePath, buildAutomation)){
+                buildAutomation.appendTextToLog("ERROR: " + tempFile + " update failed");
+                buildAutomation.appendTextToLog("DETAILS: updateFile() method returned false");
+                buildAutomation.appendTextToLog("RESOLUTION: Check file permissions and ensure paths are accessible");
                 return false;
             }
-            boolean resp = writeLinesIfNotExist(project.getExePath()+"\\java\\product\\global\\properties\\Global_en_US.properties",Arrays.asList(
+            buildAutomation.appendTextToLog("SUCCESS: " + tempFile + " configuration updated successfully");
+            
+            buildAutomation.appendTextToLog("STEP 2: Updating properties file for menu items...");
+            String propertiesPath = project.getExePath() + "\\java\\product\\global\\properties\\Global_en_US.properties";
+            buildAutomation.appendTextToLog("• Properties File Path: " + propertiesPath);
+            
+            boolean resp = writeLinesIfNotExist(propertiesPath, Arrays.asList(
                     "BTN_RELOAD_TOOLS.text = Manage Tools",
                     "BTN_RELOAD_TOOLS.tooltip = Restart tools for dynamic code changes."
             ));
+            
             if(!resp){
-                buildAutomation.appendTextToLog("Failed to update properties file - "+project.getExePath()+"\\product\\global\\properties\\Default_en_US.properties");
+                buildAutomation.appendTextToLog("WARNING: Failed to update properties file");
+                buildAutomation.appendTextToLog("DETAILS: Properties file update returned false");
+                buildAutomation.appendTextToLog("RESOLUTION: Check file permissions and ensure properties file is accessible");
+            } else {
+                buildAutomation.appendTextToLog("SUCCESS: Properties file updated successfully");
+                buildAutomation.appendTextToLog("INFO: Added menu item properties for restart tools functionality");
             }
-            else{
-                buildAutomation.appendTextToLog("Added properties for menu items");
-            }
+            
         } catch (InterruptedException e) {
+            buildAutomation.appendTextToLog("ERROR: Restart tools setup process interrupted");
+            buildAutomation.appendTextToLog("EXCEPTION DETAILS:");
+            buildAutomation.appendTextToLog("• Exception Type: " + e.getClass().getSimpleName());
+            buildAutomation.appendTextToLog("• Error Message: " + e.getMessage());
+            buildAutomation.appendTextToLog("• Stack Trace: " + e.toString());
+            buildAutomation.appendTextToLog("RESOLUTION: Setup process was cancelled by user or system");
             e.printStackTrace();
-            buildAutomation.appendTextToLog(e.toString());
             throw new RuntimeException(e);
         }
 
         try {
-            return copyFiles(project,buildAutomation);
+            buildAutomation.appendTextToLog("STEP 3: Copying restart tools configuration files...");
+            boolean result = copyFiles(project, buildAutomation);
+            
+            if (result) {
+                buildAutomation.appendTextToLog("SUCCESS: Restart tools setup completed successfully");
+                buildAutomation.appendTextToLog("=== RESTART TOOLS SETUP PROCESS COMPLETED ===");
+                buildAutomation.appendTextToLog("Timestamp: " + java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            } else {
+                buildAutomation.appendTextToLog("ERROR: Restart tools setup failed during file copy operation");
+                buildAutomation.appendTextToLog("DETAILS: copyFiles() method returned false");
+                buildAutomation.appendTextToLog("RESOLUTION: Check file permissions and ensure all required files are accessible");
+            }
+            
+            return result;
         } catch (Exception e) {
+            buildAutomation.appendTextToLog("ERROR: EXCEPTION DURING RESTART TOOLS SETUP");
+            buildAutomation.appendTextToLog("EXCEPTION DETAILS:");
+            buildAutomation.appendTextToLog("• Exception Type: " + e.getClass().getSimpleName());
+            buildAutomation.appendTextToLog("• Error Message: " + e.getMessage());
+            buildAutomation.appendTextToLog("• Stack Trace: " + e.toString());
+            buildAutomation.appendTextToLog("POSSIBLE CAUSES:");
+            buildAutomation.appendTextToLog("• File system access permissions");
+            buildAutomation.appendTextToLog("• Invalid file paths or missing directories");
+            buildAutomation.appendTextToLog("• System resource limitations");
+            buildAutomation.appendTextToLog("RESOLUTION: Check file permissions, verify paths, and ensure system resources are available");
             e.printStackTrace();
-            buildAutomation.appendTextToLog(e.toString());
             throw new RuntimeException(e);
         }
-
-
     }
 
 
@@ -150,8 +208,8 @@ public class SetupRestartTool {
         try{
 
             File sourceFileLogin = getResourceAsTempFile("/nms_configs/RESTART_TOOLS_COMMANDS.inc");
-            File targetDirLogin = new File(project.getJconfigPath() + "/global/xml/RESTART_TOOLS_COMMANDS.inc");
-            File targetDir = new File(project.getJconfigPath() + "/global/xml/");
+            File targetDirLogin = new File(project.getJconfigPathForBuild() + "/global/xml/RESTART_TOOLS_COMMANDS.inc");
+            File targetDir = new File(project.getJconfigPathForBuild() + "/global/xml/");
             if (!targetDir.exists()) {
                 boolean isCreated = targetDir.mkdirs();
                 if(!isCreated){
@@ -168,7 +226,7 @@ public class SetupRestartTool {
             // copying command files
 
             sourceFileLogin = getResourceAsTempFile("/nms_configs/RestartToolsCommand.java");
-            targetDirLogin = new File(project.getJconfigPath() + "/java/src/custom/RestartToolsCommand.java");
+            targetDirLogin = new File(project.getJconfigPathForBuild() + "/java/src/custom/RestartToolsCommand.java");
 
             if (!targetDirLogin.exists()) {
                 boolean isCreated = targetDirLogin.mkdirs();

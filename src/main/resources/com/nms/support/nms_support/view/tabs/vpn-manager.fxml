@@ -2,49 +2,72 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 <?import javafx.scene.shape.Rectangle?>
+<?import javafx.scene.text.Font?>
 
 <!-- Root StackPane to layer main content and overlay -->
-<StackPane xmlns:fx="http://javafx.com/fxml" fx:controller="com.nms.support.nms_support.controller.VpnController">
+<StackPane xmlns:fx="http://javafx.com/fxml" fx:controller="com.nms.support.nms_support.controller.VpnController"
+           style="-fx-background-color: #FFFFFF; -fx-background-radius: 12;">
 
     <!-- Main Content in a VBox -->
-    <VBox alignment="CENTER" spacing="15" prefWidth="340" prefHeight="250">
-        <Label text="VPN Connection" styleClass="dialog-title" />
+    <VBox alignment="CENTER" spacing="16" prefWidth="380" prefHeight="280" 
+          style="-fx-background-color: #FFFFFF; -fx-background-radius: 12; -fx-padding: 24;">
+        
+        <!-- Header Section -->
+        <VBox alignment="CENTER" spacing="6">
+            <Label text="VPN Connection" style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: #1F2937; -fx-text-alignment: center;" />
+            <Label text="Connect to your network securely" style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 12px; -fx-font-weight: normal; -fx-text-fill: #6B7280; -fx-text-alignment: center;" />
+        </VBox>
 
-        <!-- GridPane for Form Fields with Grow Capability -->
-        <GridPane hgap="10" vgap="10" alignment="CENTER">
-            <Label text="Username:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
-            <TextField fx:id="usernameField" promptText="Enter username" prefWidth="250"
-                       GridPane.columnIndex="1" GridPane.rowIndex="0" />
+        <!-- Form Container -->
+        <VBox spacing="12" style="-fx-background-color: #F9FAFB; -fx-background-radius: 8; -fx-padding: 20;">
+            
+            <!-- Username Field -->
+            <VBox spacing="6">
+                <Label text="Username" style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 12px; -fx-font-weight: 600; -fx-text-fill: #374151;" />
+                <TextField fx:id="usernameField" promptText="Enter username" 
+                           style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 12px; -fx-background-color: #FFFFFF; -fx-border-color: #D1D5DB; -fx-border-radius: 6; -fx-padding: 8 12; -fx-text-fill: #374151;" />
+            </VBox>
 
-            <Label text="Password:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
-            <PasswordField fx:id="passwordField" promptText="Enter password" prefWidth="250"
-                           GridPane.columnIndex="1" GridPane.rowIndex="1" />
+            <!-- Password Field -->
+            <VBox spacing="6">
+                <Label text="Password" style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 12px; -fx-font-weight: 600; -fx-text-fill: #374151;" />
+                <PasswordField fx:id="passwordField" promptText="Enter password" 
+                               style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 12px; -fx-background-color: #FFFFFF; -fx-border-color: #D1D5DB; -fx-border-radius: 6; -fx-padding: 8 12; -fx-text-fill: #374151;" />
+            </VBox>
 
-            <Label text="Host:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
-            <ComboBox fx:id="hostComboBox" promptText="Enter or select host address" prefWidth="250" editable="true"
-                      GridPane.columnIndex="1" GridPane.rowIndex="2" />
+            <!-- Host Field -->
+            <VBox spacing="6">
+                <Label text="Host Address" style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 12px; -fx-font-weight: 600; -fx-text-fill: #374151;" />
+                <ComboBox fx:id="hostComboBox" promptText="Enter or select host address" editable="true"
+                          style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 12px; -fx-background-color: #FFFFFF; -fx-border-color: #D1D5DB; -fx-border-radius: 6; -fx-padding: 8 12; -fx-text-fill: #374151;" />
+            </VBox>
 
             <!-- Status Label -->
-            <Label GridPane.columnIndex="1" GridPane.rowIndex="3" fx:id="statusLabel" text="Status: Not Loaded" styleClass="status-label" />
+            <VBox spacing="6" alignment="CENTER">
+                <Label fx:id="statusLabel" text="Status: Not Connected" 
+                       style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 11px; -fx-font-weight: 600; -fx-text-fill: #6B7280; -fx-text-alignment: center;" />
+            </VBox>
 
-            <!-- Buttons for Connect and Cancel -->
-            <HBox GridPane.columnIndex="1" GridPane.rowIndex="4" spacing="10" alignment="CENTER">
-                <!-- Left-aligned Disconnect Button -->
-                <Button fx:id="disconnectButton" text="Disconnect" onAction="#handleDisconnectAction" />
-
-                <!-- Spacer that makes the second button go to the right -->
+            <!-- Action Buttons -->
+            <HBox spacing="12" alignment="CENTER" style="-fx-padding: 6 0 0 0;">
+                <Button fx:id="disconnectButton" text="Disconnect" onAction="#handleDisconnectAction"
+                        style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 12px; -fx-font-weight: 600; -fx-background-color: #6B7280; -fx-text-fill: white; -fx-padding: 8 16; -fx-background-radius: 6; -fx-border-radius: 6; -fx-cursor: hand; -fx-effect: dropshadow(gaussian, rgba(107, 114, 128, 0.3), 3, 0, 0, 1);" />
+                
                 <Region HBox.hgrow="ALWAYS"/>
-
-                <!-- Right-aligned Connect Button -->
-                <Button fx:id="connectButton" text="Connect" onAction="#handleConnectAction" onKeyPressed="#handleEnterKey" />
+                
+                <Button fx:id="connectButton" text="Connect" onAction="#handleConnectAction" onKeyPressed="#handleEnterKey"
+                        style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 12px; -fx-font-weight: 600; -fx-background-color: #3B82F6; -fx-text-fill: white; -fx-padding: 8 16; -fx-background-radius: 6; -fx-border-radius: 6; -fx-cursor: hand; -fx-effect: dropshadow(gaussian, rgba(59, 130, 246, 0.3), 3, 0, 0, 1);" />
             </HBox>
-        </GridPane>
+        </VBox>
     </VBox>
 
     <!-- Loading Indicator Overlay -->
     <StackPane fx:id="loadingOverlay" alignment="CENTER" visible="false">
-        <Rectangle width="340" height="250" opacity="0.1" style="-fx-fill: black;" />
-        <ProgressIndicator fx:id="progressIndicator" />
+        <Rectangle width="380" height="280" opacity="0.8" style="-fx-fill: #000000;" />
+        <VBox alignment="CENTER" spacing="16" style="-fx-background-color: #FFFFFF; -fx-background-radius: 8; -fx-padding: 20;">
+            <ProgressIndicator fx:id="progressIndicator" style="-fx-progress-color: #3B82F6;" />
+            <Label text="Connecting..." style="-fx-font-family: 'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif; -fx-font-size: 14px; -fx-font-weight: 600; -fx-text-fill: #374151; -fx-text-alignment: center;" />
+        </VBox>
     </StackPane>
 
 </StackPane>

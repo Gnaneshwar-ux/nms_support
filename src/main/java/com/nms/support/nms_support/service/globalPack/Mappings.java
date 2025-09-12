@@ -14,6 +14,9 @@ public class Mappings {
         };
     }
     public static String getCodeFromApp(String app) {
+        if (app == null) {
+            return "Unknown";
+        }
         return switch (app) {
             case "WebWorkspace.exe" -> "CREW";
             case "ServiceAlert.exe" -> "SERVICE_ALERT";

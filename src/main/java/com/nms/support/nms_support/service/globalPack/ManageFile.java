@@ -32,20 +32,15 @@ public class ManageFile {
         try {
             ProcessBuilder processBuilder = new ProcessBuilder(command);
             Process process = processBuilder.start();
-            int exitCode = process.waitFor(); // Wait for the process to complete
-            if (exitCode == 0) {
-                return true;
-            } else {
-                Platform.runLater(() ->
-                        DialogUtil.showAlert(Alert.AlertType.ERROR, "Failed to open file", "The process returned a non-zero exit code: " + exitCode)
-                );
-                return false;
-            }
+            
+            // Don't wait for the process to complete - this prevents UI freezing
+            // The process will run independently in the background
+            return true;
+            
         } catch (Exception ex) {
-            Platform.runLater(
-                    ()->DialogUtil.showAlert(Alert.AlertType.ERROR, "Exception while opening log", ex.getMessage())
+            Platform.runLater(() ->
+                    DialogUtil.showAlert(Alert.AlertType.ERROR, "Exception while opening log", ex.getMessage())
             );
-
             return false;
         }
     }

@@ -1,6 +1,7 @@
 package com.nms.support.nms_support.service.globalPack;
 
 import com.nms.support.nms_support.controller.BuildAutomation;
+import javafx.application.Platform;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.Group;
 import javafx.scene.Scene;
@@ -34,16 +35,37 @@ public class SVNAutomationTool {
             public SVNAuthentication requestClientAuthentication(String kind, SVNURL url, String realm,
                                                                  SVNErrorMessage errorMessage, SVNAuthentication previousAuth,
                                                                  boolean authMayBeStored) {
-                JPanel panel = new JPanel(new GridLayout(2, 2, 5, 5));
-                JTextField userField = new JTextField();
-                JPasswordField passField = new JPasswordField();
-                panel.add(new JLabel("Username:")); panel.add(userField);
-                panel.add(new JLabel("Password:")); panel.add(passField);
-                int option = JOptionPane.showConfirmDialog(null, panel, "SVN Authentication",
-                        JOptionPane.OK_CANCEL_OPTION);
-                if (option == JOptionPane.OK_OPTION) {
+                // Use JavaFX authentication dialog
+                final String[] credentials = new String[2];
+                final boolean[] dialogResult = new boolean[1];
+                
+                Platform.runLater(() -> {
+                    try {
+                        SVNAuthenticationDialog authDialog = new SVNAuthenticationDialog(null, realm, url.toString());
+                        dialogResult[0] = authDialog.showAndWait();
+                        if (dialogResult[0]) {
+                            credentials[0] = authDialog.getUsername();
+                            credentials[1] = authDialog.getPassword();
+                        }
+                    } catch (Exception e) {
+                        LoggerUtil.error(e);
+                        dialogResult[0] = false;
+                    }
+                });
+                
+                // Wait for dialog result (with timeout)
+                long startTime = System.currentTimeMillis();
+                while (!dialogResult[0] && (System.currentTimeMillis() - startTime) < 30000) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                }
+                
+                if (dialogResult[0] && credentials[0] != null && credentials[1] != null) {
                     return SVNPasswordAuthentication.newInstance(
-                            userField.getText(), new String(passField.getPassword()).toCharArray(),
+                            credentials[0], credentials[1].toCharArray(),
                             authMayBeStored, url, false);
                 }
                 return null;
@@ -55,6 +77,13 @@ public class SVNAutomationTool {
         });
     }
 
+    /**
+     * Gets the authentication manager for SVN operations
+     */
+    public ISVNAuthenticationManager getAuthManager() {
+        return authManager;
+    }
+
     private static String formatTime(long millis) {
         long seconds = millis / 1000;
         long mins = seconds / 60;
@@ -64,122 +93,354 @@ public class SVNAutomationTool {
 
 
     /** Static checkout utility **/
-    public static void performCheckout(String remoteUrl, String localDir, BuildAutomation buildAutomation) throws SVNException {
-        SVNClientManager cm = SVNClientManager.newInstance();
-        SVNURL svnUrl = SVNURL.parseURIEncoded(remoteUrl);
-        File dest = new File(localDir);
-        SVNUpdateClient uc = cm.getUpdateClient();
-        uc.setIgnoreExternals(false);
-
-        // Thread-safe lists
-        java.util.List<String> checkedOutFiles = (java.util.List<String>) Collections.synchronizedList(new ArrayList<String>());
-        Set<String> loggedFiles = Collections.synchronizedSet(new HashSet<>());
-
-        // Timer to log new files every 10 seconds
-        java.util.Timer timer = new java.util.Timer(true);
-
-        timer.scheduleAtFixedRate(new TimerTask() {
-            @Override
-            public void run() {
-                java.util.List<String> newFiles = new ArrayList<>();
-                synchronized (checkedOutFiles) {
-                    for (String file : checkedOutFiles) {
-                        if (!loggedFiles.contains(file)) {
-                            newFiles.add(file);
-                            loggedFiles.add(file);
-                        }
-                    }
-                }
-
-                if (!newFiles.isEmpty()) {
-                    buildAutomation.appendTextToLog("New files checked out:");
-                    for (String file : newFiles) {
-                        buildAutomation.appendTextToLog("  - " + file);
-                    }
-                    buildAutomation.appendTextToLog("-------------------------------------");
-                }
-            }
-        }, 10000, 10000); // Run every 10 seconds
-
+    public static void performCheckout(String remoteUrl, String localDir, ProgressCallback callback) throws SVNException {
+        SVNClientManager cm = null;
         try {
+            cm = SVNClientManager.newInstance();
+            SVNURL svnUrl = SVNURL.parseURIEncoded(remoteUrl);
+            File dest = new File(localDir);
+            SVNUpdateClient uc = cm.getUpdateClient();
+            uc.setIgnoreExternals(false);
+
+            // Enhanced progress tracking with coordinated updates
+            final int[] fileCount = {0};
+            final int[] totalFiles = {0};
+            final long startTime = System.currentTimeMillis();
+            final long[] lastProgressUpdate = {0};
+            final int[] lastReportedProgress = {0}; // Track last reported progress to prevent fluctuations
+            final boolean[] hasRealProgress = {false}; // Track if we have real SVN progress
+
+            // Initial progress update
+            if (callback != null) {
+                callback.onProgress(0, "Starting SVN checkout from " + remoteUrl + "...");
+            }
+
             uc.setEventHandler(new ISVNEventHandler() {
                 @Override
                 public void handleEvent(SVNEvent event, double progress) throws SVNException {
+                    // Check for cancellation
+                    if (callback != null && callback.isCancelled()) {
+                        throw new SVNCancelException(SVNErrorMessage.create(SVNErrorCode.CANCELLED, "Operation cancelled by user"));
+                    }
+
                     String path = (event.getFile() != null) ? event.getFile().getAbsolutePath() : "(unknown)";
                     SVNEventAction action = event.getAction();
 
-                    // Only add meaningful events
-                    if (action == SVNEventAction.UPDATE_ADD || action == SVNEventAction.UPDATE_UPDATE || action == SVNEventAction.UPDATE_EXTERNAL) {
-                        checkedOutFiles.add(path);
+                    // Track all meaningful events for progress
+                    if (action == SVNEventAction.UPDATE_ADD || 
+                        action == SVNEventAction.UPDATE_UPDATE || 
+                        action == SVNEventAction.UPDATE_EXTERNAL ||
+                        action == SVNEventAction.UPDATE_DELETE ||
+                        action == SVNEventAction.UPDATE_REPLACE) {
+                        
+                        fileCount[0]++;
+                        
+                        // Calculate progress percentage with smoothing
+                        int progressPercent = 0;
+                        if (progress > 0) {
+                            hasRealProgress[0] = true; // Mark that we have real SVN progress
+                            progressPercent = Math.min((int) (progress * 100), 95); // Cap at 95% until completion
+                        } else {
+                            // Fallback progress calculation based on file count
+                            progressPercent = Math.min(fileCount[0] * 2, 95); // Simple linear progress
+                        }
+                        
+                        // Only update if progress has meaningfully increased (prevent fluctuations)
+                        if (progressPercent > lastReportedProgress[0] + 2) { // Minimum 2% increase
+                            long currentTime = System.currentTimeMillis();
+                            if (fileCount[0] % 5 == 0 || 
+                                progress > 0 || 
+                                (currentTime - lastProgressUpdate[0]) > 1000) { // Update at least every second
+                                
+                                String message;
+                                if (progress > 0) {
+                                    // Real SVN progress available
+                                    message = String.format("Checked out %d files (%.1f%% complete)", fileCount[0], progress * 100);
+                                } else {
+                                    // Fallback progress based on file count
+                                    message = String.format("Checked out %d files (processing...)", fileCount[0]);
+                                }
+                                
+                                if (callback != null) {
+                                    callback.onProgress(progressPercent, message);
+                                    lastProgressUpdate[0] = currentTime;
+                                    lastReportedProgress[0] = progressPercent;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Handle specific events for better progress tracking
+                    if (action == SVNEventAction.UPDATE_STARTED) {
+                        if (callback != null) {
+                            callback.onProgress(5, "SVN checkout started...");
+                            lastReportedProgress[0] = 5;
+                        }
+                    } else if (action == SVNEventAction.UPDATE_COMPLETED) {
+                        if (callback != null) {
+                            callback.onProgress(95, "SVN checkout finalizing...");
+                            lastReportedProgress[0] = 95;
+                        }
                     }
                 }
 
                 @Override
                 public void checkCancelled() throws SVNCancelException {
-                    // Optional: implement cancel support
+                    // Check for cancellation
+                    if (callback != null && callback.isCancelled()) {
+                        throw new SVNCancelException(SVNErrorMessage.create(SVNErrorCode.CANCELLED, "Operation cancelled by user"));
+                    }
                 }
             });
 
-            uc.doCheckout(svnUrl, dest, SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY, false);
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        } finally {
-            timer.cancel();
-            buildAutomation.appendTextToLog("SVN Checkout Completed.");
-
-            // Final log for remaining files not yet logged
-            java.util.List<String> finalUnlogged = new ArrayList<>();
-            synchronized (checkedOutFiles) {
-                for (String file : checkedOutFiles) {
-                    if (!loggedFiles.contains(file)) {
-                        finalUnlogged.add(file);
+            // Perform the checkout
+            if (callback != null) {
+                callback.onProgress(10, "Connecting to SVN repository...");
+            }
+            
+            // Start a background thread to provide fallback progress updates (only when no real progress)
+            final boolean[] checkoutCompleted = {false};
+            Thread progressThread = null;
+            
+            if (callback != null) {
+                progressThread = new Thread(() -> {
+                    try {
+                        int fallbackProgress = 15;
+                        while (!checkoutCompleted[0] && !callback.isCancelled()) {
+                            Thread.sleep(10000); // Update every 10 seconds
+                            if (!checkoutCompleted[0] && !callback.isCancelled()) {
+                                // Only use fallback progress if we don't have real SVN progress
+                                if (!hasRealProgress[0] && fallbackProgress < lastReportedProgress[0]) {
+                                    // Create simple progress message without estimation
+                                    String progressMessage;
+                                    if (fileCount[0] > 0) {
+                                        progressMessage = String.format("SVN checkout in progress... (%d files processed)", fileCount[0]);
+                                    } else {
+                                        progressMessage = "SVN checkout in progress... (connecting to repository)";
+                                    }
+                                    
+                                    callback.onProgress(fallbackProgress, progressMessage);
+                                    fallbackProgress = Math.min(fallbackProgress + 1, 85); // Slower increment, lower cap
+                                }
+                            }
+                        }
+                    } catch (InterruptedException e) {
+                        // Thread interrupted, exit gracefully
                     }
+                });
+                progressThread.setDaemon(true);
+                progressThread.start();
+            }
+            
+            try {
+                uc.doCheckout(svnUrl, dest, SVNRevision.HEAD, SVNRevision.HEAD, SVNDepth.INFINITY, false);
+            } finally {
+                checkoutCompleted[0] = true;
+                if (progressThread != null) {
+                    progressThread.interrupt();
                 }
             }
 
-            if (!finalUnlogged.isEmpty()) {
-                buildAutomation.appendTextToLog("Final files checked out:");
-                for (String file : finalUnlogged) {
-                    buildAutomation.appendTextToLog("  - " + file);
+            // Final progress update
+            if (callback != null && !callback.isCancelled()) {
+                long duration = System.currentTimeMillis() - startTime;
+                String durationText = duration > 1000 ? String.format(" (%.1fs)", duration / 1000.0) : "";
+                callback.onProgress(100, "SVN Checkout completed successfully" + durationText);
+                callback.onComplete("SVN Checkout completed - " + fileCount[0] + " files processed" + durationText);
+            }
+
+        } catch (SVNCancelException e) {
+            // Handle cancellation
+            if (callback != null) {
+                callback.onError("Operation cancelled by user");
+            }
+            throw e;
+        } catch (SVNException e) {
+            // Handle specific SVN errors
+            if (e.getErrorMessage().getErrorCode() == SVNErrorCode.WC_OBSTRUCTED_UPDATE) {
+                String errorMsg = "SVN working copy conflict detected. The directory is already a working copy for a different URL. " +
+                                "Please clean up the directory manually or use a different location.";
+                LoggerUtil.getLogger().severe(errorMsg);
+                if (callback != null) {
+                    callback.onError(errorMsg);
                 }
+            } else {
+                LoggerUtil.error(e);
+                if (callback != null) {
+                    callback.onError("SVN Checkout failed: " + e.getMessage());
+                }
+            }
+            throw e;
+        } catch (Exception e) {
+            LoggerUtil.error(e);
+            if (callback != null) {
+                callback.onError("SVN Checkout failed: " + e.getMessage());
+            }
+            throw new SVNException(SVNErrorMessage.create(SVNErrorCode.UNKNOWN, e.getMessage()), e);
+        } finally {
+            // Ensure proper cleanup
+            if (cm != null) {
+                cm.dispose();
             }
         }
     }
 
 
     public static void deleteFolderContents(File folder) throws IOException {
-        if (!folder.exists() || !folder.isDirectory()) return;
+        deleteFolderContents(folder, null);
+    }
+
+    public static void deleteFolderContents(File folder, ProgressCallback callback) throws IOException {
+        if (!folder.exists() || !folder.isDirectory()) {
+            if (callback != null) {
+                callback.onError("Folder does not exist or is not a directory");
+            }
+            return;
+        }
+
+        File[] files = folder.listFiles();
+        if (files == null || files.length == 0) {
+            if (callback != null) {
+                callback.onComplete("Folder is already empty");
+            }
+            return;
+        }
+
+        int totalFiles = countFilesRecursively(folder);
+        int deletedFiles = 0;
+        
+        // Limit total files to prevent memory issues with extremely large directories
+        if (totalFiles > 10000) {
+            LoggerUtil.getLogger().warning("Large directory detected (" + totalFiles + " files). Limiting progress updates to prevent memory issues.");
+            totalFiles = 10000; // Cap at 10,000 files for progress calculation
+        }
 
         // Perform SVN cleanup if .svn folder exists
         File svnMetadata = new File(folder, ".svn");
         if (svnMetadata.exists()) {
-            doSVNCleanup(folder);
+            if (callback != null) {
+                callback.onProgress(0, "Performing SVN cleanup...");
+            }
             try {
-                Thread.sleep(500); // Small wait after cleanup
-            } catch (InterruptedException ignored) {}
+                doSVNCleanup(folder);
+            } catch (Exception e) {
+                // If SVN cleanup fails, try to remove the .svn directory manually
+                LoggerUtil.getLogger().warning("SVN cleanup failed, attempting manual cleanup: " + e.getMessage());
+                if (callback != null) {
+                    callback.onProgress(10, "Manual SVN cleanup...");
+                }
+                try {
+                    deleteDirectoryRecursively(svnMetadata);
+                    LoggerUtil.getLogger().info("Manual SVN cleanup completed");
+                } catch (Exception manualEx) {
+                    LoggerUtil.getLogger().warning("Manual SVN cleanup also failed: " + manualEx.getMessage());
+                    if (callback != null) {
+                        callback.onError("Failed to clean up SVN metadata: " + manualEx.getMessage());
+                        return;
+                    }
+                }
+            }
+            // Check for cancellation after cleanup
+            if (callback != null && callback.isCancelled()) {
+                callback.onError("Operation cancelled by user");
+                return;
+            }
         }
 
-        for (File file : folder.listFiles()) {
+        // Delete files with progress updates
+        deletedFiles = deleteFilesWithProgress(folder, callback, totalFiles, deletedFiles);
+        
+        if (callback != null && !callback.isCancelled()) {
+            callback.onComplete("Successfully deleted " + deletedFiles + " files/folders");
+        }
+    }
+
+    private static int deleteFilesWithProgress(File folder, ProgressCallback callback, int totalFiles, int deletedFiles) {
+        File[] files = folder.listFiles();
+        if (files == null) return deletedFiles;
+
+        for (File file : files) {
+            if (callback != null && callback.isCancelled()) {
+                callback.onError("Operation cancelled by user");
+                return deletedFiles;
+            }
+
             if (file.isDirectory()) {
-                deleteFolderContents(file);
+                deletedFiles = deleteFilesWithProgress(file, callback, totalFiles, deletedFiles);
             }
 
             // Try to make file writable first (for read-only .svn files)
             file.setWritable(true);
 
             if (!file.delete()) {
-                // Try deleting again after small wait
-                try {
-                    Thread.sleep(200);
-                } catch (InterruptedException ignored) {}
+                // Try deleting again with a more efficient retry approach
+                int retryCount = 0;
+                boolean deleted = false;
+                
+                while (retryCount < 3 && !deleted) {
+                    // Check for cancellation between retries
+                    if (callback != null && callback.isCancelled()) {
+                        callback.onError("Operation cancelled by user");
+                        return deletedFiles;
+                    }
+                    
+                    // Use a more efficient approach instead of Thread.sleep
+                    try {
+                        // Force garbage collection to release file handles
+                        System.gc();
+                        deleted = file.delete();
+                        retryCount++;
+                    } catch (Exception e) {
+                        retryCount++;
+                    }
+                }
 
-                if (!file.delete()) {
-                    LoggerUtil.getLogger().info("Failed to delete file even after retry: " + file.getAbsolutePath());
+                if (!deleted) {
+                    String errorMsg = "Failed to delete file after retries: " + file.getAbsolutePath();
+                    LoggerUtil.getLogger().info(errorMsg);
+                    if (callback != null) {
+                        callback.onError(errorMsg);
+                        return deletedFiles;
+                    }
+                }
+            }
 
+            deletedFiles++;
+            if (callback != null) {
+                int progress = (int) ((double) deletedFiles / totalFiles * 100);
+                // Limit progress updates to avoid memory issues with large file counts
+                if (deletedFiles % 10 == 0 || progress % 5 == 0 || deletedFiles == totalFiles) {
+                    String fileName = file.getName();
+                    // Truncate long file names to prevent memory issues
+                    if (fileName.length() > 50) {
+                        fileName = fileName.substring(0, 47) + "...";
+                    }
+                    callback.onProgress(progress, "Deleted: " + fileName);
                 }
             }
         }
+        
+        return deletedFiles;
+    }
+
+    private static int countFilesRecursively(File folder) {
+        int count = 0;
+        File[] files = folder.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isDirectory()) {
+                    count += countFilesRecursively(file);
+                }
+                count++;
+                
+                // Limit counting to prevent memory issues with extremely large directories
+                if (count > 15000) {
+                    LoggerUtil.getLogger().warning("Directory too large, stopping file count at " + count + " files");
+                    return count;
+                }
+            }
+        }
+        return count;
     }
 
 
@@ -192,56 +453,90 @@ public class SVNAutomationTool {
 
             LoggerUtil.getLogger().info("SVN cleanup completed successfully for: " + folder.getAbsolutePath());
         } catch (SVNException e) {
-            System.err.println("SVN cleanup failed for: " + folder.getAbsolutePath());
-            LoggerUtil.error(e);
+            // Handle specific SVN errors more gracefully
+            if (e.getErrorMessage().getErrorCode() == SVNErrorCode.WC_OBSTRUCTED_UPDATE) {
+                LoggerUtil.getLogger().warning("SVN working copy conflict detected. Attempting to resolve...");
+                try {
+                    // Try to resolve the conflict by removing the .svn directory
+                    File svnDir = new File(folder, ".svn");
+                    if (svnDir.exists()) {
+                        deleteDirectoryRecursively(svnDir);
+                        LoggerUtil.getLogger().info("Removed conflicting .svn directory: " + svnDir.getAbsolutePath());
+                    }
+                } catch (Exception cleanupEx) {
+                    LoggerUtil.getLogger().warning("Failed to remove conflicting .svn directory: " + cleanupEx.getMessage());
+                }
+            } else {
+                LoggerUtil.getLogger().warning("SVN cleanup failed for: " + folder.getAbsolutePath() + " - " + e.getMessage());
+            }
         } finally {
             if (clientManager != null) {
                 clientManager.dispose();  // VERY IMPORTANT
             }
         }
     }
-
-    public static void performUpdate(String localDir, BuildAutomation buildAutomation) throws SVNException {
-        SVNClientManager cm = SVNClientManager.newInstance();
-        File dest = new File(localDir);
-        SVNUpdateClient uc = cm.getUpdateClient();
-        uc.setIgnoreExternals(false);
-        long startTime = System.currentTimeMillis();
-        final int[] lastLoggedPercent = {-1};
-
-        uc.setEventHandler(new ISVNEventHandler() {
-            @Override
-            public void handleEvent(SVNEvent event, double progress) throws SVNException {
-                String path = event.getFile() != null ? event.getFile().getAbsolutePath() : "(unknown)";
-                SVNEventAction action = event.getAction();
-
-                int percent = (int) (progress * 100);
-                if (percent - lastLoggedPercent[0] >= 5) {
-                    lastLoggedPercent[0] = percent;
-
-                    long elapsed = System.currentTimeMillis() - startTime;
-                    double rate = progress > 0 ? (elapsed / progress) : 0;
-                    long eta = (long) (rate * (1.0 - progress));
-                    String etaFormatted = formatTime(eta);
-
-                    buildAutomation.appendTextToLog(String.format("              >> Update Progress: %3d%% complete, %3d%% remaining, ETA: %s\n",
-                            percent, 100 - percent, etaFormatted));
+    
+    private static void deleteDirectoryRecursively(File dir) {
+        if (dir.isDirectory()) {
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    deleteDirectoryRecursively(file);
                 }
             }
+        }
+        if (!dir.delete()) {
+            LoggerUtil.getLogger().warning("Could not delete: " + dir.getAbsolutePath());
+        }
+    }
 
-            @Override
-            public void checkCancelled() throws SVNCancelException {
-
-            }
-        });
-
+    public static void performUpdate(String localDir, BuildAutomation buildAutomation) throws SVNException {
+        SVNClientManager cm = null;
         try {
+            cm = SVNClientManager.newInstance();
+            File dest = new File(localDir);
+            SVNUpdateClient uc = cm.getUpdateClient();
+            uc.setIgnoreExternals(false);
+            long startTime = System.currentTimeMillis();
+            final int[] lastLoggedPercent = {-1};
+
+            uc.setEventHandler(new ISVNEventHandler() {
+                @Override
+                public void handleEvent(SVNEvent event, double progress) throws SVNException {
+                    String path = event.getFile() != null ? event.getFile().getAbsolutePath() : "(unknown)";
+                    SVNEventAction action = event.getAction();
+
+                    int percent = (int) (progress * 100);
+                    if (percent - lastLoggedPercent[0] >= 5) {
+                        lastLoggedPercent[0] = percent;
+
+                        long elapsed = System.currentTimeMillis() - startTime;
+                        double rate = progress > 0 ? (elapsed / progress) : 0;
+                        long eta = (long) (rate * (1.0 - progress));
+                        String etaFormatted = formatTime(eta);
+
+                        buildAutomation.appendTextToLog(String.format("              >> Update Progress: %3d%% complete, %3d%% remaining, ETA: %s\n",
+                                percent, 100 - percent, etaFormatted));
+                    }
+                }
+
+                @Override
+                public void checkCancelled() throws SVNCancelException {
+                    // Optional: implement cancel support
+                }
+            });
+
             long revision = uc.doUpdate(dest, SVNRevision.HEAD, SVNDepth.INFINITY, false, false);
             buildAutomation.appendTextToLog("             >> Update completed to revision: " + revision);
         } catch (SVNException e) {
             buildAutomation.appendTextToLog("             >> Update failed: " + e.getMessage());
             LoggerUtil.error(e);
             throw e;
+        } finally {
+            // Ensure proper cleanup
+            if (cm != null) {
+                cm.dispose();
+            }
         }
     }
 

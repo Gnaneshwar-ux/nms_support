@@ -17,6 +17,13 @@ public class WritePropertiesFile {
 
     public static boolean updateFile(ProjectEntity project, String app) {
         Properties properties = new Properties();
+        
+        // Handle null app parameter
+        if (app == null) {
+            System.out.println("DEBUG: WritePropertiesFile.updateFile called with null app, skipping properties file update");
+            return false;
+        }
+        
         String prefix = project.getLogId() + "_" + Mappings.getCodeFromApp(app);
 
         // Define the file path
@@ -45,6 +52,8 @@ public class WritePropertiesFile {
                 Optional.ofNullable(project.getPrevTypeSelected(app)).orElse(""));
         properties.setProperty(prefix + "_autoLogin",
                 Optional.ofNullable(project.getAutoLogin()).orElse("false"));
+        properties.setProperty(project.getLogId() + "_jconfigPath", 
+                Optional.ofNullable(project.getJconfigPathForBuild()).orElse(""));
 
         // Create the directory if it doesn't exist
         try {

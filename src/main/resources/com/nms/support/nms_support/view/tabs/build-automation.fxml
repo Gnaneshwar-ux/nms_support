@@ -6,139 +6,118 @@
 <?import javafx.scene.image.ImageView?>
 <?import javafx.scene.image.Image?>
 <AnchorPane fx:id="root" stylesheets="@../../styles/light/tabs/build-automation.css" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.nms.support.nms_support.controller.BuildAutomation">
-    <VBox alignment="TOP_CENTER" spacing="10" styleClass="transparent-pane" AnchorPane.bottomAnchor="10" AnchorPane.leftAnchor="10" AnchorPane.rightAnchor="10" AnchorPane.topAnchor="10">
-<!--        <Label styleClass="label-title" text="NMS BUILD AUTOMATION TOOL" />-->
-
-
-            <TextArea fx:id="buildLog" editable="false" styleClass="textarea-log" GridPane.columnIndex="0" GridPane.rowIndex="0" VBox.vgrow="ALWAYS" />
-
-            <GridPane hgap="6" styleClass="transparent-pane" vgap="6" VBox.vgrow="NEVER">
+    <ScrollPane fitToWidth="true" fitToHeight="true" hbarPolicy="AS_NEEDED" vbarPolicy="NEVER" AnchorPane.bottomAnchor="10" AnchorPane.leftAnchor="0" AnchorPane.rightAnchor="0" AnchorPane.topAnchor="0">
+        <VBox alignment="TOP_CENTER" spacing="4" styleClass="transparent-pane main-container">
+            <!-- Top spacer for margin -->
+            <Region prefHeight="6" minHeight="6" maxHeight="6" styleClass="transparent-pane" />
+            
+            <!-- Control section - takes remaining space -->
+            <GridPane hgap="6" styleClass="transparent-pane control-section" vgap="6" VBox.vgrow="NEVER" minHeight="140">
                 <columnConstraints>
-                    <ColumnConstraints percentWidth="70" />
-                    <ColumnConstraints percentWidth="30" />
+                    <ColumnConstraints percentWidth="50" />
+                    <ColumnConstraints percentWidth="50" />
                 </columnConstraints>
                 <rowConstraints>
                     <RowConstraints percentHeight="100" />
                 </rowConstraints>
+                
+                <!-- Left panel - Project Configuration -->
                 <HBox alignment="CENTER" styleClass="transparent-pane" GridPane.columnIndex="0" GridPane.rowIndex="0" HBox.hgrow="ALWAYS">
-                    <GridPane hgap="6" styleClass="pane-with-border" alignment="CENTER" vgap="6" HBox.hgrow="ALWAYS">
-                        <!-- Define column constraints -->
+                    <GridPane hgap="3" styleClass="pane-with-border" alignment="CENTER" vgap="12" HBox.hgrow="ALWAYS" minHeight="135">
                         <columnConstraints>
-                            <ColumnConstraints halignment="CENTER" percentWidth="30" />
-                            <ColumnConstraints percentWidth="50" />
-                            <ColumnConstraints percentWidth="20" />
+                            <ColumnConstraints halignment="CENTER" percentWidth="25" />
+                            <ColumnConstraints percentWidth="75" />
                         </columnConstraints>
-                        <!-- Define row constraints -->
                         <rowConstraints>
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
+                            <RowConstraints percentHeight="16" />
+                            <RowConstraints percentHeight="16" />
+                            <RowConstraints percentHeight="16" />
+                            <RowConstraints percentHeight="16" />
+                            <RowConstraints percentHeight="20" />
                         </rowConstraints>
+                        
                         <Label styleClass="label-common" text="Project Code:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
-                        <ComboBox fx:id="projectLogComboBox" prefWidth="1000" GridPane.columnIndex="1" GridPane.rowIndex="0" />
-                        <Button fx:id="reloadButton" styleClass="button-icon" GridPane.columnIndex="2" GridPane.rowIndex="0" >
-                            <graphic>
-                                <ImageView fitWidth="18" fitHeight="18">
-                                    <Image url="@../../images/icons/reload.png"/>
-                                </ImageView>
-                            </graphic>
-                            <tooltip>
-                                <Tooltip text="Reload log names available in temp/OracleNMS"/>
-                            </tooltip>
-                        </Button>
-                        <Label styleClass="label-common" text="Jconfig path*:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
-                        <TextField fx:id="jconfigPath" prefWidth="300" GridPane.columnIndex="1" GridPane.rowIndex="1" />
-                        <Button fx:id="replaceProjectBuild" styleClass="button-icon" GridPane.columnIndex="2" GridPane.rowIndex="1" >
-                            <graphic>
-                                <ImageView fitWidth="18" fitHeight="18">
-                                    <Image url="@../../images/icons/replace.png"/>
-                                </ImageView>
-                            </graphic>
-                            <tooltip>
-                                <Tooltip text="This replace NMS_HOME text in jconfig build files"/>
-                            </tooltip>
-                        </Button>
-                        <Label styleClass="label-common" text="WebWorkspace.exe path*:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
-                        <TextField fx:id="webWorkspacePath" prefWidth="300" GridPane.columnIndex="1" GridPane.rowIndex="2" />
-                        <Button fx:id="replaceProductBuild" styleClass="button-icon" GridPane.columnIndex="2" GridPane.rowIndex="2" >
-                            <graphic>
-                                <ImageView fitWidth="18" fitHeight="18">
-                                    <Image url="@../../images/icons/replace.png"/>
-                                </ImageView>
-                            </graphic>
-                            <tooltip>
-                                <Tooltip text="This replace NMS_HOME text in product ant build files"/>
-                            </tooltip>
-                        </Button>
-                        <Label styleClass="label-common" text="Username:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
-                        <TextField fx:id="usernameField" prefWidth="300" GridPane.columnIndex="1" GridPane.rowIndex="3" />
-                        <Label styleClass="label-common" text="Password:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
-                        <TextField fx:id="passwordField" prefWidth="230" GridPane.columnIndex="1" GridPane.rowIndex="4" />
-                        <Label styleClass="label-common" text="User type:" GridPane.columnIndex="0" GridPane.rowIndex="5" />
-                        <ComboBox fx:id="userTypeComboBox" prefWidth="1000" GridPane.columnIndex="1" GridPane.rowIndex="5" />
-                        <Button fx:id="reloadUsersButton" styleClass="button-icon" GridPane.columnIndex="2" GridPane.rowIndex="5" >
-                            <graphic>
-                                <ImageView fitWidth="18" fitHeight="18">
-                                    <Image url="@../../images/icons/reload.png"/>
-                                </ImageView>
-                            </graphic>
-                            <tooltip>
-                                <Tooltip text="Reload login user types from env_code table import"/>
-                            </tooltip>
-                        </Button>
-                        <CheckBox fx:id="autoLoginCheckBox" styleClass="checkbox-common" text="Auto login" GridPane.columnIndex="1" GridPane.rowIndex="6" />
+                        <HBox alignment="CENTER_LEFT" spacing="2" GridPane.columnIndex="1" GridPane.rowIndex="0" HBox.hgrow="ALWAYS">
+                            <TextField fx:id="projectLogComboBox" HBox.hgrow="ALWAYS" editable="false" />
+                            <Button fx:id="reloadButton" styleClass="button-icon" >
+                                <graphic>
+                                    <ImageView fitWidth="14" fitHeight="14">
+                                        <Image url="@../../images/icons/reload.png"/>
+                                    </ImageView>
+                                </graphic>
+                                <tooltip>
+                                    <Tooltip text="Get project code from build.properties and nms_common.jar"/>
+                                </tooltip>
+                            </Button>
+                        </HBox>
 
-                        <BorderPane styleClass="transparent-pane" GridPane.columnIndex="1" GridPane.rowIndex="7">
-                            <left>
-                                <Button fx:id="deleteButton" styleClass="button-common" text="DELETE" HBox.hgrow="ALWAYS" />
-                            </left>
-                            <center>
-                                <Button fx:id="patchButtom" alignment="CENTER" prefWidth="140.0" styleClass="button-common" text="UPGRADE" />
-                            </center>
-                            <right>
-                                <Button fx:id="updateButton" alignment="CENTER" prefWidth="104.0" styleClass="button-common" text="SAVE" />
-                            </right>
-                        </BorderPane>
+                        <Label styleClass="label-common" text="Username:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                        <TextField fx:id="usernameField" GridPane.columnIndex="1" GridPane.rowIndex="1" HBox.hgrow="ALWAYS" />
+                        
+                        <Label styleClass="label-common" text="Password:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                        <TextField fx:id="passwordField" GridPane.columnIndex="1" GridPane.rowIndex="2" HBox.hgrow="ALWAYS" />
+                        
+                        <Label styleClass="label-common" text="User type:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+                        <HBox alignment="CENTER_LEFT" spacing="2" GridPane.columnIndex="1" GridPane.rowIndex="3" HBox.hgrow="ALWAYS">
+                            <ComboBox fx:id="userTypeComboBox" HBox.hgrow="ALWAYS" />
+                            <Button fx:id="reloadUsersButton" styleClass="button-icon" >
+                                <graphic>
+                                    <ImageView fitWidth="14" fitHeight="14">
+                                        <Image url="@../../images/icons/reload.png"/>
+                                    </ImageView>
+                                </graphic>
+                                <tooltip>
+                                    <Tooltip text="Reload login user types from env_code table import"/>
+                                </tooltip>
+                            </Button>
+                        </HBox>
+                        
+                        <HBox alignment="CENTER_LEFT" spacing="8" GridPane.columnIndex="1" GridPane.rowIndex="4">
+                            <CheckBox fx:id="autoLoginCheckBox" styleClass="checkbox-common" text="Auto login" />
+                            <CheckBox fx:id="manageToolCheckBox" styleClass="checkbox-common" text="Manage Tool" />
+                            <Button fx:id="deleteButton" styleClass="button-delete" text="DELETE" />
+                        </HBox>
                     </GridPane>
                 </HBox>
+                
+                <!-- Right panel - Build & Application Management -->
                 <HBox alignment="CENTER" styleClass="transparent-pane" GridPane.columnIndex="1" GridPane.rowIndex="0" HBox.hgrow="ALWAYS">
-                    <GridPane alignment="CENTER" hgap="6" styleClass="pane-with-border" vgap="8" HBox.hgrow="ALWAYS">
-                        <!-- Dropdown at the top -->
-                        <Label styleClass="label-common" text="Build Type:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
-                        <ComboBox fx:id="buildMode" prefWidth="200" GridPane.columnIndex="0" GridPane.columnSpan="1" GridPane.rowIndex="1" />
-                        <Label styleClass="label-common" text="Application:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
-                        <ComboBox fx:id="appName" prefWidth="200" GridPane.columnIndex="0" GridPane.columnSpan="1" GridPane.rowIndex="3" />
-                        <!-- Buttons in vertical order -->
-                        <Button fx:id="buildButton" styleClass="button-common" text="BUILD" GridPane.columnIndex="1" GridPane.rowIndex="1" />
-                        <Button fx:id="stopButton" styleClass="button-common" text="STOP" GridPane.columnIndex="1" GridPane.rowIndex="4" />
-                        <Button fx:id="startButton" styleClass="button-common" text="START" GridPane.columnIndex="1" GridPane.rowIndex="3" />
-                        <Button fx:id="openNMSLogButton" styleClass="button-common" text="NMS LOG" GridPane.columnIndex="0" GridPane.rowIndex="5" />
-                        <Button fx:id="openBuildLogButton" styleClass="button-common" text="BUILD LOG" GridPane.columnIndex="0" GridPane.rowIndex="4" />
-                        <Button fx:id="restartButton" styleClass="button-common" text="RESTART" GridPane.columnIndex="1" GridPane.rowIndex="5" />
-
-                        <!-- Alignment settings for better layout -->
+                    <GridPane alignment="CENTER" hgap="3" styleClass="pane-with-border" vgap="4" HBox.hgrow="ALWAYS" minHeight="130">
                         <columnConstraints>
-                            <ColumnConstraints halignment="CENTER" />
-                            <ColumnConstraints />
+                            <ColumnConstraints halignment="CENTER" percentWidth="100" />
                         </columnConstraints>
                         <rowConstraints>
                             <RowConstraints percentHeight="10" />
+                            <RowConstraints percentHeight="20" />
                             <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
-                            <RowConstraints percentHeight="10" />
+                            <RowConstraints percentHeight="20" />
                         </rowConstraints>
+                        
+                        <Label styleClass="label-common" text="Build Type:" GridPane.columnIndex="0" GridPane.rowIndex="0" GridPane.halignment="LEFT" />
+                        
+                        <!-- Build Type ComboBox and buttons on same line -->
+                        <HBox alignment="CENTER_LEFT" spacing="4" GridPane.columnIndex="0" GridPane.rowIndex="1" HBox.hgrow="ALWAYS">
+                            <ComboBox fx:id="buildMode" HBox.hgrow="ALWAYS" />
+                            <Button fx:id="openNMSLogButton" styleClass="button-common" text="NMS LOG" prefWidth="80" minWidth="80" maxWidth="80" />
+                            <Button fx:id="openBuildLogButton" styleClass="button-common" text="BUILD LOG" prefWidth="80" minWidth="80" maxWidth="80" />
+                            <Button fx:id="buildButton" styleClass="button-common" text="BUILD" prefWidth="80" minWidth="80" maxWidth="80" />
+                        </HBox>
+                        
+                        <Label styleClass="label-common" text="Application:" GridPane.columnIndex="0" GridPane.rowIndex="2" GridPane.halignment="LEFT" />
+                        
+                        <!-- Application ComboBox and buttons on same line -->
+                        <HBox alignment="CENTER_LEFT" spacing="4" GridPane.columnIndex="0" GridPane.rowIndex="3" HBox.hgrow="ALWAYS">
+                            <ComboBox fx:id="appName" HBox.hgrow="ALWAYS" />
+                            <Button fx:id="startButton" styleClass="button-common" text="START" prefWidth="80" minWidth="80" maxWidth="80" />
+                            <Button fx:id="stopButton" styleClass="button-common" text="STOP" prefWidth="80" minWidth="80" maxWidth="80" />
+                            <Button fx:id="restartButton" styleClass="button-common" text="RESTART" prefWidth="80" minWidth="80" maxWidth="80" />
+                        </HBox>
                     </GridPane>
                 </HBox>
             </GridPane>
 
-    </VBox>
+            <!-- Build log area - takes most of the available space -->
+            <TextArea fx:id="buildLog" editable="false" styleClass="textarea-log" VBox.vgrow="ALWAYS" />
+        </VBox>
+    </ScrollPane>
 </AnchorPane>

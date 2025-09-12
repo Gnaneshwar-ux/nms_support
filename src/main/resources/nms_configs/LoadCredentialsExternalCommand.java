@@ -29,7 +29,7 @@ public class LoadCredentialsExternalCommand extends JBotCommand{
 
 		BuildInformation buildinfo = BuildInformation.getInfo("CLIENT_TOOL");
 
-		String CLIENT_TOOL_PROJECT_NAME = (String)buildinfo.getProperties().get("CLIENT_TOOL_PROJECT_NAME");
+		String CLIENT_TOOL_PROJECT_NAME = ((String)buildinfo.getProperties().get("CLIENT_TOOL_PROJECT_NAME")).trim();
 		String CLIENT_TOOL_CVS_TAG = (String) buildinfo.getProperties().get("CLIENT_TOOL_CVS_TAG");
 		String projectCode = CLIENT_TOOL_PROJECT_NAME+"#"+CLIENT_TOOL_CVS_TAG;
 
@@ -60,13 +60,14 @@ public class LoadCredentialsExternalCommand extends JBotCommand{
 			cred.setValue("PASSWORD", p.getProperty(proj + "password"));
 			cred.setValue("TYPE", p.getProperty(proj + "selectedUserType"));
 			cred.setValue("autoLogin",true);
+			System.out.println("\nUSERNAME = "+ p.getProperty(proj+"username") +"\n");
 			}
 			else {
 				cred.setValue("autoLogin", false);
 			}
 
 			file.close();
-			System.out.println("\nUSERNAME = "+ user+"\n");
+			
 			System.out.println("Credentials loaded .................");
 		}
 		catch (Exception e) {

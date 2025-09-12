@@ -71,7 +71,7 @@ call "%JAVA22_HOME%\bin\jlink" ^
   --strip-native-commands ^
   --no-header-files ^
   --no-man-pages ^
-  --compress=2 ^
+  --compress=zip-2 ^
   --strip-debug ^
   --add-modules %detected_modules%%manual_modules% ^
   --include-locales=en,de ^
@@ -82,6 +82,7 @@ rem ------ PACKAGING ----------------------------------------------------------
 rem In the end we will find the package inside the target/installer directory.
 
 echo APP_VERSION is set to: %APP_VERSION%
+echo Creating executable...
 
 call "%JAVA22_HOME%\bin\jpackage" ^
   --type %INSTALLER_TYPE% ^
@@ -94,9 +95,9 @@ call "%JAVA22_HOME%\bin\jpackage" ^
   --runtime-image target/java-runtime ^
   --icon src/main/nmssupport.ico ^
   --app-version %APP_VERSION% ^
-  --vendor "ACME Inc." ^
-  --copyright "Copyright © 2019-21 ACME Inc." ^
+  --vendor "Oracle" ^
+  --copyright "Copyright Oracle NMS." ^
   --win-dir-chooser ^
   --win-shortcut ^
   --win-per-user-install ^
-  --win-menu
+  --win-menu 

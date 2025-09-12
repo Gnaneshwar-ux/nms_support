@@ -25,7 +25,6 @@ import javafx.stage.DirectoryChooser;
 import javafx.stage.Window;
 import org.tmatesoft.svn.core.SVNException;
 
-import java.awt.*;
 import java.io.File;
 import java.util.*;
 import java.util.List;
@@ -33,12 +32,124 @@ import java.util.concurrent.CompletableFuture;
 
 public class DialogUtil {
 
+    // Private constructor to prevent instantiation
+    private DialogUtil() {
+        // Utility class - no instantiation needed
+    }
+
     // Global inline style for all dialog content
     private static final String GLOBAL_STYLE = "-fx-font-family: 'Arial'; -fx-font-size: 14px;";
 
+    // Professional typography and styling constants
+    private static final String PROFESSIONAL_FONT_FAMILY = "'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif";
+    private static final String MODERN_STYLE = """
+        -fx-font-family: %s;
+        -fx-font-size: 14px;
+        -fx-background-color: #FFFFFF;
+        """.formatted(PROFESSIONAL_FONT_FAMILY);
+    
+    private static final String TITLE_STYLE = """
+        -fx-font-family: %s;
+        -fx-font-size: 18px;
+        -fx-font-weight: bold;
+        -fx-text-fill: #1F2937;
+        -fx-text-alignment: center;
+        """.formatted(PROFESSIONAL_FONT_FAMILY);
+    
+    private static final String SUBTITLE_STYLE = """
+        -fx-font-family: %s;
+        -fx-font-size: 13px;
+        -fx-font-weight: normal;
+        -fx-text-fill: #6B7280;
+        -fx-text-alignment: center;
+        """.formatted(PROFESSIONAL_FONT_FAMILY);
+    
+    private static final String LABEL_STYLE = """
+        -fx-font-family: %s;
+        -fx-font-size: 13px;
+        -fx-font-weight: 600;
+        -fx-text-fill: #374151;
+        """.formatted(PROFESSIONAL_FONT_FAMILY);
+    
+    private static final String FIELD_STYLE = """
+        -fx-font-family: %s;
+        -fx-font-size: 13px;
+        -fx-background-color: #FFFFFF;
+        -fx-border-color: #D1D5DB;
+        -fx-border-radius: 6;
+        -fx-padding: 8 12;
+        -fx-text-fill: #374151;
+        """.formatted(PROFESSIONAL_FONT_FAMILY);
+    
+    private static final String MODERN_BUTTON_STYLE = """
+        -fx-font-family: %s;
+        -fx-font-size: 13px;
+        -fx-font-weight: 600;
+        -fx-background-color: #3B82F6;
+        -fx-text-fill: white;
+        -fx-padding: 8 16;
+        -fx-background-radius: 6;
+        -fx-border-radius: 6;
+        -fx-cursor: hand;
+        -fx-effect: dropshadow(gaussian, rgba(59, 130, 246, 0.3), 3, 0, 0, 1);
+        """.formatted(PROFESSIONAL_FONT_FAMILY);
+    
+    private static final String MODERN_BUTTON_HOVER_STYLE = """
+        -fx-font-family: %s;
+        -fx-font-size: 13px;
+        -fx-font-weight: 600;
+        -fx-background-color: #2563EB;
+        -fx-text-fill: white;
+        -fx-padding: 8 16;
+        -fx-background-radius: 6;
+        -fx-border-radius: 6;
+        -fx-cursor: hand;
+        -fx-effect: dropshadow(gaussian, rgba(37, 99, 235, 0.4), 4, 0, 0, 2);
+        """.formatted(PROFESSIONAL_FONT_FAMILY);
+    
+    private static final String MODERN_CANCEL_BUTTON_STYLE = """
+        -fx-font-family: %s;
+        -fx-font-size: 13px;
+        -fx-font-weight: 600;
+        -fx-background-color: #6B7280;
+        -fx-text-fill: white;
+        -fx-padding: 8 16;
+        -fx-background-radius: 6;
+        -fx-border-radius: 6;
+        -fx-cursor: hand;
+        -fx-effect: dropshadow(gaussian, rgba(107, 114, 128, 0.3), 3, 0, 0, 1);
+        """.formatted(PROFESSIONAL_FONT_FAMILY);
+    
+    private static final String MODERN_CANCEL_BUTTON_HOVER_STYLE = """
+        -fx-font-family: %s;
+        -fx-font-size: 13px;
+        -fx-font-weight: 600;
+        -fx-background-color: #4B5563;
+        -fx-text-fill: white;
+        -fx-padding: 8 16;
+        -fx-background-radius: 6;
+        -fx-border-radius: 6;
+        -fx-cursor: hand;
+        -fx-effect: dropshadow(gaussian, rgba(75, 85, 99, 0.4), 4, 0, 0, 2);
+        """.formatted(PROFESSIONAL_FONT_FAMILY);
+
     // Apply the global inline style to any Node
     private static void applyGlobalStyle(Node node) {
-        if (node != null) node.setStyle(GLOBAL_STYLE);
+        if (node != null) {
+            node.setStyle(GLOBAL_STYLE);
+            
+            // Apply additional styling for dialog panes
+            if (node instanceof DialogPane) {
+                DialogPane dialogPane = (DialogPane) node;
+                dialogPane.setStyle(GLOBAL_STYLE + 
+                    "-fx-background-color: #ffffff; " +
+                    "-fx-border-color: #e2e8f0; " +
+                    "-fx-border-width: 1; " +
+                    "-fx-border-radius: 8; " +
+                    "-fx-background-radius: 8; " +
+                    "-fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.1), 8, 0, 0, 2);");
+            }
+        }
     }
 
     private static void setAlertIcon(Alert alert) {
@@ -54,11 +165,13 @@ public class DialogUtil {
             alert.setHeaderText(null);
             alert.setContentText(message);
 
-            int height = 150, count = 0;
-            for (String line : message.split("\n")) count += Math.ceil(line.length() / 64.0);
-            if (count > 3) height += (count - 3) * 20;
-            alert.setWidth(450);
-            alert.setHeight(height);
+            // Set dialog properties for proper button containment with content-based sizing
+            alert.setResizable(true);
+            int width = calculateDialogWidth(message);
+            int height = calculateDialogHeight(message);
+            alert.getDialogPane().setPrefSize(width, height);
+            alert.getDialogPane().setMinSize(Math.min(width, 400), Math.min(height, 140));
+            
             alert.showAndWait();
         });
     }
@@ -70,6 +183,14 @@ public class DialogUtil {
             alert.setTitle(title);
             alert.setHeaderText(null);
             alert.setContentText(message);
+
+            // Set dialog properties for proper button containment with content-based sizing
+            alert.setResizable(true);
+            int width = calculateDialogWidth(message);
+            int height = calculateDialogHeight(message);
+            alert.getDialogPane().setPrefSize(width, height);
+            alert.getDialogPane().setMinSize(Math.min(width, 400), Math.min(height, 140));
+            
             alert.showAndWait();
         });
     }
@@ -81,7 +202,16 @@ public class DialogUtil {
         alert.setTitle(title);
         alert.setHeaderText(header);
         alert.setContentText(content);
-        alert.getDialogPane().setPrefSize(400, 200);
+        
+        // Set dialog properties for proper button containment with content-based sizing
+        alert.setResizable(true);
+        // Combine header and content for size calculation
+        String fullMessage = (header != null ? header + "\n" : "") + (content != null ? content : "");
+        int width = calculateDialogWidth(fullMessage);
+        int height = calculateDialogHeight(fullMessage);
+        alert.getDialogPane().setPrefSize(width, height);
+        alert.getDialogPane().setMinSize(Math.min(width, 400), Math.min(height, 140));
+        
         return alert.showAndWait();
     }
 
@@ -94,12 +224,22 @@ public class DialogUtil {
             dialog.setTitle(title);
             dialog.setHeaderText(header);
             dialog.setContentText(content);
+            
+            // Set dialog properties for proper button containment with content-based sizing
+            dialog.setResizable(true);
+            // Combine header and content for size calculation
+            String fullMessage = (header != null ? header + "\n" : "") + (content != null ? content : "");
+            int width = calculateDialogWidth(fullMessage);
+            int height = calculateDialogHeight(fullMessage);
+            dialog.getDialogPane().setPrefSize(width, height);
+            dialog.getDialogPane().setMinSize(Math.min(width, 400), Math.min(height, 140));
+            
             future.complete(dialog.showAndWait());
         });
         return future;
     }
 
-    public static void showAlert(AlertType type, String title, String content) {
+    public static void showAlert(javafx.scene.control.Alert.AlertType type, String title, String content) {
         Platform.runLater(() -> {
             Alert alert = new Alert(type);
             setAlertIcon(alert);
@@ -107,69 +247,21 @@ public class DialogUtil {
             alert.setTitle(title);
             alert.setHeaderText(null);
             alert.setContentText(content);
+            
+            // Set dialog properties for proper button containment with content-based sizing
+            alert.setResizable(true);
+            int width = calculateDialogWidth(content);
+            int height = calculateDialogHeight(content);
+            alert.getDialogPane().setPrefSize(width, height);
+            alert.getDialogPane().setMinSize(Math.min(width, 400), Math.min(height, 140));
+            
             alert.showAndWait();
         });
     }
 
-    public static List<Map<String, String>> selectProcess(List<Map<String, String>> process) {
-        Stage dialogStage = new Stage();
-        IconUtils.setStageIcon(dialogStage);
-        dialogStage.initModality(Modality.APPLICATION_MODAL);
-        dialogStage.setTitle("Select process");
-
-        BorderPane root = new BorderPane();
-        Label label = new Label("Select from the list below:");
-        applyGlobalStyle(label);
-        root.setTop(label);
-
-        TableView<Map<String, String>> tableView = new TableView<>();
-        tableView.setEditable(false);
-        tableView.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
-        TableColumn<Map<String, String>, String> col1 = new TableColumn<>("S.NO");
-        col1.setCellValueFactory(data -> new ReadOnlyStringWrapper(
-                String.valueOf(tableView.getItems().indexOf(data.getValue()) + 1)));
-        col1.setPrefWidth(50);
-        TableColumn<Map<String, String>, String> col2 = new TableColumn<>("PROCESS");
-        col2.setCellValueFactory(data -> new ReadOnlyStringWrapper(data.getValue().get("LAUNCHER")));
-        col2.setPrefWidth(150);
-        TableColumn<Map<String, String>, String> col3 = new TableColumn<>("MODIFIED TIME");
-        col3.setCellValueFactory(data -> new ReadOnlyStringWrapper(data.getValue().get("TIME")));
-        col3.setPrefWidth(150);
-        TableColumn<Map<String, String>, String> col4 = new TableColumn<>("PID");
-        col4.setCellValueFactory(data -> new ReadOnlyStringWrapper(data.getValue().get("PID")));
-        col4.setPrefWidth(100);
-        tableView.getColumns().addAll(col1, col2, col3, col4);
-
-        FilteredList<Map<String, String>> filtered = new FilteredList<>(
-                FXCollections.observableArrayList(process), p -> true);
-        tableView.setItems(filtered);
-
-        CheckBox filterCheckBox = new CheckBox("Filter local processes");
-        filterCheckBox.setSelected(true);
-        applyGlobalStyle(filterCheckBox);
-        filterCheckBox.setOnAction(e -> filtered.setPredicate(
-                filterCheckBox.isSelected() ? p -> "EXE".equalsIgnoreCase(p.get("LAUNCHER")) : p -> true));
-        filtered.setPredicate(p -> "EXE".equalsIgnoreCase(p.get("LAUNCHER")));
-
-        HBox filterBox = new HBox(filterCheckBox);
-        filterBox.setPadding(new Insets(10)); applyGlobalStyle(filterBox);
-        Button okButton = new Button("OK"); applyGlobalStyle(okButton);
-        okButton.setOnAction(e -> dialogStage.close());
-        Button cancelButton = new Button("Cancel"); applyGlobalStyle(cancelButton);
-        cancelButton.setOnAction(e -> { tableView.getSelectionModel().clearSelection(); dialogStage.close(); });
-        HBox buttonBox = new HBox(10, okButton, cancelButton);
-        buttonBox.setAlignment(Pos.CENTER); buttonBox.setPadding(new Insets(10)); applyGlobalStyle(buttonBox);
-
-        root.setCenter(tableView);
-        root.setBottom(new VBox(filterBox, buttonBox));
-
-        Scene scene = new Scene(root, 500, 400);
-        applyGlobalStyle(scene.getRoot());
-        dialogStage.setScene(scene);
-        dialogStage.showAndWait();
-
-        List<Map<String, String>> selected = new ArrayList<>(tableView.getSelectionModel().getSelectedItems());
-        return selected.isEmpty() ? null : selected;
+    public static List<Map<String, String>> selectProcess(ProjectEntity project, List<Map<String, String>> process) {
+        // Use the ProcessSelectionDialog directly to avoid circular dependency
+        return ProcessSelectionDialog.selectProcess(project, process, ProcessSelectionDialog.DialogPurpose.GENERAL, null);
     }
 
     public static CompletableFuture<Optional<String[]>> showTwoInputDialog(
@@ -179,7 +271,7 @@ public class DialogUtil {
         Platform.runLater(() -> {
             Dialog<String[]> dialog = new Dialog<>();
             dialog.setTitle(title);
-            IconUtils.setStageIcon((Stage) dialog.getDialogPane().getScene().getWindow());
+            IconUtils.setStageIcon((javafx.stage.Stage) dialog.getDialogPane().getScene().getWindow());
             applyGlobalStyle(dialog.getDialogPane());
             ButtonType okType = new ButtonType("OK", ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(okType, ButtonType.CANCEL);
@@ -194,6 +286,13 @@ public class DialogUtil {
             grid.add(lbl2, 0, 2); grid.add(fld2, 1, 2); grid.add(d2, 1, 3);
 
             dialog.getDialogPane().setContent(grid);
+            
+            // Set dialog properties for proper button containment with content-based sizing
+            dialog.setResizable(true);
+            // For two input dialogs, use a reasonable fixed size since content is more complex
+            dialog.getDialogPane().setPrefSize(450, 200);
+            dialog.getDialogPane().setMinSize(400, 160);
+            
             Platform.runLater(() -> fld1.requestFocus());
             dialog.setResultConverter(btn -> btn == okType ? new String[]{fld1.getText(), fld2.getText()} : null);
             future.complete(dialog.showAndWait());
@@ -240,7 +339,7 @@ public class DialogUtil {
                     LoggerUtil.getLogger().info("Invoked SVN Browser for project dir");
 
                     try {
-                        String picked = new SVNAutomationTool().browseAndSelectFolder(fxWindow, svnFld.getText());
+                        String picked = new SVNAutomationTool().browseAndSelectFolder( fxWindow, svnFld.getText());
 
                         if (picked != null) {
                             Platform.runLater(() -> svnFld.setText(picked));
@@ -303,7 +402,7 @@ public class DialogUtil {
                     if (!searchFile(pd, "build.xml")||!searchFile(pd, "build.properties")) {
                         showError("Build Files Missing","Project Dir must contain 'build.xml' and 'build.properties'. Make sure given project jconfig path."); return; }
                 }
-                project.setJconfigPath(pDir); project.setExePath(pdDir); project.setNmsEnvVar(env); project.setNmsAppURL(nmUrl);
+                project.setProjectFolderPath(pDir); project.setExePath(pdDir); project.setNmsEnvVar(env); project.setNmsAppURL(nmUrl);
                 project.setHost(hst); project.setHostUser(usr); project.setHostPass(pw);
                 future.complete(true); dialogStage.close();
             });
@@ -347,5 +446,63 @@ public class DialogUtil {
                 event.consume(); // prevent space input
             }
         });
+    }
+    
+    /**
+     * Calculate the optimal height for a dialog based on the content length
+     * @param message The message content to calculate height for
+     * @return The calculated height in pixels
+     */
+    private static int calculateDialogHeight(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return 120; // Reduced for simple messages
+        }
+        
+        int baseHeight = 120; // Reduced base height for better proportions
+        int lineCount = 0;
+        
+        // Split by newlines and calculate line count
+        String[] lines = message.split("\n");
+        for (String line : lines) {
+            // Calculate how many display lines this content line will need
+            // Using more conservative estimate for text wrapping
+            int displayLines = (int) Math.ceil(line.length() / 50.0);
+            lineCount += Math.max(1, displayLines); // At least 1 line per content line
+        }
+        
+        // Add extra height for lines beyond the base (2 lines)
+        int extraHeight = 0;
+        if (lineCount > 2) {
+            extraHeight = (lineCount - 2) * 20; // 20px per additional line
+        }
+        
+        // Ensure minimum height to accommodate buttons properly
+        int calculatedHeight = baseHeight + extraHeight;
+        return Math.max(calculatedHeight, 120); // Reduced minimum to 120px
+    }
+    
+    /**
+     * Calculate the optimal width for a dialog based on the content length
+     * @param message The message content to calculate width for
+     * @return The calculated width in pixels
+     */
+    private static int calculateDialogWidth(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return 350; // Further reduced default width for simple messages
+        }
+        
+        int maxLineLength = 0;
+        String[] lines = message.split("\n");
+        
+        for (String line : lines) {
+            maxLineLength = Math.max(maxLineLength, line.length());
+        }
+        
+        // Calculate width based on character count with more conservative estimate
+        // Using ~7 pixels per character for tighter fit
+        int calculatedWidth = maxLineLength * 7 + 100; // Reduced padding
+        
+        // Ensure reasonable bounds with tighter range for better proportions
+        return Math.max(350, Math.min(calculatedWidth, 500)); // Between 350 and 500 pixels
     }
 }

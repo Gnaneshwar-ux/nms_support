@@ -1,0 +1,206 @@
+/* Responsive FlowPane for cards: dynamic width */
+.responsive-pane {
+    -fx-padding: 0;
+    -fx-hgap: 32;
+    -fx-vgap: 32;
+    -fx-alignment: top-left;
+    -fx-background-color: transparent;
+    -fx-pref-width: 100%;
+    -fx-pref-height: 100%;
+    -fx-hgrow: always;
+}
+
+.responsive-pane:focused, .responsive-pane:selected, .responsive-pane:focus-visible {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-effect: none;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+    -fx-background-insets: 0;
+    -fx-border-insets: 0;
+    -fx-padding: 0;
+    -fx-outline: none;
+}
+
+.responsive-pane .card:focused, .responsive-pane .card:focus-visible {
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+    -fx-border-color: transparent;
+    -fx-background-color: transparent;
+    -fx-effect: none;
+    -fx-outline: none;
+}
+
+/* Remove tab-header style (no separate heading) */
+.tab-header { display: none; }
+
+/* Card: dynamic width, flex-like fill */
+.card {
+    -fx-background-color: #fff;
+    -fx-background-radius: 14;
+    -fx-border-color: #d1d5db;
+    -fx-border-width: 1.2;
+    -fx-border-radius: 14;
+    -fx-effect: dropshadow(gaussian,rgba(80,80,180,.08),10,0,0,2);
+    -fx-padding: 18 24 24 24;
+    -fx-min-width: 340;
+    -fx-pref-width: 100%;
+    -fx-max-width: 100%;
+    -fx-font-family: 'Inter', 'Segoe UI', 'Arial', sans-serif;
+    -fx-font-smoothing-type: lcd;
+    -fx-font-size: 1.10em;
+    -fx-font-weight: 500; /* slightly thicker base */
+    -fx-alignment: top-left;
+    -fx-box-sizing: border-box;
+    -fx-transition: -fx-background-color 0.2s, -fx-effect 0.2s;
+}
+.card:hover {
+    
+    -fx-effect: dropshadow(gaussian,rgba(80,80,180,.14),14,0,0,4);
+}
+.card:selected, .card:focused {
+    -fx-background-color: #fff;
+    -fx-effect: dropshadow(gaussian,rgba(30,60,180,.22),28,0,0,10);
+}
+
+.card-title {
+    -fx-font-size: 1.04em;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1a237e;
+    -fx-font-family: 'Inter', 'Segoe UI Semibold', 'Arial', sans-serif;
+    -fx-font-smoothing-type: lcd;
+}
+
+.card-icon {
+    -fx-fill: #1a237e;
+}
+
+.field-label {
+    -fx-font-size: 1.02em;
+    -fx-text-fill: #444;
+    -fx-font-weight: 600; /* valid JavaFX weight */
+    -fx-font-family: 'Inter', 'Segoe UI', 'Arial', sans-serif;
+}
+.text-field, .password-field  {
+    -fx-background-color: #f7f8fa;
+    -fx-border-color: #d1d5db;
+    -fx-border-radius: 7;
+    -fx-background-radius: 7;
+    -fx-padding: 5 10 5 10;
+    -fx-font-size: 1.02em;
+    -fx-font-family: 'Inter', 'Segoe UI', 'Arial', sans-serif;
+    -fx-font-smoothing-type: lcd;
+    -fx-font-weight: 600; /* improve readability */
+}
+.text-field:focused, .password-field:focused {
+    -fx-background-color: #f7f8fa;
+    -fx-border-color: #3f51b5;
+    -fx-effect: dropshadow(gaussian,rgba(30,60,180,.12),8,0,0,2);
+}
+
+.icon-btn {
+    -fx-background-color: #e3e7fa;
+    -fx-background-radius: 50;
+    -fx-min-width: 28; -fx-max-width: 28;
+    -fx-min-height: 28; -fx-max-height: 28;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian,rgba(80,80,180,.08),2,0,0,1);
+}
+.icon-btn:hover { -fx-background-color: #c7d2fe; }
+.icon-btn .graphic { -fx-padding: 0; }
+
+.transparent-icon-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 50;
+    -fx-min-width: 28; -fx-max-width: 28;
+    -fx-min-height: 28; -fx-max-height: 28;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-effect: none;
+}
+.transparent-icon-btn:hover { 
+    -fx-background-color: rgba(0,0,0,0.05);
+    -fx-effect: dropshadow(gaussian,rgba(0,0,0,.1),2,0,0,1);
+}
+.transparent-icon-btn:pressed { 
+    -fx-background-color: rgba(0,0,0,0.1);
+}
+.transparent-icon-btn .graphic { -fx-padding: 0; }
+
+.wide-btn {
+    -fx-background-color: #388e3c;
+    -fx-text-fill: white;
+    -fx-font-size: 1.1em;
+    -fx-background-radius: 8;
+    -fx-padding: 7 18 7 18;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian,rgba(80,80,180,.10),2,0,0,1);
+    -fx-transition: -fx-background-color 0.2s;
+}
+.wide-btn:hover { -fx-background-color: #256029; }
+
+/* Save button and toolbar */
+.tab-toolbar {
+    -fx-padding: 0 32 0 0;
+    -fx-background-color: transparent;
+}
+.save-btn {
+    -fx-background-color: #3f51b5;
+    -fx-text-fill: #fff;
+    -fx-font-size: 1.08em;
+    -fx-font-family: 'Inter', 'Segoe UI Semibold', 'Arial', sans-serif;
+    -fx-font-weight: bold;
+    -fx-background-radius: 8;
+    -fx-padding: 7 22 7 22;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian,rgba(80,80,180,.10),2,0,0,1);
+    -fx-border-width: 0;
+    -fx-border-color: transparent;
+    -fx-transition: -fx-background-color 0.2s;
+}
+.save-btn:hover {
+    -fx-background-color: #283593;
+}
+
+/* Suggestion for main ComboBox and tab bar (to be applied in main-view.css or globally) */
+/*
+.combo-box, .tab {
+    -fx-font-family: 'Inter', 'Segoe UI', 'Arial', sans-serif;
+    -fx-font-size: 1.08em;
+    -fx-font-weight: 500;
+    -fx-background-radius: 8;
+    -fx-background-color: #f7f8fa;
+    -fx-border-color: #d1d5db;
+    -fx-border-radius: 8;
+}
+.tab:selected {
+    -fx-background-color: #e3e9fa;
+    -fx-text-fill: #1a237e;
+}
+*/
+
+.bg-solid {
+    -fx-background-color: #f7f8fa;
+}
+
+ScrollPane:focused, ScrollPane:selected, ScrollPane:focus-visible,
+ScrollPane .viewport,
+ScrollPane .content,
+ScrollPane:focused .viewport,
+ScrollPane:focused .content,
+AnchorPane:focused, AnchorPane:selected, AnchorPane:focus-visible,
+VBox:focused, VBox:selected, VBox:focus-visible,
+FlowPane:focused, FlowPane:selected, FlowPane:focus-visible,
+ScrollPane:focused::content, ScrollPane:focused::viewport,
+ScrollPane::content, ScrollPane::viewport {
+    -fx-background-color: transparent !important;
+    -fx-border-color: transparent !important;
+    -fx-focus-color: transparent !important;
+    -fx-faint-focus-color: transparent !important;
+    -fx-effect: none !important;
+    -fx-outline: none !important;
+}

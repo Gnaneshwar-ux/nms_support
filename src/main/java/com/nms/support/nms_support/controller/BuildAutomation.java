@@ -1,9 +1,9 @@
 package com.nms.support.nms_support.controller;
 
-import com.nms.support.nms_support.model.LogEntity;
+
 import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.service.buildTabPack.*;
-import com.nms.support.nms_support.service.buildTabPack.patchUpdate.CreateInstallerCommand;
+import com.nms.support.nms_support.service.database.DatabaseUserTypeService;
 import com.nms.support.nms_support.service.database.FireData;
 import com.nms.support.nms_support.service.globalPack.*;
 import javafx.application.Platform;
@@ -20,6 +20,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.util.*;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,6 +28,9 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import javafx.scene.control.Control;
+import com.nms.support.nms_support.service.globalPack.ChangeTrackingService;
+import com.nms.support.nms_support.service.ProjectCodeService;
 
 import static com.nms.support.nms_support.service.globalPack.Checker.isEmpty;
 
@@ -35,14 +39,12 @@ public class BuildAutomation implements Initializable {
 
     public TextArea buildLog;
     public Button reloadButton;
-    public TextField jconfigPath;
-
-    public TextField webWorkspacePath;
     public TextField usernameField;
     public ComboBox<String> userTypeComboBox;
     public CheckBox autoLoginCheckBox;
+    public CheckBox manageToolCheckBox;
     public Button deleteButton;
-    public Button updateButton;
+    // Removed updateButton - now handled by global save
     public ComboBox<String> buildMode;
     public ComboBox<String> appName;
     public Button buildButton;
@@ -52,87 +54,52 @@ public class BuildAutomation implements Initializable {
     public Button openBuildLogButton;
     public Button restartButton;
     public TextField passwordField;
-    public ComboBox<String> projectLogComboBox;
+    public TextField projectLogComboBox;
     public AnchorPane buildRoot;
-    public Button patchButtom;
     public Button reloadUsersButton;
-    public Button replaceProjectBuild;
-    public Button replaceProductBuild;
 
     private MainController mainController;
     private ControlApp controlApp;
+    private ChangeTrackingService changeTrackingService;
 
     @FXML
     public void initialize(URL url, ResourceBundle resourceBundle) {
-        logger.info("Initializing BuildAutomation");
-        Platform.runLater(
-                ()->{
-                    DialogUtil.directoryChooserListener((Stage) jconfigPath.getScene().getWindow(), jconfigPath);
-                    DialogUtil.directoryChooserListener((Stage) webWorkspacePath.getScene().getWindow(), webWorkspacePath);
-                }
-        );
+        logger.info("Initializing BuildAutomation controller");
+        appendTextToLog("=== APPLICATION MANAGEMENT SYSTEM INITIALIZED ===");
+        appendTextToLog("System: " + System.getProperty("os.name") + " | Java: " + System.getProperty("java.version"));
 
         reloadButton.setOnAction(event -> reloadLogNames());
-        updateButton.setOnAction(event -> save());
-        patchButtom.setOnAction(event-> patchUpgrade());
+        // Removed updateButton action - now handled by global save
         deleteButton.setOnAction(event -> deleteSetup());
         buildButton.setOnAction(event -> build());
         stopButton.setOnAction(event -> stop());
-        startButton.setOnAction(event -> start(mainController.getSelectedProject(), getSelectedAppName()));
+        startButton.setOnAction(event -> {
+            String selectedApp = getSelectedAppName();
+            if (selectedApp != null) {
+                start(mainController.getSelectedProject(), selectedApp);
+            } else {
+                appendTextToLog("ERROR: Application selection required");
+                appendTextToLog("DETAILS: No application selected from the Application dropdown");
+                appendTextToLog("RESOLUTION: Please select an application from the 'Application' dropdown menu");
+            }
+        });
         openNMSLogButton.setOnAction(event -> openNMSLog());
         openBuildLogButton.setOnAction(event -> openBuildLog());
         restartButton.setOnAction(event -> restart());
         reloadUsersButton.setOnAction(event -> initializeUserTypes());
-        replaceProjectBuild.setOnAction(event -> {
-            DialogUtil.showTextInputDialog("ENV INPUT","Enter env var name created for this project:","Ex: OPAL_HOME",  mainController.getSelectedProject().getNmsEnvVar()).thenAccept(result->{
-                if(result.isPresent()){
-                    String env_name = result.get().trim();
-                    ManageFile.replaceTextInFiles(List.of(jconfigPath.getText()+"/build.properties"),"NMS_HOME", env_name);
-                    ManageFile.replaceTextInFiles(List.of(jconfigPath.getText()+"/build.xml"),"NMS_HOME", env_name);
-                    appendTextToLog("Replaced NMS_HOME with "+env_name+" in build.xml and build.properties files");
-                    mainController.getSelectedProject().setNmsEnvVar(env_name);
-                }else {
-                    appendTextToLog("Input of env var name empty or cancelled");
-                }
-            });
-
-        });
-
-        replaceProductBuild.setOnAction(event -> {
-            DialogUtil.showTextInputDialog("ENV INPUT","Enter env var name created for this product:","Ex: OPAL_HOME", mainController.getSelectedProject().getNmsEnvVar()).thenAccept(result->{
-                if(result.isPresent()){
-                    String env_name = result.get().trim();
-                    ManageFile.replaceTextInFiles(List.of(webWorkspacePath.getText()+"/java/ant/build.properties"),"NMS_HOME", env_name);
-                    ManageFile.replaceTextInFiles(List.of(webWorkspacePath.getText()+"/java/ant/build.xml"),"NMS_HOME", env_name);
-                    appendTextToLog("Replaced NMS_HOME with "+env_name+" in build.xml and build.properties files");
-                    mainController.getSelectedProject().setNmsEnvVar(env_name);
-                }else {
-                    appendTextToLog("Input of env var name empty or cancelled");
-                }
-            });
-
-        });
 
         buildMode.getItems().addAll("Ant config", "Ant clean config");
         buildMode.getSelectionModel().select(0);
         appName.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> appNameChange(newValue));
 
-        appendTextToLog("Hello, " + System.getProperty("user.name") + "! Welcome back! 😊\n\n");
 
-        String currentVersion = AppDetails.getApplicationVersion();
-
-
-        appendTextToLog("Shortcuts:");
-        appendTextToLog("   1. Use Ctrl + Space in Textbox to quickly search for a folder in the explorer.\n");
-
-        appendTextToLog("\n\nCurrent Version: " + currentVersion);
         LogNewVersionDetails();
-
-
-
+        appendTextToLog("=== READY ===");
+        appendTextToLog("");
     }
 
     public void LogNewVersionDetails() {
+        appendTextToLog("Current Version: " + AppDetails.getApplicationVersion());
         // Create a Task to perform the operation on a separate thread
         Task<Void> task = new Task<Void>() {
             @Override
@@ -145,10 +112,13 @@ public class BuildAutomation implements Initializable {
                     String description = vData.get("description");
 
                     // Update the UI safely using Platform.runLater
-                    Platform.runLater(() -> {
-                        appendTextToLog("Latest Available: " + latestVersion);
-                        appendTextToLog("New Version Description: " + description);
-                    });
+                                         Platform.runLater(() -> {
+                         appendTextToLog("Latest Version Available: " + latestVersion);
+                         if(latestVersion != null && !latestVersion.isEmpty() && description != null && !description.isEmpty()) {
+                             appendTextToLog("New Version Info: \n" + description);
+                         }
+                         appendTextToLog("");
+                     });
                 }
 
                 return null;
@@ -158,7 +128,10 @@ public class BuildAutomation implements Initializable {
             protected void failed() {
                 // Handle any exception
                 Throwable exception = getException();
-                Platform.runLater(() -> appendTextToLog("Error: " + exception.getMessage()));
+                                 Platform.runLater(() -> {
+                     appendTextToLog("Warning: Unable to retrieve version information");
+                     appendTextToLog("");
+                 });
             }
         };
 
@@ -168,113 +141,122 @@ public class BuildAutomation implements Initializable {
         thread.start();
     }
 
-    private void patchUpgrade() {
-        ProjectEntity p = mainController.getSelectedProject();
 
-        if (isEmpty(p.getHost()) || isEmpty(p.getHostUser()) || isEmpty(p.getHostPass())) {
-            DialogUtil.showError("Required Fields Missing",
-                    "Please make sure the following fields are filled in the DataStore Tab:\nHost Address\nUsername\nPassword\n");
-            return;
-        }
-        if (isEmpty(p.getExePath()) ) {
-            DialogUtil.showError("Required Fields Missing",
-                    "Please make sure the following fields are filled in the Build Automation Tab:\nWebWorkspace.exe path\n");
-            return;
-        }
-        ProjectEntity selProject = mainController.getSelectedProject();
-        DialogUtil.showTwoInputDialog(
-                "Patch Upgrade",
-                "Provide Application URL:",
-                "Provide Environment Variable Name:",
-                "Ex: https://ugbu-ash-147...com:7057/nms/",
-                "Required field",
-                selProject.getNmsAppURL(),
-                selProject.getNmsEnvVar()
-        ).thenAccept(result -> {
-            if (result.isPresent()) {
-                String[] inputs = result.get();
-                String url = inputs[0];
-                String envVarName = inputs[1];
-
-                selProject.setNmsAppURL(url);
-                selProject.setNmsEnvVar(envVarName);
-                CreateInstallerCommand cic = new CreateInstallerCommand();
-                mainController.projectManager.saveData();
-                // Create a Task to run the long-running process
-                Task<Void> task = new Task<Void>() {
-                    @Override
-                    protected Void call() throws Exception {
-                        try {
-                            logger.info("Starting CreateInstallerCommand execution.");
-                            appendTextToLog("Patch Upgrade process begin");
-                            boolean resp = cic.execute(url, envVarName, selProject, BuildAutomation.this);
-                            if(resp){
-                                appendTextToLog("\nPatch upgrade completed.");
-                                populateAppNameComboBox(selProject.getExePath());
-                            }else{
-                                appendTextToLog("\nPatch upgrade failed.");
-                            }
-                            logger.info("CreateInstallerCommand execution completed.");
-                        } catch (Exception e) {
-                            logger.log(Level.SEVERE, "Error executing CreateInstallerCommand", e);
-                            throw e;
-                        }
-                        return null;
-                    }
-                };
-
-                // Handle task success and failure
-                task.setOnSucceeded(event -> {
-                    logger.info("Patch Upgrade task completed successfully.");
-
-                });
-
-                task.setOnFailed(event -> {
-                    Throwable throwable = task.getException();
-                    logger.log(Level.SEVERE, "Error executing Patch Upgrade", throwable);
-
-                    DialogUtil.showError("Execution Failed", "An error occurred while executing CreateInstallerCommand: " + throwable.getMessage());
-                });
-
-                // Start the task on a new thread
-                new Thread(task).start();
-            } else {
-                LoggerUtil.getLogger().info("No input provided.");
-            }
-        });
-    }
 
 
     private void appNameChange(String newValue) {
-        logger.fine("App name changed to: " + newValue);
-        populateUserTypeComboBox(mainController.getSelectedProject());
+        if (newValue != null && !newValue.trim().isEmpty()) {
+            ProjectEntity project = mainController.getSelectedProject();
+            if (project != null) {
+                // Save the selected application to the project entity
+                project.setSelectedApplication(newValue);
+                logger.info("Application selection changed to: " + newValue + " for project: " + project.getName());
+                
+                // Changes are automatically tracked by the change tracking service
+            }
+            
+            // Reload user types for the new application
+            populateUserTypeComboBox(mainController.getSelectedProject());
+        }
     }
 
     public void setMainController(MainController mainController) {
         logger.info("Setting main controller");
         this.mainController = mainController;
+        this.changeTrackingService = ChangeTrackingService.getInstance();
         controlApp = new ControlApp(this, this.mainController.logManager, mainController.projectManager);
 
-        this.mainController.projectComboBox.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> {if(!Objects.equals(newValue, "None")) loadProjectDetails();});
+        // Project selection is now handled centrally by MainController
+        // No need for individual listeners here
         initializeProjectLogComboBox();
+        registerControlsForChangeTracking();
     }
-
-    private void initializeProjectLogComboBox() {
-        logger.fine("Initializing project log combo box");
-        List<LogEntity> logs = mainController.logManager.getLogWrapper().getLogs();
-
-        if (logs != null && !logs.isEmpty()) {
-            List<String> logIds = logs.stream()
-                    .map(LogEntity::getId)
-                    .collect(Collectors.toList());
-            projectLogComboBox.getItems().setAll(logIds);
-        } else {
-            logger.warning("No logs available to load.");
+    
+    /**
+     * Called by MainController when project selection changes
+     * @param newProjectName The newly selected project name
+     */
+    public void onProjectSelectionChanged(String newProjectName) {
+        if (newProjectName != null && !"None".equals(newProjectName)) {
+            loadProjectDetails();
+            reloadApplicationDropdown(); // Reload app dropdown when project changes
+        }
+    }
+    
+    /**
+     * Register controls for change tracking
+     */
+    private void registerControlsForChangeTracking() {
+        if (changeTrackingService != null) {
+            Set<Control> controls = new HashSet<>();
+            controls.add(usernameField);
+            controls.add(passwordField);
+            controls.add(userTypeComboBox);
+            controls.add(autoLoginCheckBox);
+            controls.add(manageToolCheckBox);
+            controls.add(projectLogComboBox);
+            // Note: buildMode is not tracked as it's not a persistent setting
+            // Note: appName is not tracked as it's a runtime selection, not a saved setting
+            
+            changeTrackingService.registerTab("Application Management", controls);
         }
     }
 
+    /**
+     * Reloads the application dropdown based on the current project's product folder
+     */
+    public void reloadApplicationDropdown() {
+        ProjectEntity project = mainController.getSelectedProject();
+        if (project != null && project.getExePath() != null && !project.getExePath().trim().isEmpty()) {
+            populateAppNameComboBox(project.getExePath());
+            logger.info("Application dropdown reloaded for project: " + project.getName());
+        } else {
+            // Clear the application dropdown when exe path is null/empty
+            clearApplicationDropdown();
+            logger.info("Application dropdown cleared - project or exe path is null/empty");
+        }
+    }
+    
+    /**
+     * Clears the application dropdown and user type combo box
+     */
+    public void clearApplicationDropdown() {
+        // Use Platform.runLater only if we're not on the FX thread
+        if (Platform.isFxApplicationThread()) {
+            // We're already on the FX thread, update directly
+            appName.getItems().clear();
+            userTypeComboBox.getItems().clear();
+            appName.setValue(null);
+            userTypeComboBox.setValue(null);
+        } else {
+            // We're on a background thread, use Platform.runLater
+            Platform.runLater(() -> {
+                appName.getItems().clear();
+                userTypeComboBox.getItems().clear();
+                appName.setValue(null);
+                userTypeComboBox.setValue(null);
+            });
+        }
+    }
+
+    /**
+     * Called when the application management tab is selected to refresh data
+     */
+    public void onTabSelected() {
+        logger.info("Application management tab selected - refreshing data");
+        reloadApplicationDropdown();
+        reloadLogNamesCB();
+        loadProjectDetails();
+    }
+
+    private void initializeProjectLogComboBox() {
+        logger.fine("Initializing project log text field");
+        // Text field is initialized empty and populated when project is selected
+        projectLogComboBox.setText("");
+    }
+
     private String getSelectedAppName() {
-        return appName.getValue();
+        return appName.getSelectionModel().getSelectedItem();
     }
 
     public void populateUserTypeComboBox(ProjectEntity project) {
@@ -285,25 +267,64 @@ public class BuildAutomation implements Initializable {
 
         List<String> types = project.getTypes(getSelectedAppName()) != null ? new ArrayList<>(project.getTypes(getSelectedAppName())) : new ArrayList<>();
 
-        Platform.runLater(() -> {
+        // Preserve current selection if it's still valid
+        String currentSelection = userTypeComboBox.getValue();
+        boolean shouldPreserveSelection = currentSelection != null && types.contains(currentSelection);
+
+        // Use Platform.runLater only if we're not on the FX thread
+        if (Platform.isFxApplicationThread()) {
+            // We're already on the FX thread, update directly
             userTypeComboBox.getItems().setAll(types);
-            String prevType = project.getPrevTypeSelected(getSelectedAppName());
-            if (prevType != null && types.contains(prevType)) {
-                userTypeComboBox.setValue(prevType);
+            
+            if (shouldPreserveSelection) {
+                // Keep the current selection if it's still valid
+                userTypeComboBox.setValue(currentSelection);
             } else {
-                String adminType = types.stream()
-                        .filter(type -> type.toLowerCase().contains("admin"))
-                        .findFirst()
-                        .orElse(null);
-                userTypeComboBox.setValue(adminType != null ? adminType : (types.isEmpty() ? null : types.get(0)));
+                // Fall back to saved value or default
+                String prevType = project.getPrevTypeSelected(getSelectedAppName());
+                if (prevType != null && types.contains(prevType)) {
+                    userTypeComboBox.setValue(prevType);
+                } else {
+                    String adminType = types.stream()
+                            .filter(type -> type.toLowerCase().contains("admin"))
+                            .findFirst()
+                            .orElse(null);
+                    userTypeComboBox.setValue(adminType != null ? adminType : (types.isEmpty() ? null : types.get(0)));
+                }
             }
-        });
+        } else {
+            // We're on a background thread, use Platform.runLater
+            Platform.runLater(() -> {
+                userTypeComboBox.getItems().setAll(types);
+                
+                if (shouldPreserveSelection) {
+                    // Keep the current selection if it's still valid
+                    userTypeComboBox.setValue(currentSelection);
+                } else {
+                    // Fall back to saved value or default
+                    String prevType = project.getPrevTypeSelected(getSelectedAppName());
+                    if (prevType != null && types.contains(prevType)) {
+                        userTypeComboBox.setValue(prevType);
+                    } else {
+                        String adminType = types.stream()
+                                .filter(type -> type.toLowerCase().contains("admin"))
+                                .findFirst()
+                                .orElse(null);
+                        userTypeComboBox.setValue(adminType != null ? adminType : (types.isEmpty() ? null : types.get(0)));
+                    }
+                }
+            });
+        }
     }
 
     public void populateAppNameComboBox(String folderPath) {
-        if (folderPath == null) return;
+        if (folderPath == null || folderPath.trim().isEmpty()) {
+            clearApplicationDropdown();
+            return;
+        }
 
-        String previousSelection = appName.getSelectionModel().getSelectedItem();
+        ProjectEntity project = mainController.getSelectedProject();
+        String previousSelection = project != null ? project.getSelectedApplication() : null;
 
         List<String> exeFiles = new ArrayList<>();
         File folder = new File(folderPath);
@@ -318,143 +339,350 @@ public class BuildAutomation implements Initializable {
             }
         }
 
-        Platform.runLater(() -> {
-            appName.setItems(FXCollections.observableArrayList(exeFiles));
-            if (previousSelection != null && exeFiles.contains(previousSelection)) {
-                appName.getSelectionModel().select(previousSelection);
-            } else if (!exeFiles.isEmpty()) {
-                if (exeFiles.contains("WebWorkspace.exe")) {
-                    appName.getSelectionModel().select("WebWorkspace.exe");
-                }
-                else {
-                    appName.getSelectionModel().select(exeFiles.getFirst());
+        // Check if the file list has actually changed
+        List<String> currentItems = new ArrayList<>();
+        if (appName.getItems() != null) {
+            currentItems.addAll(appName.getItems());
+        }
+        
+        // Only reload if the file list has actually changed
+        if (!currentItems.equals(exeFiles)) {
+            // Use Platform.runLater only if we're not on the FX thread
+            if (Platform.isFxApplicationThread()) {
+                // We're already on the FX thread, update directly
+                appName.setItems(FXCollections.observableArrayList(exeFiles));
+                selectApplicationFromList(exeFiles, previousSelection, project);
+            } else {
+                // We're on a background thread, use Platform.runLater
+                Platform.runLater(() -> {
+                    appName.setItems(FXCollections.observableArrayList(exeFiles));
+                    selectApplicationFromList(exeFiles, previousSelection, project);
+                });
+            }
+        }
+    }
+
+    private void selectApplicationFromList(List<String> exeFiles, String previousSelection, ProjectEntity project) {
+        if (exeFiles.isEmpty()) {
+            // Clear user type combo box when no applications found
+            userTypeComboBox.getItems().clear();
+            userTypeComboBox.setValue(null);
+            return;
+        }
+
+        String selectedApp = null;
+
+        // Priority 1: Try to select the previously selected application
+        if (previousSelection != null && exeFiles.contains(previousSelection)) {
+            selectedApp = previousSelection;
+            logger.info("Selected previously chosen application: " + selectedApp);
+        }
+        // Priority 2: If no previous selection, try to find exe with "workspace" in name
+        else if (previousSelection == null) {
+            selectedApp = exeFiles.stream()
+                    .filter(exe -> exe.toLowerCase().contains("workspace"))
+                    .findFirst()
+                    .orElse(null);
+            
+            if (selectedApp != null) {
+                logger.info("Selected application with 'workspace' in name: " + selectedApp);
+                // Save this selection to the project
+                if (project != null) {
+                    project.setSelectedApplication(selectedApp);
                 }
             }
-        });
+        }
+
+        // Priority 3: If still no selection, select the first available exe
+        if (selectedApp == null) {
+            selectedApp = exeFiles.get(0);
+            logger.info("Selected first available application: " + selectedApp);
+            // Save this selection to the project
+            if (project != null) {
+                project.setSelectedApplication(selectedApp);
+            }
+        }
+
+        // Set the selection
+        appName.getSelectionModel().select(selectedApp);
+        
+        // Update the project entity with the final selection
+        if (project != null && !selectedApp.equals(project.getSelectedApplication())) {
+            project.setSelectedApplication(selectedApp);
+        }
     }
 
     public void loadProjectDetails() {
-        logger.fine("Loading project details for: " + mainController.getSelectedProject().getName());
-        clearFields();
-        ProjectEntity project = mainController.getSelectedProject();
-        if (project != null) {
-            jconfigPath.setText(project.getJconfigPath());
-            webWorkspacePath.setText(project.getExePath());
-            usernameField.setText(project.getUsername());
-            passwordField.setText(project.getPassword());
-            autoLoginCheckBox.setSelected(Boolean.parseBoolean(project.getAutoLogin()));
-            projectLogComboBox.setValue(project.getLogId() != null ? project.getLogId() : "None");
-            populateAppNameComboBox(project.getExePath());
-            populateUserTypeComboBox(project);
+        ProjectEntity selectedProject = mainController.getSelectedProject();
+        if (selectedProject == null) {
+            logger.warning("No project selected for loading details");
+            return;
+        }
+        
+        logger.fine("Loading project details for: " + selectedProject.getName());
+        
+        // Start loading mode to prevent change tracking during data loading
+        changeTrackingService.startLoading();
+        
+        try {
+            clearFields();
+            ProjectEntity project = selectedProject;
+            if (project != null) {
+                // Safely handle null values
+                usernameField.setText(project.getUsername() != null ? project.getUsername() : "");
+                passwordField.setText(project.getPassword() != null ? project.getPassword() : "");
+                
+                // Safely parse boolean values with fallbacks
+                try {
+                    autoLoginCheckBox.setSelected(project.getAutoLogin() != null ? Boolean.parseBoolean(project.getAutoLogin()) : false);
+                } catch (Exception e) {
+                    logger.warning("Failed to parse autoLogin value: " + project.getAutoLogin() + ", using default false");
+                    autoLoginCheckBox.setSelected(false);
+                }
+                
+                try {
+                    manageToolCheckBox.setSelected(project.getManageTool() != null ? Boolean.parseBoolean(project.getManageTool()) : true);
+                } catch (Exception e) {
+                    logger.warning("Failed to parse manageTool value: " + project.getManageTool() + ", using default true");
+                    manageToolCheckBox.setSelected(true);
+                }
+                
+                projectLogComboBox.setText(project.getLogId() != null ? project.getLogId() : "");
+                
+                // Only populate usertype if it's empty or needs initialization
+                if (userTypeComboBox.getItems().isEmpty()) {
+                    populateUserTypeComboBox(project);
+                }
+                reloadApplicationDropdown();
+            }
+        } catch (Exception e) {
+            logger.severe("Error loading project details: " + e.getMessage());
+        } finally {
+            // End loading mode to resume change tracking after all population is complete
+            changeTrackingService.endLoading();
         }
     }
 
     private void clearFields() {
         logger.fine("Clearing fields");
-        jconfigPath.clear();
-        webWorkspacePath.clear();
         usernameField.clear();
         passwordField.clear();
         autoLoginCheckBox.setSelected(false);
-        projectLogComboBox.setValue("None");
+        manageToolCheckBox.setSelected(true); // Default to checked for new projects
+        projectLogComboBox.setText("");
         userTypeComboBox.getItems().clear();
+        userTypeComboBox.setValue(null);
+        appName.getItems().clear();
+        appName.setValue(null);
     }
 
     private void restart() {
         clearLog();
-        logger.info("Restarting application");
+        logger.info("Initiating application restart sequence");
+        appendTextToLog("=== RESTART SEQUENCE STARTED ===");
+        
+        ProjectEntity project = mainController.getSelectedProject();
+        if (project == null) {
+            appendTextToLog("Error: No project selected");
+            logger.warning("Restart operation failed - no project selected");
+            return;
+        }
+        
+        String app = getSelectedAppName();
+        if (app == null || app.trim().isEmpty()) {
+            appendTextToLog("Error: No application selected");
+            logger.warning("Restart operation failed - no application selected");
+            return;
+        }
+        
+        appendTextToLog("Project: " + project.getName() + " | App: " + app + " | Mode: " + buildMode.getValue());
+        appendTextToLog("Auto Login: " + (autoLoginCheckBox.isSelected() ? "ON" : "OFF") + " | Manage Tool: " + (manageToolCheckBox.isSelected() ? "ON" : "OFF"));
+        
+        // Cancel existing operations
         if(ControlApp.restartThread != null){
             ControlApp.restartThread.interrupt();
-            appendTextToLog("Killed running task");
             ControlApp.restartThread = null;
         }
-        ProjectEntity project = mainController.getSelectedProject();
-        String app = getSelectedAppName();
-        if (!stop()) return;
+        
+        String projectName = project.getName();
+        if (controlApp.isBuildRunning(projectName)) {
+            appendTextToLog("Warning: Cancelling previous build for " + projectName);
+            controlApp.cancelBuild(projectName);
+        }
+        
+        appendTextToLog("Step 1: Stopping application...");
+        if (!stop()) {
+            appendTextToLog("  → Failed to stop application");
+            return;
+        }
+        appendTextToLog("  → Stopped successfully");
+        
         try {
+            appendTextToLog("Step 2: Saving settings...");
+            saveBuildAutomationSettings(true);
+            
+            appendTextToLog("Step 3: Auto-login setup...");
             boolean res = setupAutoLogin(project);
             if(!autoLoginCheckBox.isSelected()){
-                appendTextToLog("Auto Login check box not selected");
+                appendTextToLog("  → Skipped (not enabled)");
             }
-            else if(res)
-                appendTextToLog("Auto Login Setup process successful");
-            else {
-                appendTextToLog("Auto Login Setup process failed");
+            else if(res) {
+                appendTextToLog("  → Completed");
+            } else {
+                appendTextToLog("  → Failed");
                 return;
             }
-            res = setupRestartTools(project);
-            if(res)
-                appendTextToLog("RestartTools Setup process successful");
-            else {
-                appendTextToLog("RestartTools Setup process failed");
-                return;
+            
+            appendTextToLog("Step 4: Restart tools setup...");
+            if(manageToolCheckBox.isSelected()){
+                res = setupRestartTools(project);
+                if(res) {
+                    appendTextToLog("  → Completed");
+                } else {
+                    appendTextToLog("  → Failed");
+                    return;
+                }
+            } else {
+                appendTextToLog("  → Skipped (not enabled)");
             }
+            
+            appendTextToLog("Step 5: Starting build...");
             logger.info("Building project: " + project.getName());
             Task<Boolean> buildTask = controlApp.build(project, buildMode.getValue());
 
-            attachDeleteProcess(buildTask, project,app, true);
+            attachDeleteProcess(buildTask, project, app, true, manageToolCheckBox.isSelected());
 
         } catch (InterruptedException e) {
+            appendTextToLog("ERROR: Restart sequence interrupted");
+            appendTextToLog("DETAILS: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            appendTextToLog("RESOLUTION: Restart operation was cancelled by user or system");
             LoggerUtil.error(e);
-            appendTextToLog("Exception in build() method");
         }
     }
 
-    private void attachDeleteProcess(Task<Boolean> buildTask, ProjectEntity project, String app, boolean isRestart){
+    private void attachDeleteProcess(Task<Boolean> buildTask, ProjectEntity project, String app, boolean isRestart, boolean autoLoginEnabled){
         buildTask.setOnSucceeded(event -> {
             Boolean result = buildTask.getValue();
+            logger.info("Build task succeeded for project: " + project.getName() + " with result: " + result);
+            
+            // Perform cleanup operations first
+            appendTextToLog("Step 6: Cleanup...");
             try {
+                logger.info("Starting cleanup operations for project: " + project.getName());
                 DeleteLoginSetup.delete(project, this, false);
-                DeleteRestartSetup.delete(project, this, false);
-                //this.appendTextToLog("Delete process completed\n");
+                if(autoLoginEnabled) {
+                    logger.info("Deleting restart tools setup for project: " + project.getName());
+                    DeleteRestartSetup.delete(project, this, false);
+                }
+                logger.info("Cleanup operations completed successfully for project: " + project.getName());
+                appendTextToLog("  → Completed");
             } catch (IOException e) {
+                logger.severe("Cleanup operations failed for project: " + project.getName());
+                appendTextToLog("  → Failed");
                 LoggerUtil.error(e);
-                appendTextToLog(e.toString());
                 throw new RuntimeException(e);
             }
+            
+            // Show final result at the end (after cleanup)
             if (result) {
-                appendTextToLog("Build Success. ");
-                if(isRestart)start(project, app);
+                logger.info("BUILD COMPLETED SUCCESSFULLY for project: " + project.getName());
+                appendTextToLog("=== BUILD COMPLETED SUCCESSFULLY ===");
+                appendTextToLog("DETAILS: Build process completed without errors");
+                appendTextToLog("RESULT: Project has been built successfully and is ready for deployment");
+                if(isRestart) {
+                    logger.info("Starting application for project: " + project.getName());
+                    appendTextToLog("Starting application...");
+                    start(project, app);
+                }
             } else {
-                appendTextToLog("Build failed. ");
+                logger.severe("BUILD FAILED for project: " + project.getName());
+                appendTextToLog("=== BUILD FAILED ===");
+                appendTextToLog("DETAILS: Build process completed with errors");
+                appendTextToLog("RESOLUTION: Check build logs for specific error messages and verify configuration");
             }
         });
 
         buildTask.setOnFailed(event -> {
             Boolean result = buildTask.getValue();
+            logger.severe("Build task failed for project: " + project.getName() + " with result: " + result);
+            
+            // Perform cleanup operations first
+            appendTextToLog("Step 6: Cleanup (after failure)...");
             try {
+                logger.info("Starting cleanup operations after failure for project: " + project.getName());
                 DeleteLoginSetup.delete(project, this, false);
-                DeleteRestartSetup.delete(project, this, false);
-                //this.appendTextToLog("Delete process completed\n");
+                if(autoLoginEnabled) {
+                    logger.info("Deleting restart tools setup after failure for project: " + project.getName());
+                    DeleteRestartSetup.delete(project, this, false);
+                }
+                logger.info("Cleanup operations completed after failure for project: " + project.getName());
+                appendTextToLog("  → Completed");
             } catch (IOException e) {
+                logger.severe("Cleanup operations failed after build failure for project: " + project.getName());
+                appendTextToLog("  → Failed");
                 LoggerUtil.error(e);
-                appendTextToLog(e.toString());
                 throw new RuntimeException(e);
             }
-            if (result!=null && result) {
-                appendTextToLog("Build Success. ");
-                if(isRestart)start(project, app);
+            
+            // Show final result at the end (after cleanup)
+            if (result != null && result) {
+                logger.info("BUILD COMPLETED SUCCESSFULLY after failure recovery for project: " + project.getName());
+                appendTextToLog("=== BUILD COMPLETED SUCCESSFULLY ===");
+                appendTextToLog("DETAILS: Build process completed without errors");
+                appendTextToLog("RESULT: Project has been built successfully and is ready for deployment");
+                if(isRestart) {
+                    logger.info("Starting application after failure recovery for project: " + project.getName());
+                    appendTextToLog("Starting application...");
+                    start(project, app);
+                }
             } else {
-                appendTextToLog("Build failed. ");
+                logger.severe("BUILD FAILED after failure recovery for project: " + project.getName());
+                appendTextToLog("=== BUILD FAILED ===");
+                appendTextToLog("DETAILS: Build process failed with errors");
+                appendTextToLog("POSSIBLE CAUSES:");
+                appendTextToLog("• Missing dependencies or libraries");
+                appendTextToLog("• Incorrect JConfig path or configuration");
+                appendTextToLog("• Environment variable issues");
+                appendTextToLog("• Permission or access rights problems");
+                appendTextToLog("RESOLUTION: Check build logs for specific error messages and verify configuration");
             }
         });
 
         buildTask.setOnCancelled(event -> {
             Boolean result = buildTask.getValue();
+            logger.warning("Build task cancelled for project: " + project.getName() + " with result: " + result);
+            
+            // Perform cleanup operations first
+            appendTextToLog("Step 6: Cleanup (after cancellation)...");
             try {
+                logger.info("Starting cleanup operations after cancellation for project: " + project.getName());
                 DeleteLoginSetup.delete(project, this, false);
-                DeleteRestartSetup.delete(project, this, false);
-                //this.appendTextToLog("Delete process completed\n");
+                if(autoLoginEnabled) {
+                    logger.info("Deleting restart tools setup after cancellation for project: " + project.getName());
+                    DeleteRestartSetup.delete(project, this, false);
+                }
+                logger.info("Cleanup operations completed after cancellation for project: " + project.getName());
+                appendTextToLog("  → Completed");
             } catch (IOException e) {
-                e.printStackTrace();
-                appendTextToLog(e.toString());
+                logger.severe("Cleanup operations failed after cancellation for project: " + project.getName());
+                appendTextToLog("  → Failed");
+                LoggerUtil.error(e);
                 throw new RuntimeException(e);
             }
-            if (result!=null && result) {
-                appendTextToLog("Build Success. ");
-                if(isRestart)start(project, app);
+            
+            // Show final result at the end (after cleanup)
+            if (result != null && result) {
+                appendTextToLog("=== BUILD COMPLETED SUCCESSFULLY ===");
+                appendTextToLog("DETAILS: Build process completed without errors");
+                appendTextToLog("RESULT: Project has been built successfully and is ready for deployment");
+                if(isRestart) {
+                    appendTextToLog("Starting application...");
+                    start(project, app);
+                }
             } else {
-                appendTextToLog("Build cancelled");
+                appendTextToLog("=== BUILD CANCELLED ===");
+                appendTextToLog("DETAILS: Build process was cancelled by user or system");
+                appendTextToLog("RESULT: Build operation was interrupted and may be incomplete");
             }
         });
     }
@@ -469,20 +697,65 @@ public class BuildAutomation implements Initializable {
     private void openNMSLog() {
         logger.info("Opening NMS log");
         clearLog();
-        controlApp.viewLog(appName.getValue(), mainController.getSelectedProject());
+        controlApp.viewLog(appName.getSelectionModel().getSelectedItem(), mainController.getSelectedProject());
     }
 
     private void start(ProjectEntity project, String app) {
-        logger.info("Starting application");
+        logger.info("Starting application: " + app + " for project: " + project.getName());
         clearLog();
+        appendTextToLog("=== STARTING APPLICATION ===");
+        appendTextToLog("Project: " + project.getName() + " | App: " + app);
+        
         try {
-            if (Validation.validate(project, app) && WritePropertiesFile.updateFile(project, app)) {
-                appendTextToLog("Update cred.properties file completed.");
+            // appendTextToLog("Step 1: Validating configuration...");
+            // Validation.ValidationResult validationResult = Validation.validateDetailed(project, app);
+            // if (validationResult.isValid()) {
+            //     appendTextToLog("  → Configuration validation passed");
+            // } else {
+            //     appendTextToLog("  → Configuration validation failed");
+            //     appendTextToLog("  → Missing or invalid fields:");
+            //     for (String error : validationResult.getErrors()) {
+            //         appendTextToLog("    • " + error);
+            //     }
+            //     appendTextToLog("  → Please check the following fields in Project Configuration:");
+            //     appendTextToLog("    • Project Code (JConfig Path)");
+            //     appendTextToLog("    • Username");
+            //     appendTextToLog("    • Password");
+            //     appendTextToLog("    • User Type (for selected application)");
+            //     appendTextToLog("    • Auto Login setting");
+            //     appendTextToLog("  → Resolution: Fill in all required fields and try again");
+            //     return;
+            // }
+            
+            appendTextToLog("Step 1: Updating credentials...");
+            if (WritePropertiesFile.updateFile(project, app)) {
+                appendTextToLog("  → Credentials file updated successfully");
             } else {
-                appendTextToLog("Update cred.properties file failed.");
+                appendTextToLog("  → Failed to update credentials file");
+                appendTextToLog("  → Possible causes:");
+                appendTextToLog("    • Invalid JConfig path");
+                appendTextToLog("    • Missing or inaccessible target directory");
+                appendTextToLog("    • File permission issues");
+                appendTextToLog("  → Resolution: Verify JConfig path and file permissions");
+                return;
             }
+            
+            appendTextToLog("Step 2: Starting application...");
             controlApp.start(app, project);
-        } catch (IOException | InterruptedException e) {
+            
+        } catch (IOException e) {
+            appendTextToLog("ERROR: IOException during application start");
+            appendTextToLog("  → Error: " + e.getMessage());
+            appendTextToLog("  → Possible causes:");
+            appendTextToLog("    • File system access issues");
+            appendTextToLog("    • Invalid file paths");
+            appendTextToLog("    • Permission denied errors");
+            appendTextToLog("  → Resolution: Check file paths and permissions");
+            LoggerUtil.error(e);
+        } catch (InterruptedException e) {
+            appendTextToLog("ERROR: Application start operation interrupted");
+            appendTextToLog("  → Error: " + e.getMessage());
+            appendTextToLog("  → Resolution: Try starting the application again");
             LoggerUtil.error(e);
         }
     }
@@ -490,46 +763,107 @@ public class BuildAutomation implements Initializable {
     private boolean stop() {
         logger.info("Stopping application");
         clearLog();
+        appendTextToLog("=== STOPPING APPLICATION ===");
+        
+        String selectedApp = appName.getSelectionModel().getSelectedItem();
+        if (selectedApp == null || selectedApp.trim().isEmpty()) {
+            appendTextToLog("Error: No application selected");
+            logger.warning("Stop operation failed - no application selected");
+            return false;
+        }
+        
+        appendTextToLog("App: " + selectedApp + " | Project: " + (mainController.getSelectedProject() != null ? mainController.getSelectedProject().getName() : "None"));
+        
         try {
-            return controlApp.stopProject(appName.getValue(), mainController.getSelectedProject());
+            boolean result = controlApp.stopProject(selectedApp, mainController.getSelectedProject());
+            
+            if (result) {
+                appendTextToLog("Application stopped successfully");
+            } else {
+                appendTextToLog("Warning: No running processes found");
+            }
+            
+            return result;
         } catch (IOException e) {
+            appendTextToLog("Error: " + e.getMessage());
             logger.severe("IOException in stop() method: " + e.getMessage());
+            LoggerUtil.error(e);
+            return false;
+        } catch (Exception e) {
+            appendTextToLog("Error: " + e.getMessage());
+            logger.severe("Unexpected error in stop() method: " + e.getMessage());
             LoggerUtil.error(e);
             return false;
         }
     }
 
     public void build() {
-        ProjectEntity project  = mainController.getSelectedProject();
+        ProjectEntity project = mainController.getSelectedProject();
         String app = getSelectedAppName();
+        
+        if (project == null) {
+            appendTextToLog("ERROR: Project selection required for build operation");
+            appendTextToLog("DETAILS: No project selected from the Project dropdown");
+            appendTextToLog("RESOLUTION: Please select a project from the 'Project' dropdown menu");
+            return;
+        }
+        
+        if (app == null || app.trim().isEmpty()) {
+            appendTextToLog("ERROR: Application selection required for build operation");
+            appendTextToLog("DETAILS: No application selected from the Application dropdown");
+            appendTextToLog("RESOLUTION: Please select an application from the 'Application' dropdown menu");
+            return;
+        }
+        
         try {
             clearLog();
-        boolean res = setupAutoLogin(project);
-        if(!autoLoginCheckBox.isSelected()){
-            appendTextToLog("Auto Login check box not selected");
-        }
-        else if(res)
-            appendTextToLog("Auto Login Setup process successful");
-        else {
-            appendTextToLog("Auto Login Setup process failed");
-            return;
-        }
-        res = setupRestartTools(project);
-        if(res)
-            appendTextToLog("RestartTools Setup process successful");
-        else {
-            appendTextToLog("RestartTools Setup process failed");
-            return;
-        }
-        logger.info("Building project: " + project.getName());
-
-        appendTextToLog("Build process begins for " +project.getName());
+            appendTextToLog("=== BUILD PROCESS STARTED ===");
+            appendTextToLog("Project: " + project.getName() + " | App: " + app + " | Mode: " + buildMode.getValue());
+            appendTextToLog("Auto Login: " + (autoLoginCheckBox.isSelected() ? "ON" : "OFF") + " | Manage Tool: " + (manageToolCheckBox.isSelected() ? "ON" : "OFF"));
+            
+            // Check for existing builds
+            String projectName = project.getName();
+            if (controlApp.isBuildRunning(projectName)) {
+                appendTextToLog("Warning: Cancelling previous build for " + projectName);
+                controlApp.cancelBuild(projectName);
+            }
+            
+            appendTextToLog("Step 1: Auto-login setup...");
+            boolean res = setupAutoLogin(project);
+            if(!autoLoginCheckBox.isSelected()){
+                appendTextToLog("  → Skipped (not enabled)");
+            }
+            else if(res) {
+                appendTextToLog("  → Completed");
+            } else {
+                appendTextToLog("  → Failed");
+                return;
+            }
+            
+            appendTextToLog("Step 2: Restart tools setup...");
+            if(manageToolCheckBox.isSelected()){
+                res = setupRestartTools(project);
+                if(res) {
+                    appendTextToLog("  → Completed");
+                } else {
+                    appendTextToLog("  → Failed");
+                    return;
+                }
+            } else {
+                appendTextToLog("  → Skipped (not enabled)");
+            }
+            
+            appendTextToLog("Step 3: Starting build...");
+            logger.info("Building project: " + project.getName());
             Task<Boolean> buildTask = controlApp.build(project, buildMode.getValue());
-            attachDeleteProcess(buildTask, project, app,false);
+            attachDeleteProcess(buildTask, project, app, false, manageToolCheckBox.isSelected());
+            
         } catch (InterruptedException e) {
+            appendTextToLog("ERROR: Build process interrupted");
+            appendTextToLog("DETAILS: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            appendTextToLog("RESOLUTION: Build operation was cancelled by user or system");
             logger.severe("InterruptedException in build() method: " + e.getMessage());
             LoggerUtil.error(e);
-            appendTextToLog(e.toString());
         }
     }
 
@@ -537,93 +871,269 @@ public class BuildAutomation implements Initializable {
         logger.info("Deleting setup for project: " + mainController.getSelectedProject());
         //clearLog();
         try {
-            DeleteLoginSetup.delete(mainController.getSelectedProject(), this,true);
-            DeleteRestartSetup.delete(mainController.getSelectedProject(), this,true);
+            // Show single confirmation dialog for both auto-login and restart tools cleanup
+            Optional<ButtonType> confirmation = DialogUtil.showConfirmationDialog(
+                "Confirm Delete", 
+                "Are you sure you want to delete all configuration setups?", 
+                "This operation will remove both auto-login and restart tools configurations for this project."
+            );
+            
+            if (confirmation.isPresent() && confirmation.get() == ButtonType.OK) {
+                DeleteLoginSetup.delete(mainController.getSelectedProject(), this, false);
+                DeleteRestartSetup.delete(mainController.getSelectedProject(), this, false);
+                appendTextToLog("All configurations deleted successfully");
+            } else {
+                appendTextToLog("Delete operation cancelled");
+            }
         } catch (IOException e) {
-
             logger.severe("IOException in deleteSetup() method: " + e.getMessage());
             LoggerUtil.error(e);
         }
     }
 
-    private void save() {
-        logger.info("Saving project: " + mainController.getSelectedProject().toString());
+    /**
+     * Save method that can be called from the global save button
+     * This method saves the current application management settings to the project
+     */
+    public void saveBuildAutomationSettings() {
+        saveBuildAutomationSettings(false);
+    }
+
+    /**
+     * Save method that can be called from the global save button
+     * This method saves the current build automation settings to the project
+     * @param showValidationPopup Whether to show validation popup for missing user type
+     */
+    public void saveBuildAutomationSettings(boolean showValidationPopup) {
+        logger.info("Saving application management settings for project: " + mainController.getSelectedProject());
         clearLog();
-        LogEntity log = mainController.logManager.getLogById(projectLogComboBox.getValue());
-        String selectedProjectName = mainController.projectComboBox.getValue();
-        if (selectedProjectName == null || selectedProjectName.isEmpty()) {
-            logger.warning("No project selected");
+        
+        ProjectEntity project = mainController.getSelectedProject();
+        if (project == null) {
+            logger.warning("No project selected for saving application management settings");
             appendTextToLog("No project selected");
-
             return;
         }
 
-        ProjectEntity updatedProject = mainController.projectManager.getProjectByName(selectedProjectName);
-        if (updatedProject == null) {
-            logger.warning("Invalid project selected");
-            appendTextToLog("Please select a valid project.");
-            return;
-        }
-
-        if(autoLoginCheckBox.isSelected() && userTypeComboBox.getValue() == null){
-            appendTextToLog("Issue: Selected autoLogin option without user type loaded or selected");
-            appendTextToLog("Failed to save project details");
-            DialogUtil.showError("Missing User Type","To use Auto Login - user types must be loaded and selected.");
-            return;
-        }
-
-        updatedProject.setAutoLogin(Boolean.toString(autoLoginCheckBox.isSelected()));
-        updatedProject.setJconfigPath(jconfigPath.getText());
-        updatedProject.setExePath(webWorkspacePath.getText());
-        updatedProject.setLogId(log != null ? log.getId() : null);
-        updatedProject.setUsername(usernameField.getText());
-        updatedProject.setPassword(passwordField.getText());
+        // Get the project code from the text field
+        String projectCode = projectLogComboBox.getText();
+        
+        // Update project with current settings
+        project.setAutoLogin(Boolean.toString(autoLoginCheckBox.isSelected()));
+        project.setManageTool(Boolean.toString(manageToolCheckBox.isSelected()));
+        project.setLogId(projectCode);
+        project.setUsername(usernameField.getText());
+        project.setPassword(passwordField.getText());
         if (userTypeComboBox.getValue() != null) {
-            updatedProject.setPrevTypeSelected(getSelectedAppName(), userTypeComboBox.getValue());
+            project.setPrevTypeSelected(getSelectedAppName(), userTypeComboBox.getValue());
         }
-        populateAppNameComboBox(updatedProject.getExePath());
+        
+        // Save to database
         boolean res = mainController.projectManager.saveData();
         if(res){
-            appendTextToLog("Save project details successful.");
-        }
-        else{
-            appendTextToLog("Save project details failed.");
-        }
-
-
-        logger.info("Project updated: " + selectedProjectName);
-        if (WritePropertiesFile.updateFile(updatedProject, getSelectedAppName())) {
-            appendTextToLog("Updated cred.properties file");
+            appendTextToLog("Settings saved successfully");
         } else {
-            appendTextToLog("Failed to update cred.properties file");
+            appendTextToLog("Failed to save settings");
         }
 
+        logger.info("Application management settings updated for project: " + project.getName());
+        
+        // Update cred.properties file
+        String selectedApp = getSelectedAppName();
+        if (selectedApp != null) {
+            if (WritePropertiesFile.updateFile(project, selectedApp)) {
+                appendTextToLog("Credentials file updated");
+            } else {
+                appendTextToLog("Failed to update credentials file");
+            }
+        } else {
+            appendTextToLog("Skipping credentials update - no application selected");
+        }
     }
 
     private void initializeUserTypes(){
-        SetupAutoLogin.loadUserTypes(mainController.getSelectedProject());
-        populateUserTypeComboBox(mainController.getSelectedProject());
+        ProjectEntity project = mainController.getSelectedProject();
+        if (project == null) {
+            DialogUtil.showAlert(Alert.AlertType.WARNING, "No Project", "Please select a project first.");
+            return;
+        }
+        
+        // Check if database connection details are available
+        if (project.getDbHost() == null || project.getDbHost().trim().isEmpty() ||
+            project.getDbUser() == null || project.getDbUser().trim().isEmpty() ||
+            project.getDbPassword() == null || project.getDbPassword().trim().isEmpty() ||
+            project.getDbSid() == null || project.getDbSid().trim().isEmpty()) {
+            
+            // Fall back to original text processing method
+            appendTextToLog("Database connection details not available, using text processing method");
+            SetupAutoLogin.loadUserTypes(project);
+            populateUserTypeComboBox(project);
+            return;
+        }
+        
+        // Use database approach
+        appendTextToLog("Attempting to fetch usertypes from database...");
+        
+        // Disable button during operation
+        reloadUsersButton.setDisable(true);
+        
+        // Show progress dialog
+        ProgressDialog progressDialog = new ProgressDialog();
+        progressDialog.setTitle("Fetching UserTypes");
+        progressDialog.setHeaderText("Connecting to database and fetching usertype data...");
+        progressDialog.setContentText("Please wait...");
+        progressDialog.show();
+        
+        // Run database fetch in background thread
+        new Thread(() -> {
+            try {
+                // Test database connection first
+                boolean isValid = DatabaseUserTypeService.validateDatabaseSetup(
+                    project.getDbHost(), project.getDbPort(), project.getDbSid(), 
+                    project.getDbUser(), project.getDbPassword());
+                
+                if (!isValid) {
+                    Platform.runLater(() -> {
+                        progressDialog.close();
+                        appendTextToLog("Database connection failed, falling back to text processing method");
+                        SetupAutoLogin.loadUserTypes(project);
+                        populateUserTypeComboBox(project);
+                    });
+                    return;
+                }
+                
+                // Fetch usertypes from database
+                HashMap<String, List<String>> userTypes = DatabaseUserTypeService.fetchUserTypesFromDatabase(
+                    project.getDbHost(), project.getDbPort(), project.getDbSid(), 
+                    project.getDbUser(), project.getDbPassword());
+                
+                Platform.runLater(() -> {
+                    progressDialog.close();
+                    
+                    if (userTypes != null && !userTypes.isEmpty()) {
+                        // Update project with fetched usertypes
+                        project.setTypes(userTypes);
+                        
+                        // Save to database
+                        mainController.projectManager.saveData();
+                        
+                        // Show success message with summary
+                        StringBuilder summary = new StringBuilder();
+                        summary.append("Successfully fetched usertypes from database!\n\n");
+                        summary.append("Summary:\n");
+                        for (String appName : userTypes.keySet()) {
+                            List<String> types = userTypes.get(appName);
+                            summary.append("• ").append(appName).append(": ").append(types.size()).append(" types\n");
+                        }
+                        summary.append("\nUsertypes have been saved to the project.");
+                        
+                        appendTextToLog(summary.toString());
+                        
+                        // Populate the combobox
+                        populateUserTypeComboBox(project);
+                        
+                        DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Fetch Successful", 
+                            "Successfully fetched " + userTypes.size() + " application types from database.");
+                    } else {
+                        appendTextToLog("No usertype data found in database, falling back to text processing method");
+                        SetupAutoLogin.loadUserTypes(project);
+                        populateUserTypeComboBox(project);
+                    }
+                });
+            } catch (Exception e) {
+                Platform.runLater(() -> {
+                    progressDialog.close();
+                    appendTextToLog("Database fetch failed: " + e.getMessage() + ", falling back to text processing method");
+                    SetupAutoLogin.loadUserTypes(project);
+                    populateUserTypeComboBox(project);
+                });
+            } finally {
+                Platform.runLater(() -> {
+                    reloadUsersButton.setDisable(false);
+                });
+            }
+        }, "database-fetch-thread").start();
     }
 
     private boolean setupAutoLogin(ProjectEntity updatedProject){
         if (autoLoginCheckBox.isSelected()) {
             try {
-                if (!Validation.validateForAutologin(updatedProject)) {
-                    DialogUtil.showWarning("Fields missing required for Setup", "Need to perform setup for getting autologin enabled");
+                appendTextToLog("  → Validating auto-login requirements...");
+                
+                // Collect all validation errors
+                List<String> allErrors = new ArrayList<>();
+                
+                // Check for missing user type
+                if (userTypeComboBox.getValue() == null) {
+                    allErrors.add("User type is missing or empty - please load and select a user type");
+                }
+                
+                // Check other auto-login requirements
+                Validation.ValidationResult validationResult = Validation.validateForAutologinDetailed(updatedProject);
+                if (!validationResult.isValid()) {
+                    allErrors.addAll(validationResult.getErrors());
+                }
+                
+                // If there are any errors, show comprehensive dialog
+                if (!allErrors.isEmpty()) {
+                    appendTextToLog("  → Auto-login validation failed");
+                    appendTextToLog("  → Missing required fields:");
+                    for (String error : allErrors) {
+                        appendTextToLog("    • " + error);
+                    }
+                    appendTextToLog("  → Please check the following fields:");
+                    appendTextToLog("    • Project Code (JConfig Path)");
+                    appendTextToLog("    • Username");
+                    appendTextToLog("    • Password");
+                    appendTextToLog("    • User type (load and select from dropdown)");
+                    appendTextToLog("    • Auto login setting");
+                    appendTextToLog("    • Project Code");
+                    appendTextToLog("  → Resolution: Fill in all required fields and try again");
+                    
+                    // Create comprehensive error message for dialog
+                    StringBuilder errorMessage = new StringBuilder();
+                    errorMessage.append("Auto-login setup requires the following fields to be configured:\n\n");
+                    for (String error : allErrors) {
+                        errorMessage.append("• ").append(error).append("\n");
+                    }
+                    errorMessage.append("\nPlease configure these fields in the Project Configuration tab and try again.");
+                    
+                    DialogUtil.showWarning("Auto-login Setup Requirements", errorMessage.toString());
                     return false;
                 }
-                if (Validation.validateLoginSetup(updatedProject)){
+                appendTextToLog("  → Auto-login validation passed");
+                
+                appendTextToLog("  → Checking existing auto-login setup...");
+                Validation.ValidationResult setupValidation = Validation.validateLoginSetupDetailed(updatedProject);
+                if (setupValidation.isValid()) {
+                    appendTextToLog("  → Auto-login setup already exists and is valid");
                     return true;
+                } else {
+                    appendTextToLog("  → Auto-login setup validation failed");
+                    appendTextToLog("  → Missing setup components:");
+                    for (String error : setupValidation.getErrors()) {
+                        appendTextToLog("    • " + error);
+                    }
+                    appendTextToLog("  → Installing auto-login setup...");
                 }
-                appendTextToLog("Auto-login option selected, performing config update in project files");
-
+                
                 boolean res = SetupAutoLogin.execute(mainController.getSelectedProject(), this);
                 mainController.projectManager.saveData();
-                appendTextToLog(res ? "Setup successful" : "Setup failed");
+                if (res) {
+                    appendTextToLog("  → Auto-login setup installed successfully");
+                } else {
+                    appendTextToLog("  → Auto-login setup installation failed");
+                }
                 return res;
             } catch (Exception e) {
+                appendTextToLog("  → ERROR: Exception during auto-login setup");
+                appendTextToLog("    • Error: " + e.getMessage());
+                appendTextToLog("    • Possible causes:");
+                appendTextToLog("      - File system access issues");
+                appendTextToLog("      - Invalid JConfig path");
+                appendTextToLog("      - Missing required files");
+                appendTextToLog("    • Resolution: Check file paths and permissions");
                 logger.severe("Exception in setup: " + e.getMessage());
-                appendTextToLog("Exception in setup: " + e.toString());
                 LoggerUtil.error(e);
                 return false;
             }
@@ -634,44 +1144,166 @@ public class BuildAutomation implements Initializable {
 
     private boolean setupRestartTools(ProjectEntity updatedProject){
             try {
-                if (!Validation.validateForRestartTools(updatedProject)) {
-                    DialogUtil.showWarning("Fields missing required for restart tools Setup", "Need to perform restart tools setup for getting autologin enabled");
+                appendTextToLog("  → Validating restart tools requirements...");
+                Validation.ValidationResult validationResult = Validation.validateForRestartToolsDetailed(updatedProject);
+                if (!validationResult.isValid()) {
+                    appendTextToLog("  → Restart tools validation failed");
+                    appendTextToLog("  → Missing required fields:");
+                    for (String error : validationResult.getErrors()) {
+                        appendTextToLog("    • " + error);
+                    }
+                    appendTextToLog("  → Please check the following fields:");
+                    appendTextToLog("    • Project Code (JConfig Path)");
+                    appendTextToLog("    • Executable Path");
+                    appendTextToLog("  → Resolution: Fill in all required fields and try again");
+                    
+                    // Create detailed error message for dialog
+                    StringBuilder errorMessage = new StringBuilder();
+                    errorMessage.append("Restart tools setup requires the following fields to be configured:\n\n");
+                    for (String error : validationResult.getErrors()) {
+                        errorMessage.append("• ").append(error).append("\n");
+                    }
+                    errorMessage.append("\nPlease configure these fields in the Project Configuration tab and try again.");
+                    
+                    DialogUtil.showWarning("Restart Tools Setup Requirements", errorMessage.toString());
                     return false;
                 }
-                if (Validation.validateRestartToolsSetup(updatedProject)){
+                appendTextToLog("  → Restart tools validation passed");
+                
+                appendTextToLog("  → Checking existing restart tools setup...");
+                Validation.ValidationResult setupValidation = Validation.validateRestartToolsSetupDetailed(updatedProject);
+                if (setupValidation.isValid()) {
+                    appendTextToLog("  → Restart tools setup already exists and is valid");
                     return true;
+                } else {
+                    appendTextToLog("  → Restart tools setup validation failed");
+                    appendTextToLog("  → Missing setup components:");
+                    for (String error : setupValidation.getErrors()) {
+                        appendTextToLog("    • " + error);
+                    }
+                    appendTextToLog("  → Installing restart tools setup...");
                 }
-                appendTextToLog("Auto-login option selected, performing config update in project files");
-
+                
                 boolean res = SetupRestartTool.execute(mainController.getSelectedProject(), this);
                 mainController.projectManager.saveData();
-                appendTextToLog(res ? "Restart tools Setup successful" : "Restart tools Setup failed");
+                if (res) {
+                    appendTextToLog("  → Restart tools setup installed successfully");
+                } else {
+                    appendTextToLog("  → Restart tools setup installation failed");
+                }
                 return res;
             } catch (Exception e) {
+                appendTextToLog("  → ERROR: Exception during restart tools setup");
+                appendTextToLog("    • Error: " + e.getMessage());
+                appendTextToLog("    • Possible causes:");
+                appendTextToLog("      - File system access issues");
+                appendTextToLog("      - Invalid JConfig path");
+                appendTextToLog("      - Missing required files");
+                appendTextToLog("    • Resolution: Check file paths and permissions");
                 logger.severe("Exception in Restart tools setup: " + e.getMessage());
-                appendTextToLog("Exception in Restart tools setup: " + e.toString());
                 LoggerUtil.error(e);
                 return false;
             }
     }
 
     private void reloadLogNames() {
-        logger.info("Reloading log names");
+        logger.info("Reloading project codes using improved method");
         clearLog();
-        controlApp.refreshLogNames();
-        reloadLogNamesCB();
+        
+        ProjectEntity project = mainController.getSelectedProject();
+        if (project == null) {
+            appendTextToLog("ERROR: No project selected");
+            appendTextToLog("DETAILS: Please select a project before reloading project codes");
+            appendTextToLog("RESOLUTION: Select a project from the main project dropdown");
+            return;
+        }
+        
+        appendTextToLog("Attempting to get project code using improved method...");
+        
+        // Try the new improved method first
+        String projectCode = ProjectCodeService.getProjectCode(project.getJconfigPathForBuild(), project.getExePath());
+        
+        if (projectCode != null) {
+            appendTextToLog("SUCCESS: Retrieved project code using improved method: " + projectCode);
+            
+            // Validate project code format
+            String[] parts = projectCode.split("#");
+            if (parts.length == 2) {
+                // Update the project log text field with the new project code
+                projectLogComboBox.setText(projectCode);
+                
+                // Update the project's log ID and save
+                project.setLogId(projectCode);
+                mainController.projectManager.saveData();
+                
+                appendTextToLog("Project code updated successfully: " + projectCode);
+            } else {
+                appendTextToLog("ERROR: Invalid project code format: " + projectCode);
+                appendTextToLog("Expected format: projectName#version");
+            }
+        } else {
+            appendTextToLog("WARNING: Improved method failed, falling back to log-based approach...");
+            
+            // Fallback to the old log-based method using existing ControlApp
+            controlApp.refreshLogNames();
+            
+            // Show dialog with available project codes from logs
+            showProjectCodeSelectionDialog();
+        }
     }
 
     private void reloadLogNamesCB() {
-        logger.fine("Reloading log names in ComboBox");
-        List<LogEntity> logs = mainController.logManager.getLogWrapper().getLogs();
-        if (logs != null) {
-            List<String> logIds = logs.stream()
-                    .map(LogEntity::getId)
-                    .collect(Collectors.toList());
-            projectLogComboBox.getItems().setAll(logIds);
+        logger.fine("Reloading log names (legacy method)");
+        // This method is kept for compatibility with the old log-based approach
+        // The actual population is now handled by the dialog selection
+    }
+
+    /**
+     * Shows a dialog to select project code from available log-based codes
+     */
+    private void showProjectCodeSelectionDialog() {
+        // Get project codes from the log manager (which was populated by controlApp.refreshLogNames())
+        List<String> availableProjectCodes = new ArrayList<>();
+        List<String> logIds = mainController.logManager.getLogIds();
+        
+        if (logIds != null && !logIds.isEmpty()) {
+            availableProjectCodes.addAll(logIds);
+        }
+        
+        if (availableProjectCodes.isEmpty()) {
+            appendTextToLog("ERROR: No project codes found in logs");
+            appendTextToLog("DETAILS: Neither improved method nor log-based method found project codes");
+            appendTextToLog("RESOLUTION: Ensure project has been started at least once to generate logs");
+            return;
+        }
+        
+        appendTextToLog("Found " + availableProjectCodes.size() + " project codes in logs:");
+        for (String code : availableProjectCodes) {
+            appendTextToLog("  • " + code);
+        }
+        
+        // Create selection dialog
+        ChoiceDialog<String> dialog = new ChoiceDialog<>(availableProjectCodes.get(0), availableProjectCodes);
+        dialog.setTitle("Select Project Code");
+        dialog.setHeaderText("Improved method failed. Please select a project code from logs:");
+        dialog.setContentText("Available project codes:");
+        
+        Optional<String> result = dialog.showAndWait();
+        if (result.isPresent()) {
+            String selectedCode = result.get();
+            
+            // Update the UI
+            projectLogComboBox.setText(selectedCode);
+            
+            // Update the project's log ID and save
+            ProjectEntity project = mainController.getSelectedProject();
+            if (project != null) {
+                project.setLogId(selectedCode);
+                mainController.projectManager.saveData();
+                appendTextToLog("Project code updated successfully: " + selectedCode);
+            }
         } else {
-            logger.warning("No logs available to load.");
+            appendTextToLog("No project code selected");
         }
     }
 
@@ -707,5 +1339,32 @@ public class BuildAutomation implements Initializable {
                 buildLog.clear();
             }
         });
+    }
+    
+    /**
+     * Cleanup method to be called when the application is closing
+     * This ensures all running builds are properly cancelled and file handles are closed
+     */
+    public void cleanup() {
+        logger.info("Cleaning up application management resources");
+        try {
+            // Cancel all running builds
+            ControlApp.cancelAllBuilds();
+            
+            // Clear any remaining thread references
+            if (ControlApp.restartThread != null) {
+                ControlApp.restartThread.interrupt();
+                ControlApp.restartThread = null;
+            }
+            
+            // Force garbage collection to help close any remaining file handles
+            System.gc();
+            
+            appendTextToLog("Application management cleanup completed");
+            appendTextToLog("File handles have been properly closed");
+        } catch (Exception e) {
+            logger.severe("Error during application management cleanup: " + e.getMessage());
+            LoggerUtil.error(e);
+        }
     }
 }

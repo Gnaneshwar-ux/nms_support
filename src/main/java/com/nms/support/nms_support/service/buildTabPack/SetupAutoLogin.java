@@ -4,6 +4,9 @@ import com.nms.support.nms_support.controller.BuildAutomation;
 import com.nms.support.nms_support.model.ProjectEntity;
 import javafx.scene.control.*;
 import javafx.scene.layout.VBox;
+import javafx.stage.Stage;
+import com.nms.support.nms_support.service.globalPack.IconUtils;
+import javafx.geometry.Insets;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -19,47 +22,92 @@ public class SetupAutoLogin {
     static javax.swing.JTextArea send;
 
     public static boolean execute(ProjectEntity project, BuildAutomation buildAutomation){
+        buildAutomation.appendTextToLog("=== AUTO-LOGIN SETUP PROCESS INITIATED ===");
+        buildAutomation.appendTextToLog("Timestamp: " + java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        
+        buildAutomation.appendTextToLog("PROJECT CONFIGURATION:");
+        buildAutomation.appendTextToLog("• JConfig Path: " + (project.getJconfigPathForBuild() != null ? project.getJconfigPathForBuild() : "NOT SET"));
+        buildAutomation.appendTextToLog("• Executable Path: " + (project.getExePath() != null ? project.getExePath() : "NOT SET"));
+        buildAutomation.appendTextToLog("• Username: " + (project.getUsername() != null ? project.getUsername() : "NOT SET"));
+        buildAutomation.appendTextToLog("• Auto Login: " + (project.getAutoLogin() != null ? project.getAutoLogin() : "NOT SET"));
+        buildAutomation.appendTextToLog("• System User: " + System.getProperty("user.name"));
 
-        buildAutomation.appendTextToLog("jconfig path : "+project.getJconfigPath()+"\n");
-        buildAutomation.appendTextToLog(".exe path : "+project.getExePath()+"\n");
-        buildAutomation.appendTextToLog("Username : "+project.getUsername()+"\n");
-        buildAutomation.appendTextToLog("Autologin : "+project.getAutoLogin()+"\n");
+        // Validate required configuration
+        if (project.getJconfigPathForBuild() == null || project.getJconfigPathForBuild().trim().isEmpty()) {
+            buildAutomation.appendTextToLog("ERROR: JConfig path configuration missing");
+            buildAutomation.appendTextToLog("DETAILS: JConfig path is required for auto-login setup but is null or empty");
+            buildAutomation.appendTextToLog("RESOLUTION: Configure JConfig path in Project Configuration tab under 'JConfig Path' field");
+            return false;
+        }
 
-        String user = System.getProperty("user.name");
-
-        buildAutomation.appendTextToLog("System user : "+user+"\n");
-
-        //String propPath = "C:/Users/" + user + "/Documents";
+        if (project.getExePath() == null || project.getExePath().trim().isEmpty()) {
+            buildAutomation.appendTextToLog("ERROR: Executable path configuration missing");
+            buildAutomation.appendTextToLog("DETAILS: Executable path is required for auto-login setup but is null or empty");
+            buildAutomation.appendTextToLog("RESOLUTION: Configure executable path in Project Configuration tab under 'Executable Path' field");
+            return false;
+        }
 
         try {
-            if(!updateFile(project.getJconfigPath() + "\\global\\xml\\", project.getExePath()+"\\java\\product\\global\\xml\\"+tempFile, buildAutomation)){
-                buildAutomation.appendTextToLog("Update file failed");
-                System.out.println("Output 1");
+            buildAutomation.appendTextToLog("STEP 1: Updating Login.xml configuration file...");
+            String primaryPath = project.getJconfigPathForBuild() + "\\global\\xml\\";
+            String alternatePath = project.getExePath() + "\\java\\product\\global\\xml\\" + tempFile;
+            
+            buildAutomation.appendTextToLog("• Primary Path: " + primaryPath);
+            buildAutomation.appendTextToLog("• Alternate Path: " + alternatePath);
+            
+            if(!updateFile(primaryPath, alternatePath, buildAutomation)){
+                buildAutomation.appendTextToLog("ERROR: Login.xml update failed");
+                buildAutomation.appendTextToLog("DETAILS: updateFile() method returned false");
+                buildAutomation.appendTextToLog("RESOLUTION: Check file permissions and ensure paths are accessible");
                 return false;
             }
+            buildAutomation.appendTextToLog("SUCCESS: Login.xml configuration updated successfully");
+            
         } catch (InterruptedException e) {
+            buildAutomation.appendTextToLog("ERROR: Auto-login setup process interrupted");
+            buildAutomation.appendTextToLog("EXCEPTION DETAILS:");
+            buildAutomation.appendTextToLog("• Exception Type: " + e.getClass().getSimpleName());
+            buildAutomation.appendTextToLog("• Error Message: " + e.getMessage());
+            buildAutomation.appendTextToLog("• Stack Trace: " + e.toString());
+            buildAutomation.appendTextToLog("RESOLUTION: Setup process was cancelled by user or system");
             e.printStackTrace();
             throw new RuntimeException(e);
         }
-
-
-        //System.out.println(SQLParser.parseSQLFile(project.getJconfigPath().replace("jconfig", "sql"), "crew"));
-
-        //loadUserTypes(project);
 
         try {
-            return copyFiles(project,buildAutomation);
+            buildAutomation.appendTextToLog("STEP 2: Copying auto-login configuration files...");
+            boolean result = copyFiles(project, buildAutomation);
+            
+            if (result) {
+                buildAutomation.appendTextToLog("SUCCESS: Auto-login setup completed successfully");
+                buildAutomation.appendTextToLog("=== AUTO-LOGIN SETUP PROCESS COMPLETED ===");
+                buildAutomation.appendTextToLog("Timestamp: " + java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            } else {
+                buildAutomation.appendTextToLog("ERROR: Auto-login setup failed during file copy operation");
+                buildAutomation.appendTextToLog("DETAILS: copyFiles() method returned false");
+                buildAutomation.appendTextToLog("RESOLUTION: Check file permissions and ensure all required files are accessible");
+            }
+            
+            return result;
         } catch (Exception e) {
+            buildAutomation.appendTextToLog("ERROR: EXCEPTION DURING AUTO-LOGIN SETUP");
+            buildAutomation.appendTextToLog("EXCEPTION DETAILS:");
+            buildAutomation.appendTextToLog("• Exception Type: " + e.getClass().getSimpleName());
+            buildAutomation.appendTextToLog("• Error Message: " + e.getMessage());
+            buildAutomation.appendTextToLog("• Stack Trace: " + e.toString());
+            buildAutomation.appendTextToLog("POSSIBLE CAUSES:");
+            buildAutomation.appendTextToLog("• File system access permissions");
+            buildAutomation.appendTextToLog("• Invalid file paths or missing directories");
+            buildAutomation.appendTextToLog("• System resource limitations");
+            buildAutomation.appendTextToLog("RESOLUTION: Check file permissions, verify paths, and ensure system resources are available");
             e.printStackTrace();
             throw new RuntimeException(e);
         }
-
-
     }
 
 //    public static void loadUserTypes(ProjectEntity project){
 //
-//        HashMap<String, List<String>> l = SQLParser.parseSQLFile(project.getJconfigPath().replace("jconfig", "sql"));
+//        HashMap<String, List<String>> l = SQLParser.parseSQLFile(project.getJconfigPathForBuild().replace("jconfig", "sql"));
 //        for (Map.Entry<String, List<String>> entry : l.entrySet()) {
 //            System.out.println("Key: " + entry.getKey() + " - Value: " + entry.getValue());
 //        }
@@ -70,20 +118,137 @@ public class SetupAutoLogin {
         // Show custom dialog to get multi-line SQL data from user
         String filePath = "usertypes/"+project.getName()+".sql";
         Dialog<String> dialog = new Dialog<>();
-        dialog.setTitle("User type data input");
+        dialog.setTitle("User Type Data Input");
         dialog.setHeaderText("Enter import of env_code_1 table insert statements");
+        
+        // Set dialog styling and app icon
+        dialog.getDialogPane().setStyle("-fx-background-color: #FFFFFF; -fx-background-radius: 16;");
+        IconUtils.setStageIcon((Stage) dialog.getDialogPane().getScene().getWindow());
 
-        // Set the dialog pane and TextArea
+        // Professional typography constants
+        String professionalFontFamily = "'Segoe UI', 'Inter', 'Roboto', 'Arial', sans-serif";
+        
+        // Create main content container
+        VBox mainContent = new VBox(16);
+        mainContent.setPadding(new Insets(20));
+        mainContent.setStyle("-fx-background-color: #FFFFFF;");
+
+        // Header section
+        VBox header = new VBox(6);
+        Label titleLabel = new Label("SQL Data Input");
+        titleLabel.setStyle("-fx-font-family: " + professionalFontFamily + "; -fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #1F2937; -fx-text-alignment: center;");
+        Label subtitleLabel = new Label("Enter the SQL insert statements for env_code_1 table");
+        subtitleLabel.setStyle("-fx-font-family: " + professionalFontFamily + "; -fx-font-size: 12px; -fx-font-weight: normal; -fx-text-fill: #6B7280; -fx-text-alignment: center;");
+        header.getChildren().addAll(titleLabel, subtitleLabel);
+
+        // TextArea with professional styling
         TextArea textArea = new TextArea(getDataIfFileExists(filePath));
-        textArea.setPrefSize(400, 300); // Adjust size as needed for more input space
+        textArea.setPrefSize(480, 280);
+        textArea.setStyle("""
+            -fx-font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            -fx-font-size: 12px;
+            -fx-background-color: #F9FAFB;
+            -fx-border-color: #D1D5DB;
+            -fx-border-radius: 6;
+            -fx-padding: 12;
+            -fx-text-fill: #374151;
+            """);
+        textArea.setPromptText("Enter your SQL INSERT statements here...");
 
-        // Place TextArea in VBox to manage layout
-        VBox vbox = new VBox(textArea);
-        dialog.getDialogPane().setContent(vbox);
+        // Instructions label
+        Label instructionsLabel = new Label("Instructions: Enter one INSERT statement per line. Example:\nINSERT INTO env_code_1 (code, description) VALUES ('CODE1', 'Description 1');");
+        instructionsLabel.setStyle("-fx-font-family: " + professionalFontFamily + "; -fx-font-size: 11px; -fx-text-fill: #6B7280; -fx-wrap-text: true;");
+        instructionsLabel.setMaxWidth(480);
 
-        // Add OK and Cancel buttons
-        ButtonType okButtonType = new ButtonType("OK", ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(okButtonType, ButtonType.CANCEL);
+        mainContent.getChildren().addAll(header, textArea, instructionsLabel);
+        dialog.getDialogPane().setContent(mainContent);
+
+        // Add OK and Cancel buttons with professional styling
+        ButtonType okButtonType = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
+        ButtonType cancelButtonType = new ButtonType("Cancel", ButtonBar.ButtonData.CANCEL_CLOSE);
+        dialog.getDialogPane().getButtonTypes().addAll(okButtonType, cancelButtonType);
+
+        // Apply professional styling to buttons
+        dialog.getDialogPane().getButtonTypes().forEach(buttonType -> {
+            Button button = (Button) dialog.getDialogPane().lookupButton(buttonType);
+            if (button != null) {
+                if (buttonType == okButtonType) {
+                    button.setStyle("""
+                        -fx-font-family: %s;
+                        -fx-font-size: 12px;
+                        -fx-font-weight: 600;
+                        -fx-background-color: #3B82F6;
+                        -fx-text-fill: white;
+                        -fx-padding: 8 16;
+                        -fx-background-radius: 6;
+                        -fx-border-radius: 6;
+                        -fx-cursor: hand;
+                        -fx-effect: dropshadow(gaussian, rgba(59, 130, 246, 0.3), 3, 0, 0, 1);
+                        """.formatted(professionalFontFamily));
+                    button.setOnMouseEntered(e -> button.setStyle("""
+                        -fx-font-family: %s;
+                        -fx-font-size: 12px;
+                        -fx-font-weight: 600;
+                        -fx-background-color: #2563EB;
+                        -fx-text-fill: white;
+                        -fx-padding: 8 16;
+                        -fx-background-radius: 6;
+                        -fx-border-radius: 6;
+                        -fx-cursor: hand;
+                        -fx-effect: dropshadow(gaussian, rgba(37, 99, 235, 0.4), 4, 0, 0, 2);
+                        """.formatted(professionalFontFamily)));
+                    button.setOnMouseExited(e -> button.setStyle("""
+                        -fx-font-family: %s;
+                        -fx-font-size: 12px;
+                        -fx-font-weight: 600;
+                        -fx-background-color: #3B82F6;
+                        -fx-text-fill: white;
+                        -fx-padding: 8 16;
+                        -fx-background-radius: 6;
+                        -fx-border-radius: 6;
+                        -fx-cursor: hand;
+                        -fx-effect: dropshadow(gaussian, rgba(59, 130, 246, 0.3), 3, 0, 0, 1);
+                        """.formatted(professionalFontFamily)));
+                } else {
+                    button.setStyle("""
+                        -fx-font-family: %s;
+                        -fx-font-size: 12px;
+                        -fx-font-weight: 600;
+                        -fx-background-color: #6B7280;
+                        -fx-text-fill: white;
+                        -fx-padding: 8 16;
+                        -fx-background-radius: 6;
+                        -fx-border-radius: 6;
+                        -fx-cursor: hand;
+                        -fx-effect: dropshadow(gaussian, rgba(107, 114, 128, 0.3), 3, 0, 0, 1);
+                        """.formatted(professionalFontFamily));
+                    button.setOnMouseEntered(e -> button.setStyle("""
+                        -fx-font-family: %s;
+                        -fx-font-size: 12px;
+                        -fx-font-weight: 600;
+                        -fx-background-color: #4B5563;
+                        -fx-text-fill: white;
+                        -fx-padding: 8 16;
+                        -fx-background-radius: 6;
+                        -fx-border-radius: 6;
+                        -fx-cursor: hand;
+                        -fx-effect: dropshadow(gaussian, rgba(75, 85, 99, 0.4), 4, 0, 0, 2);
+                        """.formatted(professionalFontFamily)));
+                    button.setOnMouseExited(e -> button.setStyle("""
+                        -fx-font-family: %s;
+                        -fx-font-size: 12px;
+                        -fx-font-weight: 600;
+                        -fx-background-color: #6B7280;
+                        -fx-text-fill: white;
+                        -fx-padding: 8 16;
+                        -fx-background-radius: 6;
+                        -fx-border-radius: 6;
+                        -fx-cursor: hand;
+                        -fx-effect: dropshadow(gaussian, rgba(107, 114, 128, 0.3), 3, 0, 0, 1);
+                        """.formatted(professionalFontFamily)));
+                }
+            }
+        });
 
         // Convert result to string when OK is clicked
         dialog.setResultConverter(dialogButton -> {
@@ -92,7 +257,6 @@ public class SetupAutoLogin {
             }
             return null;
         });
-
 
         // Capture the user input
         Optional<String> result = dialog.showAndWait();
@@ -263,8 +427,8 @@ public class SetupAutoLogin {
         try{
 
             File sourceFileLogin = getResourceAsTempFile("/nms_configs/AUTO_LOGIN_COMMANDS.inc");
-            File targetDirLogin = new File(project.getJconfigPath() + "/global/xml/AUTO_LOGIN_COMMANDS.inc");
-            File targetDir = new File(project.getJconfigPath() + "/global/xml/");
+            File targetDirLogin = new File(project.getJconfigPathForBuild() + "/global/xml/AUTO_LOGIN_COMMANDS.inc");
+            File targetDir = new File(project.getJconfigPathForBuild() + "/global/xml/");
             if (!targetDir.exists()) {
                 boolean isCreated = targetDir.mkdirs();
                 if(!isCreated){
@@ -281,7 +445,7 @@ public class SetupAutoLogin {
             // copying command files
 
             sourceFileLogin = getResourceAsTempFile("/nms_configs/LoadCredentialsExternalCommand.java");
-            targetDirLogin = new File(project.getJconfigPath() + "/java/src/custom/LoadCredentialsExternalCommand.java");
+            targetDirLogin = new File(project.getJconfigPathForBuild() + "/java/src/custom/LoadCredentialsExternalCommand.java");
 
             if (!targetDirLogin.exists()) {
                 boolean isCreated = targetDirLogin.mkdirs();

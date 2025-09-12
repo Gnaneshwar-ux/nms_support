@@ -28,6 +28,7 @@ import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
 import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 import com.nms.support.nms_support.service.globalPack.ManageFile;
+import com.nms.support.nms_support.service.globalPack.ProgressCallback;
 import javafx.application.Platform;
 import javafx.scene.control.TextInputDialog;
 import org.w3c.dom.Document;
@@ -36,6 +37,7 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 public class CreateInstallerCommand {
+	
 	private String dir_temp = "C:\\\\Oracle NMS\\\\results";
 	private String installer_loc = "C:\\Oracle NMS\\results";
 	private static final String NSIS_EXE = "makensisw.exe"; // Update with actual path
@@ -53,29 +55,13 @@ public class CreateInstallerCommand {
 	private static final String JRE_TEMPLATE = "Section \"-jre\"\n" + "    File /r /x .svn \"%JRE%\"\n" + "SectionEnd\n"
 			+ "\n" + "Section \"-un.jre\"\n" + "    RMDir /r \"$INSTDIR\\%JRE_DEST%\"\n" + "SectionEnd\n";
 
-	private  BuildAutomation buildAutomation;
+	private ProgressCallback progressCallback;
 
-	public boolean execute(String appURL, String envVarName, ProjectEntity project, BuildAutomation buildAutomation) throws Exception {
+	public boolean execute(String appURL, String envVarName, ProjectEntity project, ProgressCallback progressCallback) throws Exception {
 
-		this.buildAutomation = buildAutomation;
+		this.progressCallback = progressCallback;
 
-
-        if(envVarName == null || envVarName.isEmpty()){
-			buildAutomation.appendTextToLog("ENV provided is invalid");
-			return false;
-		}
-		else {
-			if(!doesEnvVariableExist(envVarName)){
-				buildAutomation.appendTextToLog("Provided ENV VAR not exists("+ envVarName +"). Exiting Upgrade process");
-				boolean b = createUserEnvVar(envVarName, project.getExePath());
-				if(b){
-					buildAutomation.appendTextToLog("Created new ENV VAR = "+envVarName+" with value = "+project.getExePath());
-				} else {
-					buildAutomation.appendTextToLog("Failed Attempt to create env var.");
-					return false;
-				}
-			}
-		}
+		progressCallback.onProgress(5, "Starting installer creation process...");
 
 		dir_temp = project.getExePath(); // where all the installer and extracted java folder is placed
 		installer_loc = project.getExePath();
@@ -92,30 +78,21 @@ public class CreateInstallerCommand {
 		}
 		String serverURL = adjustUrl(appURL);
 
-		boolean state =cleanDirectory(Path.of(dir_temp));
-		if(!state)return false;
-		SFTPDownloadAndUnzip.start(dir_temp, project, buildAutomation);
-
-     	buildAutomation.appendTextToLog("Loading Resources..");
-
-		FileFetcher.loadResources(dir_temp,serverURL, buildAutomation);
-
-
-
-		try {
-			processDirectory(dir_temp);
-		} catch (IOException e) {
-			e.printStackTrace();
-			LoggerUtil.error(e);
-			buildAutomation.appendTextToLog(e.getMessage());
-			buildAutomation.appendTextToLog("process dir failed");
-			return false;
-		}
+		
+		// try {
+		// 	processDirectory(dir_temp);
+		// } catch (IOException e) {
+		// 	e.printStackTrace();
+		// 	LoggerUtil.error(e);
+		// 	buildAutomation.appendTextToLog(e.getMessage());
+		// 	buildAutomation.appendTextToLog("process dir failed");
+		// 	return false;
+		// }
 
 		String currentDir = System.getProperty("user.dir");
 
 		// Print the current working directory
-		buildAutomation.appendTextToLog("Current Directory: " + currentDir);
+		progressCallback.onProgress(5, "Current Directory: " + currentDir);
 		// SSL certificate handling
 
 		URL url = new URL(serverURL);
@@ -148,7 +125,7 @@ public class CreateInstallerCommand {
 		// Update based on your requirement
 		File dir = (new File(dir_temp));
 
-		buildAutomation.appendTextToLog("dir - " + dir.toString());
+		progressCallback.onProgress(10, "Working directory: " + dir.toString());
 
 		DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
 		factory.setAttribute(XMLConstants.FEATURE_SECURE_PROCESSING, Boolean.TRUE);
@@ -157,8 +134,11 @@ public class CreateInstallerCommand {
 		Properties props = new Properties();
 		try (InputStream propsIS = new FileInputStream(dir_temp + "/license.properties")) { // Update with actual path
 			props.load(propsIS);
+		} catch (Exception e) {
+			progressCallback.onError("Failed to load license.properties: " + e.getMessage());
+			return false;
 		}
-
+		
 		String productsStr = props.getProperty("LicensedProducts");
 		String[] products = productsStr.split(", *");
 		products = Arrays.stream(products) // Convert the array to a stream
@@ -174,16 +154,24 @@ public class CreateInstallerCommand {
 
 			try {
 				copyDirectory(new File(getJRELocation()), new File(dir_temp + "/jre"));
-				buildAutomation.appendTextToLog("JRE directory copied successfully.");
+				//buildAutomation.appendTextToLog("JRE directory copied successfully.");
 			} catch (IOException e) {
 				e.printStackTrace();
 				LoggerUtil.error(e);
-				buildAutomation.appendTextToLog("jre files copy process failed");
+				//buildAutomation.appendTextToLog("jre files copy process failed");
 				return false;
 			}
 		}
 		String failed_setups="";
+		int totalProducts = products.length;
+		int processedProducts = 0;
+		
+		progressCallback.onProgress(15, "Processing " + totalProducts + " products...");
+		
 		for (String product : products) {
+			processedProducts++;
+			int progress = 15 + (int)((processedProducts * 60.0) / totalProducts); // 15-75% range
+			progressCallback.onProgress(progress, "Processing product " + processedProducts + "/" + totalProducts + ": " + product);
 			this.launch4jDoc = docBuilder.newDocument();
 			Element launch4j = addElement(this.launch4jDoc, "launch4jConfig", (String) null);
 
@@ -192,7 +180,7 @@ public class CreateInstallerCommand {
 			String iUrl = serverURL + jnlpName + ".jnlp";
 			String saveClasspath = null;
 
-			try (InputStream is = getInputStreamFromURL(iUrl.replace("http:","https:"))) {
+			try (InputStream is = getInputStreamFromURL(iUrl)) {
 				str.append(TEMPLATE.replace("%long%", name).replace("%short%", jnlpName));
 				Document document = docBuilder.parse(is);
 
@@ -245,12 +233,12 @@ public class CreateInstallerCommand {
 				}
 
 				list = document.getElementsByTagName("icon");
-				buildAutomation.appendTextToLog(list.toString());
+//				buildAutomation.appendTextToLog(list.toString());
 				(new File(dir, "images")).mkdir();
 				for (int j = 0; j < list.getLength(); j++) {
 					Element elem = (Element) list.item(j);
 					String href = elem.getAttribute("href");
-					buildAutomation.appendTextToLog(" href - " + href);
+//					buildAutomation.appendTextToLog(" href - " + href);
 					String imageName = (new File(Utils.validatePath(href))).getName();
 
 					String kind = elem.getAttribute("kind");
@@ -313,7 +301,7 @@ public class CreateInstallerCommand {
 				runLaunch4j(launchXML);
 				launchXML.delete();
 			} catch (Exception e) {
-				buildAutomation.appendTextToLog("Not able to setup " + product);
+				//progressCallback.onError("Not able to setup " + product + ": " + e.getMessage());
 				failed_setups += product +", ";
 				e.printStackTrace();
 				LoggerUtil.error(e);
@@ -325,6 +313,7 @@ public class CreateInstallerCommand {
 		config = config.replace("%INSTALLER_LOC%", installerLocation.getAbsolutePath()).replace("%name%", appName)
 				.replace(";### COMPONENTS ###", str.toString());
 
+		progressCallback.onProgress(80, "Creating NSIS configuration file...");
 		PrintStream ps = new PrintStream(new File(dir, "nms.nsi"), StandardCharsets.UTF_8.name());
 		ps.append(config);
 		ps.close();
@@ -341,37 +330,10 @@ public class CreateInstallerCommand {
 //			}
 //		}
 
-		File jarF = new File(dir, "nmslib/tools.jar");
-		File toolFile = new File(System.getenv("JAVA_HOME") + "/lib/tools.jar");
-		if (!toolFile.isFile()) {
-			buildAutomation.appendTextToLog("JDK_NOT_FOUND at "+toolFile.getPath());
-			return false;
-		}
-		InputStream uis = null;
-		try {
-			uis = new FileInputStream(toolFile);
-			Utils.copyInputStream(uis, jarF);
-		} finally {
-			if (uis != null) {
-				uis.close();
-				uis = null;
-			}
-		}
-		File f = new File(System.getenv("JAVA_HOME") + "/jre/bin/attach.dll");
-		try {
-			uis = new FileInputStream(f);
-			Utils.copyInputStream(uis, new File(dir, "attach.dll"));
-		} finally {
-			if (uis != null) {
-				uis.close();
-				uis = null;
-			}
-		}
-		//runNSIS(dir); //launches packed installer
+		//progressCallback.onProgress(85, "Running NSIS installer creation...");
+		//runNSIS(dir);
 
-		ManageFile.replaceTextInFiles(List.of(dir_temp+"/java/ant/build.properties"),"NMS_HOME", envVarName);
-		ManageFile.replaceTextInFiles(List.of(dir_temp+"/java/ant/build.xml"),"NMS_HOME", envVarName);
-		buildAutomation.appendTextToLog("Failed setup for: "+failed_setups);
+		progressCallback.onComplete("Installer creation completed successfully."+"\n failed products: "+failed_setups);
 		return true;
 	}
 
@@ -430,7 +392,7 @@ public class CreateInstallerCommand {
 	private String getJRELocation() throws Exception {
 		File file = new File(System.getenv("JAVA_HOME") + "/jre");
 		if (!file.isDirectory()) {
-			throw new Exception("JDK_NOT_FOUND");
+			throw new Exception("JDK_NOT_FOUND (WITH JRE)");
 		}
 		return file.getPath();
 	}
@@ -474,6 +436,7 @@ public class CreateInstallerCommand {
 	}
 
 	private void runNSIS(File dir) throws IOException, Exception {
+		//This method required attach.dll to be copied
 		String nsisExe = System.getenv("NSIS_HOME");
 		if (nsisExe == null) {
 			nsisExe = "c:" + File.separator + "Program Files+" + File.separator + "NSIS/";
@@ -533,7 +496,7 @@ public class CreateInstallerCommand {
 				for (File jarFile : jarFiles) {
 					File destFile = new File(nmsLibDir, jarFile.getName());
 					Files.copy(jarFile.toPath(), destFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-					buildAutomation.appendTextToLog("Copied: " + jarFile.getName() + " to " + nmsLibDir.getPath());
+					progressCallback.onProgress(0, "Copied: " + jarFile.getName() + " to " + nmsLibDir.getPath());
 				}
 			}
 		}
@@ -542,7 +505,7 @@ public class CreateInstallerCommand {
 		File logoFile = findFile(productDir, "logo16.ico");
 		if (logoFile != null) {
 			Files.copy(logoFile.toPath(), destLogoFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-			buildAutomation.appendTextToLog("Copied logo16.ico to " + destLogoFile.getPath());
+			progressCallback.onProgress(0, "Copied logo16.ico to " + destLogoFile.getPath());
 		} else {
 			throw new IOException("logo16.ico not found in any subdirectory of " + productDir.getPath());
 		}
@@ -551,7 +514,7 @@ public class CreateInstallerCommand {
 		File licenseFile = findFile(productDir, "license.properties");
 		if (licenseFile != null) {
 			Files.copy(licenseFile.toPath(), destLicenseFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-			buildAutomation.appendTextToLog("Copied license.properties to " + destLicenseFile.getPath());
+			progressCallback.onProgress(0, "Copied license.properties to " + destLicenseFile.getPath());
 		} else {
 			throw new IOException("license.properties not found in any subdirectory of " + productDir.getPath());
 		}
@@ -559,9 +522,9 @@ public class CreateInstallerCommand {
 		File nsiFile = findFile(productDir, "nms.nsi");
 		if (nsiFile != null) {
 			Files.copy(nsiFile.toPath(), destNSIFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-			buildAutomation.appendTextToLog("Copied nms.nsi to " + destNSIFile.getPath());
+			progressCallback.onProgress(0, "Copied nms.nsi to " + destNSIFile.getPath());
 		} else {
-			throw new IOException("license.properties not found in any subdirectory of " + productDir.getPath());
+			throw new IOException("nms.nsi not found in any subdirectory of " + productDir.getPath());
 		}
 	}
 
@@ -633,11 +596,11 @@ public class CreateInstallerCommand {
 
 	public  boolean cleanDirectory(Path dir) throws IOException {
 		if (!Files.exists(dir)) {
-			buildAutomation.appendTextToLog("Directory does not exist: " + dir);
+			progressCallback.onProgress(0, "Directory does not exist: " + dir);
 			return false;
 		}
 		if (!Files.isDirectory(dir)) {
-			buildAutomation.appendTextToLog("Not a directory: " + dir);
+			progressCallback.onProgress(0, "Not a directory: " + dir);
 			return false;
 		}
 
@@ -661,7 +624,7 @@ public class CreateInstallerCommand {
 			}
 		});
 
-		buildAutomation.appendTextToLog("Deleted directory complete");
+		progressCallback.onProgress(0, "Deleted directory complete");
 		return true;
 	}
 }

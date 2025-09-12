@@ -15,71 +15,51 @@
             fx:controller="com.nms.support.nms_support.controller.DatastoreDumpController"
             prefHeight="400.0" prefWidth="600.0">
 
-    <VBox spacing="10.0" AnchorPane.topAnchor="10.0" AnchorPane.bottomAnchor="10.0"
+    <VBox fx:id="mainContainer" spacing="10.0" AnchorPane.topAnchor="10.0" AnchorPane.bottomAnchor="10.0"
           AnchorPane.leftAnchor="10.0" AnchorPane.rightAnchor="10.0">
 
-        <!-- GridPane for SSH Details -->
-        <GridPane hgap="10" vgap="10" alignment="CENTER" maxWidth="Infinity">
-            <columnConstraints>
-                <ColumnConstraints percentWidth="10"/>
-                <ColumnConstraints percentWidth="35"/>
-            </columnConstraints>
-            <rowConstraints>
-                <RowConstraints minHeight="30"/>
-                <RowConstraints minHeight="30"/>
-                <RowConstraints minHeight="30"/>
-                <RowConstraints minHeight="30"/>
-                <RowConstraints minHeight="30"/>
-            </rowConstraints>
-
-            <Label text="Host Address:" styleClass="label-common" GridPane.columnIndex="0" GridPane.rowIndex="0"/>
-            <TextField fx:id="hostAddressField" GridPane.columnIndex="1" GridPane.rowIndex="0"/>
-
-            <Label text="Username:" styleClass="label-common" GridPane.columnIndex="0" GridPane.rowIndex="1"/>
-            <TextField fx:id="usernameField" GridPane.columnIndex="1" GridPane.rowIndex="1"/>
-
-            <Label text="Password:" styleClass="label-common" GridPane.columnIndex="0" GridPane.rowIndex="2"/>
-            <PasswordField fx:id="passwordField" GridPane.columnIndex="1" GridPane.rowIndex="2"/>
-
-            <Label text="Datastore User:" styleClass="label-common" GridPane.columnIndex="0" GridPane.rowIndex="3"/>
-            <TextField fx:id="datastoreUserField" GridPane.columnIndex="1" GridPane.rowIndex="3"/>
-
-            <BorderPane styleClass="transparent-pane" GridPane.columnIndex="1" GridPane.rowIndex="4">
-                <left>
-                    <Button text="Save" styleClass="button-common" fx:id="saveButton"/>
-                </left>
-                <center>
-                    <Button text="Open Report" styleClass="button-common" minWidth="90" fx:id="openReportButton"/>
-                </center>
-                <right>
-                    <Button text="Load" styleClass="button-common" fx:id="loadButton"/>
-                </right>
-            </BorderPane>
-        </GridPane>
-
-        <!-- Filter Text Fields for Each Column -->
-        <HBox alignment="CENTER_LEFT">
-            <TextField fx:id="column1Filter" promptText="Filter Tool" HBox.hgrow="NEVER"/>
-            <TextField fx:id="column2Filter" promptText="Filter DataStore" HBox.hgrow="NEVER"/>
-            <TextField fx:id="column3Filter" promptText="Filter Column" HBox.hgrow="NEVER"/>
-            <TextField fx:id="column4Filter" promptText="Filter Type" HBox.hgrow="NEVER"/>
-            <TextField fx:id="column5Filter" promptText="Filter Value" HBox.hgrow="NEVER"/>
+        <!-- Datastore User Field and Action Buttons on same line -->
+        <HBox alignment="CENTER_LEFT" spacing="10">
+            <Label text="Datastore User:" styleClass="label-common"/>
+            <TextField fx:id="datastoreUserField" styleClass="text-field" prefWidth="200"/>
+            <Button text="Open Report" styleClass="button-common" minWidth="90" fx:id="openReportButton"/>
+            <Button text="Load" styleClass="button-common" fx:id="loadButton"/>
+            <Region HBox.hgrow="ALWAYS"/>
+            <Label fx:id="lastGeneratedLabel" text="" styleClass="label-common" alignment="CENTER_RIGHT"/>
         </HBox>
 
-        <!-- TableView Section -->
-        <TableView fx:id="datastoreTable" VBox.vgrow="ALWAYS">
-            <columns>
-                <TableColumn fx:id="column1" text="Tool"/>
-                <TableColumn fx:id="column2" text="DataStore"/>
-                <TableColumn fx:id="column3" text="Column"/>
-                <TableColumn fx:id="column4" text="Type"/>
-                <TableColumn fx:id="column5" text="Value"/>
-            </columns>
-        </TableView>
-        <!-- Use standard JavaFX Spinner -->
+        <!-- Filter Text Fields for Each Column -->
+        <HBox alignment="CENTER_LEFT" spacing="4" styleClass="filter-container">
+            <TextField fx:id="column1Filter" promptText="Filter Tool" styleClass="filter-field" HBox.hgrow="ALWAYS"/>
+            <TextField fx:id="column2Filter" promptText="Filter DataStore" styleClass="filter-field" HBox.hgrow="ALWAYS"/>
+            <TextField fx:id="column3Filter" promptText="Filter Column" styleClass="filter-field" HBox.hgrow="ALWAYS"/>
+            <TextField fx:id="column4Filter" promptText="Filter Type" styleClass="filter-field" HBox.hgrow="ALWAYS"/>
+            <TextField fx:id="column5Filter" promptText="Filter Value" styleClass="filter-field" HBox.hgrow="ALWAYS"/>
+            <!-- Invisible spacer to account for scrollbar width -->
+            <Region styleClass="scrollbar-spacer"/>
+        </HBox>
+
+        <!-- TableView Section with Loading Overlay -->
+        <StackPane VBox.vgrow="ALWAYS">
+            <TableView fx:id="datastoreTable" VBox.vgrow="ALWAYS">
+                <columns>
+                    <TableColumn fx:id="column1" text="Tool"/>
+                    <TableColumn fx:id="column2" text="DataStore"/>
+                    <TableColumn fx:id="column3" text="Column"/>
+                    <TableColumn fx:id="column4" text="Type"/>
+                    <TableColumn fx:id="column5" text="Value"/>
+                </columns>
+            </TableView>
+            <StackPane fx:id="overlayPane" visible="false" styleClass="loading-overlay">
+                <VBox alignment="CENTER" spacing="20" styleClass="loading-container">
+                    <ProgressIndicator fx:id="loadingIndicator" maxWidth="60" maxHeight="60" styleClass="loading-spinner" />
+                    <VBox alignment="CENTER" spacing="8">
+                        <Label fx:id="loadingTitle" text="Fetching Data from Server..." styleClass="loading-title" />
+                        <Label fx:id="loadingMessage" text="Connecting to datastore..." styleClass="loading-message" />
+                        <ProgressBar fx:id="loadingProgress" prefWidth="300" styleClass="loading-progress" />
+                    </VBox>
+                </VBox>
+            </StackPane>
+        </StackPane>
     </VBox>
-    <StackPane fx:id="overlayPane" visible="false" AnchorPane.topAnchor="0.0" AnchorPane.bottomAnchor="0.0"
-               AnchorPane.leftAnchor="0.0" AnchorPane.rightAnchor="0.0">
-        <ProgressIndicator fx:id="loadingIndicator" maxWidth="80" maxHeight="80" />
-    </StackPane>
 </AnchorPane>

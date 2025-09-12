@@ -40,7 +40,7 @@
 .button-icon {
     -fx-background-color: transparent;
         -fx-border-color: transparent;
-        -fx-padding: 0;
+        -fx-padding: 0 8 0 0;
         -fx-background-radius: 0;
         -fx-border-radius: 0;
         -fx-pref-width: 18;
@@ -54,11 +54,236 @@
 
 .button-icon:hover {
     -fx-scale-x: 1.1; /* Slightly enlarge on hover */
-    -fx-scale-y: 1.1;
+    -fx-scale-y: 1.1;  
 }
 
 .button-icon:pressed {
-    -fx-scale-x: 0.9; /* Slightly shrink on click */
-    -fx-scale-y: 0.9;
+    -fx-scale-x: 0.85; /* Slightly shrink on click */
+    -fx-scale-y: 0.85;
     -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.3), 8, 0.5, 0, 3); /* Darker shadow on click */
+}
+
+/* Compact main ComboBox */
+.main-combo {
+    -fx-font-family: 'Inter', 'Segoe UI', 'Arial', sans-serif;
+    -fx-font-size: 1.13em;
+    -fx-font-weight: 500;
+    -fx-background-radius: 6;
+    -fx-background-color: #f7f8fa;
+    -fx-border-color: #d1d5db;
+    -fx-border-radius: 6;
+    -fx-min-width: 160;
+    -fx-max-width: 180;
+    -fx-padding: 2 8 2 8;
+    -fx-mark-color: #4b5563; /* arrow color */
+}
+
+.main-combo .list-cell {
+    -fx-padding: 2 6 2 6;
+}
+
+.main-combo .arrow-button {
+    -fx-padding: 0 4 0 4;
+}
+
+.main-combo .arrow {
+    -fx-padding: 0.3em; /* ensure arrow renders */
+}
+
+/* Main Project label styling */
+.main-label {
+    -fx-font-family: 'Inter', 'Segoe UI', 'Arial', sans-serif;
+    -fx-font-size: 1.18em;
+    -fx-font-weight: 600;
+    -fx-text-fill: #283593;
+    -fx-padding: 0 4 0 0;
+    -fx-label-padding: 0 4 0 0;
+}
+
+/* Save icon button: neutral, compact, modern */
+.main-save-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 50;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian,rgba(80,80,180,.10),1,0,0,1);
+    -fx-min-width: 32;
+    -fx-min-height: 32;
+    -fx-max-width: 36;
+    -fx-max-height: 36;
+    -fx-scale-x: 1;
+    -fx-scale-y: 1;
+    -fx-transition: -fx-scale-x 0.1s, -fx-scale-y 0.1s;
+}
+.main-save-btn:hover {
+    -fx-scale-x: 1.1; /* Slightly enlarge on hover */
+    -fx-scale-y: 1.1;  
+}
+.main-save-btn:pressed {
+    -fx-scale-x: 0.8;
+    -fx-scale-y: 0.8;
+}
+.main-save-btn .ikonli-font-icon {
+    -fx-icon-size: 22px;
+    -fx-icon-color: #283593;
+}
+
+/* Save button states for unsaved changes */
+.save-button-unsaved .ikonli-font-icon {
+    -fx-icon-color: #e74c3c !important; /* Red for unsaved changes */
+    -fx-effect: dropshadow(gaussian, rgba(231, 76, 60, 0.3), 4, 0, 0, 2);
+}
+
+.save-button-saved .ikonli-font-icon {
+    -fx-icon-color: #3498db !important; /* Blue for saved state */
+    -fx-effect: dropshadow(gaussian, rgba(52, 152, 219, 0.3), 4, 0, 0, 2);
+}
+
+/* Modern Tab Styling - Comprehensive Approach */
+.tab-pane {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8f0;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 0;
+}
+
+.main-tab-pane {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8f0;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 0;
+}
+
+.compact-tab-pane {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e8f0;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 0;
+}
+
+/* Tab Header Area Styling - Light Gray Background */
+.tab-pane .tab-header-area,
+.main-tab-pane .tab-header-area,
+.compact-tab-pane .tab-header-area {
+    -fx-background-color: #f8fafc;
+    -fx-padding: 2px 8px 0 8px;
+    -fx-border-color: #e2e8f0;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.tab-pane .tab-header-background,
+.main-tab-pane .tab-header-background,
+.compact-tab-pane .tab-header-background {
+    -fx-background-color: transparent;
+    -fx-effect: none;
+}
+
+/* Individual Tab Styling - Formal White Theme */
+.tab,
+.main-tab,
+.compact-tab {
+    -fx-font-family: 'Inter', 'Segoe UI', 'Arial', sans-serif;
+    -fx-font-size: 13px;
+    -fx-font-weight: 500;
+    -fx-background-color: #ffffff;
+    -fx-text-fill: #374151;
+    -fx-padding: 3px 8px 3px 8px;
+    -fx-border-color: #d1d5db;
+    -fx-border-width: 1px;
+    -fx-background-radius: 3px 3px 0 0;
+    -fx-border-radius: 3px 3px 0 0;
+    -fx-cursor: hand;
+    -fx-min-width: 90px;
+    -fx-max-width: 120px;
+    -fx-min-height: 14px;
+    -fx-max-height: 14px;
+}
+
+.tab:hover,
+.main-tab:hover,
+.compact-tab:hover {
+    -fx-background-color: #f9fafb;
+    -fx-text-fill: #1f2937;
+    -fx-border-color: #9ca3af;
+}
+
+.tab:selected,
+.main-tab:selected,
+.compact-tab:selected {
+    -fx-background-color: #ffffff;
+    -fx-text-fill: #1f2937;
+    -fx-font-weight: 600;
+    -fx-border-color: #3b82f6 #3b82f6 transparent #3b82f6;
+    -fx-border-width: 2px 2px 0 2px;
+    -fx-effect: dropshadow(gaussian, rgba(59, 130, 246, 0.15), 2, 0, 0, 1);
+}
+
+/* Tab Label Styling */
+.tab .tab-label,
+.main-tab .tab-label,
+.compact-tab .tab-label {
+    -fx-font-family: 'Inter', 'Segoe UI', 'Arial', sans-serif;
+    -fx-font-size: 13px;
+    -fx-font-weight: normal;
+    -fx-text-fill: inherit;
+}
+
+/* Tab Content Area */
+.tab-pane .tab-content-area,
+.main-tab-pane .tab-content-area,
+.compact-tab-pane .tab-content-area {
+    -fx-background-color: #ffffff;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 0;
+}
+
+/* Additional Tab Pane Styling */
+.tab-pane .headers-region,
+.main-tab-pane .headers-region,
+.compact-tab-pane .headers-region {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e5e7eb;
+    -fx-border-width: 0 0 1px 0;
+}
+
+/* Remove default JavaFX tab styling */
+.tab-pane .tab-header-area .tab-header-background,
+.main-tab-pane .tab-header-area .tab-header-background,
+.compact-tab-pane .tab-header-area .tab-header-background {
+    -fx-background-color: transparent;
+    -fx-effect: none;
+}
+
+/* Force modern styling for tab header elements only */
+.tab-pane .tab-header-area .tab,
+.main-tab-pane .tab-header-area .tab,
+.compact-tab-pane .tab-header-area .tab {
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+/* Ensure tab content area has white background */
+.tab-pane .tab-content-area,
+.main-tab-pane .tab-content-area,
+.compact-tab-pane .tab-content-area {
+    -fx-background-color: #ffffff;
+}
+
+/* Additional modern touches */
+.tab-pane .tab-header-area,
+.main-tab-pane .tab-header-area,
+.compact-tab-pane .tab-header-area {
+    -fx-background-insets: 0;
+    -fx-padding: 1px 6px 0 6px;
+}
+
+/* Ensure proper tab spacing */
+.tab-pane .tab-header-area .headers-region,
+.main-tab-pane .tab-header-area .headers-region,
+.compact-tab-pane .tab-header-area .headers-region {
+    -fx-spacing: 4px;
+    -fx-padding: 0;
 }

@@ -4,9 +4,11 @@ import com.nms.support.nms_support.model.DataStoreRecord;
 import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.service.dataStoreTabPack.ParseDataStoreReport;
 import com.nms.support.nms_support.service.dataStoreTabPack.ReportGenerator;
+import com.nms.support.nms_support.service.dataStoreTabPack.ReportCacheService;
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
 import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 import com.nms.support.nms_support.service.globalPack.ManageFile;
+import com.nms.support.nms_support.service.globalPack.SSHExecutor;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
@@ -15,40 +17,51 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.scene.input.ContextMenuEvent;
 import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.logging.Logger;
+import javafx.scene.control.Control;
+import com.nms.support.nms_support.service.globalPack.ChangeTrackingService;
 
 public class DatastoreDumpController {
     private static final Logger logger = LoggerUtil.getLogger();
+    
+    // Public constructor for FXML loading
+    public DatastoreDumpController() {
+        // Default constructor required for FXML
+    }
 
     @FXML
     public ProgressIndicator loadingIndicator;
+    
+    @FXML
+    private Label loadingTitle;
+    
+    @FXML
+    private Label loadingMessage;
+    
+    @FXML
+    private ProgressBar loadingProgress;
 
     @FXML
     public Button openReportButton;
 
-    @FXML
-    private TextField hostAddressField;
-
-    @FXML
-    private TextField usernameField;
-
-    @FXML
-    private PasswordField passwordField;
-
+    // Keep only datastore user field - other SSH fields are in project details tab
     @FXML
     private TextField datastoreUserField;
 
     @FXML
-    private Button saveButton;
-
-    @FXML
     private Button loadButton;
+    
+    @FXML
+    private Label lastGeneratedLabel;
 
     @FXML
     private TextField column1Filter;
@@ -85,8 +98,19 @@ public class DatastoreDumpController {
 
     @FXML
     private StackPane overlayPane; // StackPane to hold the spinner
+    
+    @FXML
+    private VBox mainContainer; // Main container for global click handling
 
     private final ObservableList<DataStoreRecord> datastoreRecords = FXCollections.observableArrayList();
+    
+    // Thread management and caching
+    private Thread currentReportThread;
+    private String currentProcessKey;
+    private ReportCacheService reportCacheService;
+    private volatile boolean isGeneratingReport = false;
+    private volatile boolean userCancelled = false;
+    private volatile String activeThreadId = null;
 
     @FXML
     private void initialize() {
@@ -98,18 +122,18 @@ public class DatastoreDumpController {
         column3.setCellValueFactory(new PropertyValueFactory<>("column"));
         column4.setCellValueFactory(new PropertyValueFactory<>("type"));
         column5.setCellValueFactory(new PropertyValueFactory<>("value"));
-        datastoreTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+        datastoreTable.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
         datastoreTable.setItems(datastoreRecords);
 
+        // Initialize cache service
+        reportCacheService = ReportCacheService.getInstance();
+        
         // Add event handlers
-        saveButton.setOnAction(event -> {
-            logger.info("Save Button Clicked");
-            saveSSHDetails();
-        });
         loadButton.setOnAction(event -> {
             logger.info("Load Button Clicked");
-            loadDatastore();
+            handleLoadButton();
         });
+        
         openReportButton.setOnAction(actionEvent -> {
             logger.info("Open Report Button Clicked");
             openReport();
@@ -148,18 +172,47 @@ public class DatastoreDumpController {
 
         // Add context menu for clearing filters
         ContextMenu contextMenu = new ContextMenu();
-        MenuItem clearFiltersItem = new MenuItem("Clear Filters");
+        MenuItem clearFiltersItem = new MenuItem("Clear Filter");
         clearFiltersItem.setOnAction(event -> {
-            logger.info("Clear Filters Menu Item Clicked");
+            logger.info("Clear Filter Menu Item Clicked");
             clearFilters();
         });
         contextMenu.getItems().add(clearFiltersItem);
 
-        datastoreTable.setOnContextMenuRequested((ContextMenuEvent event) -> contextMenu.show(datastoreTable, event.getScreenX(), event.getScreenY()));
+        // Set context menu for table
+        datastoreTable.setContextMenu(contextMenu);
+        
+        // Add click handler to close context menu when clicking anywhere
+        datastoreTable.setOnMouseClicked(event -> {
+            if (contextMenu.isShowing()) {
+                contextMenu.hide();
+            }
+        });
+        
+        // Add global click handler to close context menu when clicking anywhere in the tab
+        mainContainer.setOnMouseClicked(event -> {
+            if (contextMenu.isShowing()) {
+                contextMenu.hide();
+            }
+        });
 
         // Initially hide the spinner
         loadingIndicator.setVisible(false);
         overlayPane.setVisible(false);
+        
+        // Force scrollbars to always be visible
+        Platform.runLater(() -> {
+            try {
+                // Access the virtual flow and force scrollbar visibility
+                javafx.scene.control.ScrollPane scrollPane = (javafx.scene.control.ScrollPane) datastoreTable.lookup(".scroll-pane");
+                if (scrollPane != null) {
+                    scrollPane.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.ALWAYS);
+                    scrollPane.setVbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.ALWAYS);
+                }
+            } catch (Exception e) {
+                logger.warning("Could not set scrollbar policy: " + e.getMessage());
+            }
+        });
     }
 
     private void openReport() {
@@ -169,36 +222,100 @@ public class DatastoreDumpController {
         ManageFile.open(dataStorePath);
     }
 
-    public void loadProjectDetails(String name) {
-        logger.info("Loading Project Details for: " + name);
-        clearAllFields();
+    /**
+     * Called when the datastore explorer tab is selected to refresh data
+     */
+    public void onTabSelected() {
+        logger.info("Datastore explorer tab selected - refreshing data");
+        loadProjectDetails();
+        
+        // Auto-load cached report if available and refresh status
         ProjectEntity project = mainController.getSelectedProject();
-        if (project == null) {
-            logger.warning("Selected project is null.");
-            return;
+        if (project != null) {
+            autoLoadCachedReport(project);
+            refreshLastGeneratedLabel(project);
+        } else {
+            lastGeneratedLabel.setText("");
         }
-        hostAddressField.setText(project.getHost());
-        usernameField.setText(project.getHostUser());
-        passwordField.setText(project.getHostPass());
-        datastoreUserField.setText(project.getDataStoreUser());
     }
 
-    public void clearAllFields() {
-        logger.info("Clearing all fields");
-        hostAddressField.clear();
-        usernameField.clear();
-        passwordField.clear();
-        datastoreUserField.clear();
+    /**
+     * Load project details - specifically the datastore user field
+     */
+    public void loadProjectDetails() {
+        logger.info("Loading project details for datastore explorer tab");
+        
+        // Start loading mode to prevent change tracking during data loading
+        changeTrackingService.startLoading();
+        
+        ProjectEntity project = mainController.getSelectedProject();
+        if (project != null) {
+            datastoreUserField.setText(project.getDataStoreUser() != null ? project.getDataStoreUser() : "");
+        } else {
+            datastoreUserField.clear();
+        }
+        
+        // End loading mode to resume change tracking
+        changeTrackingService.endLoading();
+    }
+    
+    /**
+     * Save datastore settings to the project
+     */
+    public void saveDatastoreSettings() {
+        logger.info("Saving datastore settings");
+        ProjectEntity project = mainController.getSelectedProject();
+        if (project != null) {
+            project.setDataStoreUser(datastoreUserField.getText());
+            boolean success = mainController.projectManager.saveData();
+            if (success) {
+                logger.info("Datastore settings saved successfully");
+            } else {
+                logger.warning("Failed to save datastore settings");
+            }
+        } else {
+            logger.warning("No project selected for saving datastore settings");
+        }
     }
 
     private void fitColumns() {
         logger.info("Fitting Columns");
+        
+        // Unbind any existing bindings first to avoid conflicts
+        column1.prefWidthProperty().unbind();
+        column2.prefWidthProperty().unbind();
+        column3.prefWidthProperty().unbind();
+        column4.prefWidthProperty().unbind();
+        column5.prefWidthProperty().unbind();
+        
+        // Unbind filter fields
+        column1Filter.prefWidthProperty().unbind();
+        column2Filter.prefWidthProperty().unbind();
+        column3Filter.prefWidthProperty().unbind();
+        column4Filter.prefWidthProperty().unbind();
+        column5Filter.prefWidthProperty().unbind();
+        
+        // Set table to fill available width
+        datastoreTable.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+        
+        // Bind columns to table width with equal distribution
         double totalColumns = 5.0;
         column1.prefWidthProperty().bind(datastoreTable.widthProperty().divide(totalColumns));
         column2.prefWidthProperty().bind(datastoreTable.widthProperty().divide(totalColumns));
         column3.prefWidthProperty().bind(datastoreTable.widthProperty().divide(totalColumns));
         column4.prefWidthProperty().bind(datastoreTable.widthProperty().divide(totalColumns));
         column5.prefWidthProperty().bind(datastoreTable.widthProperty().divide(totalColumns));
+        
+        // Bind filter fields to their corresponding columns with exact width matching
+        column1Filter.prefWidthProperty().bind(column1.widthProperty());
+        column2Filter.prefWidthProperty().bind(column2.widthProperty());
+        column3Filter.prefWidthProperty().bind(column3.widthProperty());
+        column4Filter.prefWidthProperty().bind(column4.widthProperty());
+        column5Filter.prefWidthProperty().bind(column5.widthProperty());
+        
+        // Ensure table fills available horizontal space
+        datastoreTable.setMaxWidth(Double.MAX_VALUE);
+        datastoreTable.setMinWidth(0);
     }
 
     private void clearFilters() {
@@ -212,172 +329,344 @@ public class DatastoreDumpController {
         fitColumns();
     }
 
-    private void saveSSHDetails() {
-        logger.info("Saving SSH Details");
-        String projectName = mainController.projectComboBox.getValue();
-        if (projectName.equals("None")) {
-            DialogUtil.showError("Invalid Project", "Please select any project or create a new one");
-            logger.warning("No project selected or project name is 'None'.");
-            return;
-        }
-        ProjectEntity updateProject = mainController.projectManager.getProjectByName(projectName);
-
-        if (updateProject == null) {
-            DialogUtil.showError("Invalid Project", "Please select any project or create a new one");
-            logger.warning("Project not found for the name: " + projectName);
-            return;
-        }
-        updateProject.setHost(hostAddressField.getText());
-        updateProject.setHostUser(usernameField.getText());
-        updateProject.setDataStoreUser(datastoreUserField.getText());
-        logger.info("Saving password (masked in logs): " + "******");
-        updateProject.setHostPass(passwordField.getText());
-        mainController.projectManager.saveData();
-        logger.info("SSH Details saved for project: " + projectName);
-    }
-
     private void showSpinner() {
-        logger.info("Showing spinner");
+        logger.info("Showing enhanced loading animation");
         overlayPane.setVisible(true);
         loadingIndicator.setVisible(true);
+        loadingTitle.setVisible(true);
+        loadingMessage.setVisible(true);
+        loadingProgress.setVisible(true);
+        
+        // Initialize progress
+        loadingProgress.setProgress(0.0);
+        updateLoadingMessage("Initializing connection...", 0.0);
     }
 
     private void hideSpinner() {
-        logger.info("Hiding spinner");
+        logger.info("Hiding loading animation");
         loadingIndicator.setVisible(false);
+        loadingTitle.setVisible(false);
+        loadingMessage.setVisible(false);
+        loadingProgress.setVisible(false);
         overlayPane.setVisible(false);
     }
+    
+    private void updateLoadingMessage(String message, double progress) {
+        Platform.runLater(() -> {
+            loadingMessage.setText(message);
+            loadingProgress.setProgress(progress);
+        });
+    }
 
-    private void loadDatastore() {
-        logger.info("Loading datastore");
-        datastoreRecords.clear();
-        saveSSHDetails();
-        if (!validation()) return;
-
-        showSpinner(); // Show spinner before starting long-running task
-
-        new Thread(() -> {
+    /**
+     * Handle Load button click - always generate new report
+     */
+    private void handleLoadButton() {
+        logger.info("Handling Load button click - generating new report");
+        
+        ProjectEntity project = mainController.getSelectedProject();
+        if (project == null) {
+            DialogUtil.showError("Invalid Project", "Please select a project first");
+            logger.warning("No project selected for report loading");
+            return;
+        }
+        
+        // Check if already generating a report
+        if (isGeneratingReport) {
+            logger.info("Report generation already in progress, cancelling previous and starting new one");
+            userCancelled = true; // Mark previous as cancelled
+        }
+        
+        logger.info("Project selected: " + project.getName());
+        logger.info("About to call generateReport for project: " + project.getName());
+        
+        // Always generate new report when Load button is clicked
+        generateReport(project);
+    }
+    
+    /**
+     * Load cached report data for the current project
+     */
+    private void loadCachedReport(ProjectEntity project) {
+        logger.info("Loading cached report for project: " + project.getName());
+        
+        ObservableList<DataStoreRecord> cachedData = reportCacheService.getCachedReportData(project.getName());
+        if (cachedData != null) {
+            datastoreRecords.setAll(cachedData);
+            filterTable();
+            refreshLastGeneratedLabel(project);
+            logger.info("Loaded cached report data for project: " + project.getName());
+        } else {
+            // Fallback to file loading
+            loadFromFile(project);
+        }
+    }
+    
+    /**
+     * Load report data from file
+     */
+    private void loadFromFile(ProjectEntity project) {
+        logger.info("Loading report from file for project: " + project.getName());
+        
+        ObservableList<DataStoreRecord> fileData = reportCacheService.loadAndCacheReportData(project);
+        if (fileData != null) {
+            datastoreRecords.setAll(fileData);
+            filterTable();
+            refreshLastGeneratedLabel(project);
+            logger.info("Loaded report data from file for project: " + project.getName());
+        } else {
+            DialogUtil.showError("No Report Available", "No report file found for this project. Generating new report...");
+            generateReport(project);
+        }
+    }
+    
+    /**
+     * Auto-load cached report when tab is selected
+     */
+    private void autoLoadCachedReport(ProjectEntity project) {
+        logger.info("Auto-loading cached report for project: " + project.getName());
+        
+        // Check if we have cached data
+        if (reportCacheService.hasCachedReportData(project.getName())) {
+            loadCachedReport(project);
+        } else {
+            // Try to load from file
+            loadFromFile(project);
+        }
+    }
+    
+    /**
+     * Generate a new report with thread management
+     */
+    private void generateReport(ProjectEntity project) {
+        logger.info("=== GENERATE REPORT CALLED ===");
+        logger.info("Generating new report for project: " + project.getName());
+        
+        if (!validation(project)) {
+            logger.warning("Validation failed for project: " + project.getName());
+            return;
+        }
+        
+        logger.info("Validation passed, proceeding with report generation");
+        
+        // Set generating state
+        isGeneratingReport = true;
+        userCancelled = false;
+        
+        // Kill existing process if running
+        if (currentProcessKey != null && SSHExecutor.isProcessRunning(currentProcessKey)) {
+            logger.info("Killing existing process: " + currentProcessKey);
+            SSHExecutor.killProcess(currentProcessKey);
+        }
+        
+        // Interrupt existing thread if running
+        if (currentReportThread != null && currentReportThread.isAlive()) {
+            logger.info("Interrupting existing report thread");
+            currentReportThread.interrupt();
+        }
+        
+        // Generate unique process key and thread ID
+        currentProcessKey = "datastore_report_" + project.getName() + "_" + System.currentTimeMillis();
+        String threadId = "thread_" + System.currentTimeMillis();
+        activeThreadId = threadId;
+        
+        currentReportThread = new Thread(() -> {
             try {
-                logger.info("Starting long-running task");
+                logger.info("Starting report generation thread with ID: " + threadId);
+                
+                // Only show spinner if this is still the active thread
+                if (activeThreadId.equals(threadId)) {
+                    Platform.runLater(() -> {
+                        if (activeThreadId.equals(threadId)) {
+                            showSpinner();
+                            updateLoadingMessage("Starting report generation...", 0.0);
+                        }
+                    });
+                }
+                
                 String user = System.getProperty("user.name");
                 String dataStorePath = "C:/Users/" + user + "/Documents/nms_support_data/datastore_reports";
                 Path reportPath = Paths.get(dataStorePath);
-                FileTime fileTimeBefore = null;
-                FileTime fileTimeBeforeOriginal = null;
-
+                
+                if (activeThreadId.equals(threadId)) {
+                    updateLoadingMessage("Preparing data directory...", 0.1);
+                }
                 Files.createDirectories(reportPath);
-                logger.info("Directory created: " + dataStorePath);
-
-                Path reportFilePath = reportPath.resolve("report_" + mainController.getSelectedProject().getName() + ".txt");
+                Thread.sleep(300);
+                
+                Path reportFilePath = reportPath.resolve("report_" + project.getName() + ".txt");
+                FileTime fileTimeBefore = null;
+                
                 if (Files.exists(reportFilePath)) {
                     fileTimeBefore = Files.getLastModifiedTime(reportFilePath);
-                    fileTimeBeforeOriginal = fileTimeBefore;
                     logger.info("File last modified time before execution: " + fileTimeBefore);
                 }
-
-                ProjectEntity project = mainController.getSelectedProject();
-                if (project == null) {
-                    Platform.runLater(() -> {
-                        DialogUtil.showError("Invalid Project!", "Please select a project");
-                        hideSpinner(); // Ensure spinner is hidden if project is null
-                    });
-                    logger.warning("Project is null");
+                
+                if (activeThreadId.equals(threadId)) {
+                    updateLoadingMessage("Executing datastore queries...", 0.3);
+                }
+                boolean isExecuted = ReportGenerator.execute(project, reportFilePath.toString(), currentProcessKey);
+                
+                if (!isExecuted) {
+                    if (!userCancelled && activeThreadId.equals(threadId)) {
+                        Platform.runLater(() -> {
+                            if (activeThreadId.equals(threadId)) {
+                                DialogUtil.showError("Failed Generating Report", "Command failed execution\n1. Is VPN Connected?\n2. Is client running?\n3. Please check URL, username, password...");
+                                hideSpinner();
+                            }
+                        });
+                    }
+                    logger.warning("Report generation command failed");
                     return;
                 }
-
-                boolean isExecuted = ReportGenerator.execute(project, reportFilePath.toString());
-
-
-                // Wait for the file to stop updating for 3 seconds
-                long stableWaitTime = 3_000; // 3 seconds in milliseconds
-                long maxWaitTime = 15_000;   // Maximum total wait time
+                
+                if (activeThreadId.equals(threadId)) {
+                    updateLoadingMessage("Processing server response...", 0.5);
+                }
+                
+                // Wait for file to be updated
+                long stableWaitTime = 3_000;
+                long maxWaitTime = 15_000;
                 long startTime = System.currentTimeMillis();
                 boolean isUpdated = false;
-
+                
                 while (System.currentTimeMillis() - startTime < maxWaitTime) {
+                    if (Thread.currentThread().isInterrupted() || userCancelled) {
+                        logger.info("Report generation thread interrupted or user cancelled");
+                        return;
+                    }
+                    
                     if (Files.exists(reportFilePath)) {
                         FileTime fileTimeAfter = Files.getLastModifiedTime(reportFilePath);
-                        //System.out.println("out side loop");
-                        // Check if fileTimeBefore is null or updated
+                        
                         if (fileTimeBefore == null || fileTimeAfter.toInstant().isAfter(fileTimeBefore.toInstant())) {
-                            fileTimeBefore = fileTimeAfter; // Update reference timestamp
+                            fileTimeBefore = fileTimeAfter;
                             long stableStart = System.currentTimeMillis();
-                            // Wait to ensure no further updates for `stableWaitTime`
+                            
                             while (System.currentTimeMillis() - stableStart < stableWaitTime) {
+                                if (Thread.currentThread().isInterrupted()) {
+                                    logger.info("Report generation thread interrupted during stable wait");
+                                    return;
+                                }
+                                
                                 FileTime currentFileTime = Files.getLastModifiedTime(reportFilePath);
-                                //System.out.println("in side loop");
-
-                                // If the file updates again, reset the stable check
-
                                 if (currentFileTime.toInstant().isAfter(fileTimeBefore.toInstant())) {
                                     stableStart = System.currentTimeMillis();
                                     fileTimeBefore = currentFileTime;
                                 }
-                                Thread.sleep(500); // Check every 500ms
+                                Thread.sleep(500);
                             }
-
-                            // If file remains stable for the entire stableWaitTime, consider updated
+                            
                             isUpdated = true;
-                            break; // Exit loop
+                            break;
                         }
                     }
-                    Thread.sleep(500); // Check for existence or modification every 500ms
+                    Thread.sleep(500);
                 }
-
+                
                 if (!isUpdated) {
-                    if (!isExecuted) {
+                    if (!userCancelled && activeThreadId.equals(threadId)) {
                         Platform.runLater(() -> {
-                            DialogUtil.showError("Failed Generating Report", "Command failed execution\n1. Is VPN Connected?\n2. Is client running?\n3. Please check URL, username, password...");
-                            hideSpinner(); // Ensure spinner is hidden if execution fails
+                            if (activeThreadId.equals(threadId)) {
+                                DialogUtil.showError("Report Generation Timeout", "Report file was not updated within the expected time.\n1. Is VPN Connected?\n2. Is client running?\n3. Please check URL, username, password...");
+                                hideSpinner();
+                            }
                         });
-                        logger.warning("Report generation command failed");
-                        return;
                     }
-                    Platform.runLater(() -> DialogUtil.showError(
-                            "Report Generation Timeout",
-                            "Report file was not updated within the expected time.\n1. Is VPN Connected?\n2. Is client running?\n3. Please check URL, username, password..."
-                    ));
                     logger.warning("File did not update within 15 seconds.");
-                    Platform.runLater(this::hideSpinner);
                     return;
                 }
-
+                
+                if (activeThreadId.equals(threadId)) {
+                    updateLoadingMessage("Parsing datastore records...", 0.8);
+                }
+                
                 if (Files.exists(reportFilePath)) {
-                    FileTime fileTimeAfter = Files.getLastModifiedTime(reportFilePath);
-                    logger.info("File last modified time after execution: " + fileTimeAfter);
-
-                    if (fileTimeBeforeOriginal == null || fileTimeAfter.toInstant().isAfter(fileTimeBeforeOriginal.toInstant())) {
-                        System.out.println("loading ds report from dump");
-                        ObservableList<DataStoreRecord> records = ParseDataStoreReport.parseDSReport(reportFilePath.toString());
-                        Platform.runLater(() -> {
+                    ObservableList<DataStoreRecord> records = ParseDataStoreReport.parseDSReport(reportFilePath.toString());
+                    
+                    // Cache the data and metadata
+                    reportCacheService.cacheReportData(project.getName(), records);
+                    ReportCacheService.ReportMetadata metadata = reportCacheService.getReportFileMetadata(project);
+                    if (metadata != null) {
+                        reportCacheService.cacheReportMetadata(project.getName(), metadata);
+                    }
+                    
+                    if (activeThreadId.equals(threadId)) {
+                        updateLoadingMessage("Loading data into table...", 1.0);
+                    }
+                    Platform.runLater(() -> {
+                        if (activeThreadId.equals(threadId)) {
                             datastoreRecords.setAll(records);
                             filterTable();
-                        });  // Update the ObservableList
-                        logger.info("DataStoreRecords updated successfully.");
-                        System.out.println("DataStoreRecords updated successfully.");
-                    } else {
-                        Platform.runLater(() -> DialogUtil.showError("Report Generation Error", "Report file was not updated after command execution.\n1. Is VPN Connected?\n2. Is client running?\n3. Please check URL, username, password..."));
-                        logger.warning("Report file was not updated.");
-                    }
+                            refreshLastGeneratedLabel(project);
+                        }
+                    });
+                    
+                    logger.info("Report generated and cached successfully for project: " + project.getName());
                 } else {
-                    Platform.runLater(() -> DialogUtil.showError("Report Generation Error", "Report file is missing after command execution.\n1. Is VPN Connected?\n2. Is Client Running?\n3. Please check URL, Username, Password and Client user."));
+                    if (!userCancelled && activeThreadId.equals(threadId)) {
+                        Platform.runLater(() -> {
+                            if (activeThreadId.equals(threadId)) {
+                                DialogUtil.showError("Report Generation Error", "Report file is missing after command execution.\n1. Is VPN Connected?\n2. Is Client Running?\n3. Please check URL, Username, Password and Client user.");
+                                hideSpinner();
+                            }
+                        });
+                    }
                     logger.warning("Report file is missing.");
                 }
-
+                
             } catch (IOException e) {
-                logger.severe("IOException occurred while handling the report file: " + e.getMessage());
-                Platform.runLater(() -> {
-                    DialogUtil.showError("Exception", "An error occurred while handling the report file.");
-                });
+                logger.severe("IOException occurred while generating report: " + e.getMessage());
+                if (!userCancelled && activeThreadId.equals(threadId)) {
+                    Platform.runLater(() -> {
+                        if (activeThreadId.equals(threadId)) {
+                            DialogUtil.showError("Exception", "An error occurred while generating the report.");
+                            hideSpinner();
+                        }
+                    });
+                }
             } catch (InterruptedException e) {
-                logger.severe("InterruptedException occurred: " + e.getMessage());
+                logger.info("Report generation thread was interrupted");
                 Platform.runLater(() -> {
-                    DialogUtil.showError("Interrupted", "The thread was interrupted.");
+                    if (activeThreadId.equals(threadId)) {
+                        hideSpinner();
+                    }
                 });
             } finally {
-                Platform.runLater(() -> hideSpinner()); // Ensure spinner is hidden in case of success or failure
+                Platform.runLater(() -> {
+                    // Only hide spinner and reset state if this is still the active thread
+                    if (activeThreadId.equals(threadId)) {
+                        hideSpinner();
+                        isGeneratingReport = false;
+                        currentProcessKey = null;
+                        currentReportThread = null;
+                        activeThreadId = null;
+                    }
+                });
             }
-        }).start(); // Start the thread
+        });
+        
+        currentReportThread.start();
+    }
+    
+    /**
+     * Refresh the last generated label with relative time
+     */
+    private void refreshLastGeneratedLabel(ProjectEntity project) {
+        Platform.runLater(() -> {
+            ReportCacheService.ReportMetadata metadata = reportCacheService.getCachedReportMetadata(project.getName());
+            if (metadata != null) {
+                lastGeneratedLabel.setText(metadata.getRelativeTimeAgo());
+            } else {
+                // Try to get metadata from file
+                metadata = reportCacheService.getReportFileMetadata(project);
+                if (metadata != null) {
+                    lastGeneratedLabel.setText(metadata.getRelativeTimeAgo());
+                } else {
+                    lastGeneratedLabel.setText("");
+                }
+            }
+        });
     }
 
     private void filterTable() {
@@ -395,39 +684,110 @@ public class DatastoreDumpController {
     }
 
     MainController mainController;
+    private ChangeTrackingService changeTrackingService;
 
     public void setMainController(MainController mainController) {
         logger.info("Setting Main Controller");
         this.mainController = mainController;
-        this.mainController.projectComboBox.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> {
-            logger.info("Project ComboBox selection changed to: " + newValue);
-            loadProjectDetails(newValue);
-        });
+        this.changeTrackingService = ChangeTrackingService.getInstance();
+        
+        // Register controls for change tracking
+        registerControlsForChangeTracking();
+        
+        // Project selection is now handled centrally by MainController
+        // No need for individual listeners here
+    }
+    
+    /**
+     * Called by MainController when project selection changes
+     * @param newProjectName The newly selected project name
+     */
+    public void onProjectSelectionChanged(String newProjectName) {
+        logger.info("Project ComboBox selection changed to: " + newProjectName);
+        if (newProjectName != null && !"None".equals(newProjectName)) {
+            loadProjectDetails();
+            
+            // Auto-load cached report for the new project
+            ProjectEntity project = mainController.getSelectedProject();
+            if (project != null) {
+                autoLoadCachedReport(project);
+                refreshLastGeneratedLabel(project);
+            }
+        } else {
+            // Clear data when no project is selected
+            datastoreRecords.clear();
+            lastGeneratedLabel.setText("");
+        }
+    }
+    
+    /**
+     * Register controls for change tracking
+     */
+    private void registerControlsForChangeTracking() {
+        if (changeTrackingService != null) {
+            Set<Control> controls = new HashSet<>();
+            controls.add(datastoreUserField);
+            // Note: datastoreTable is not tracked as it's not a persistent setting
+            
+            changeTrackingService.registerTab("Datastore Explorer", controls);
+        }
     }
 
-    private boolean validation() {
-        logger.info("Performing validation");
-        if (hostAddressField == null || hostAddressField.getText() == null || hostAddressField.getText().trim().isEmpty()) {
-            DialogUtil.showError("Validation Error", "Host Address is required");
+    /**
+     * Validation method that uses project details for SSH fields and local field for datastore user
+     */
+    private boolean validation(ProjectEntity project) {
+        logger.info("Performing validation using project details and local datastore user field");
+        if (project.getHost() == null || project.getHost().trim().isEmpty()) {
+            DialogUtil.showError("Validation Error", "Host Address is required. Please set it in Project Details tab.");
             logger.warning("Host Address is required.");
             return false;
         }
-        if (usernameField == null || usernameField.getText() == null || usernameField.getText().trim().isEmpty()) {
-            DialogUtil.showError("Validation Error", "Username is required");
+        if (project.getHostUser() == null || project.getHostUser().trim().isEmpty()) {
+            DialogUtil.showError("Validation Error", "Username is required. Please set it in Project Details tab.");
             logger.warning("Username is required.");
             return false;
         }
-        if (passwordField == null || passwordField.getText() == null || passwordField.getText().trim().isEmpty()) {
-            DialogUtil.showError("Validation Error", "Password is required");
+        if (project.getHostPass() == null || project.getHostPass().trim().isEmpty()) {
+            DialogUtil.showError("Validation Error", "Password is required. Please set it in Project Details tab.");
             logger.warning("Password is required.");
             return false;
         }
-        if (datastoreUserField == null || datastoreUserField.getText() == null || datastoreUserField.getText().trim().isEmpty()) {
-            DialogUtil.showError("Validation Error", "Datastore User is required");
+        if (datastoreUserField.getText() == null || datastoreUserField.getText().trim().isEmpty()) {
+            DialogUtil.showError("Validation Error", "Datastore User is required. Please enter it in the Datastore User field.");
             logger.warning("Datastore User is required.");
             return false;
         }
         logger.info("Validation passed");
         return true;
+    }
+
+    /**
+     * Reset columns to default equal widths
+     */
+    private void resetColumnWidths() {
+        logger.info("Resetting column widths to default");
+        
+        // Unbind current width bindings
+        column1.prefWidthProperty().unbind();
+        column2.prefWidthProperty().unbind();
+        column3.prefWidthProperty().unbind();
+        column4.prefWidthProperty().unbind();
+        column5.prefWidthProperty().unbind();
+        
+        // Set equal widths
+        double defaultWidth = 120.0;
+        column1.setPrefWidth(defaultWidth);
+        column2.setPrefWidth(defaultWidth);
+        column3.setPrefWidth(defaultWidth);
+        column4.setPrefWidth(defaultWidth);
+        column5.setPrefWidth(defaultWidth);
+        
+        // Rebind filter fields to maintain synchronization
+        column1Filter.prefWidthProperty().bind(column1.widthProperty());
+        column2Filter.prefWidthProperty().bind(column2.widthProperty());
+        column3Filter.prefWidthProperty().bind(column3.widthProperty());
+        column4Filter.prefWidthProperty().bind(column4.widthProperty());
+        column5Filter.prefWidthProperty().bind(column5.widthProperty());
     }
 }
