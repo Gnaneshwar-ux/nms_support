@@ -1,1 +1,0 @@
-java.base,java.management,java.naming,java.net.http,java.scripting,java.security.jgss,java.security.sasl,java.sql,jdk.jfr,jdk.jsobject,jdk.unsupported,jdk.unsupported.desktop,jdk.xml.dom
