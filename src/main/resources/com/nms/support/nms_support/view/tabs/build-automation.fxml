@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
-
 <?import javafx.scene.image.ImageView?>
 <?import javafx.scene.image.Image?>
 <AnchorPane fx:id="root" stylesheets="@../../styles/light/tabs/build-automation.css" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.nms.support.nms_support.controller.BuildAutomation">
@@ -10,7 +8,6 @@
         <VBox alignment="TOP_CENTER" spacing="4" styleClass="transparent-pane main-container">
             <!-- Top spacer for margin -->
             <Region prefHeight="6" minHeight="6" maxHeight="6" styleClass="transparent-pane" />
-            
             <!-- Control section - takes remaining space -->
             <GridPane hgap="6" styleClass="transparent-pane control-section" vgap="6" VBox.vgrow="NEVER" minHeight="140">
                 <columnConstraints>
@@ -20,7 +17,6 @@
                 <rowConstraints>
                     <RowConstraints percentHeight="100" />
                 </rowConstraints>
-                
                 <!-- Left panel - Project Configuration -->
                 <HBox alignment="CENTER" styleClass="transparent-pane" GridPane.columnIndex="0" GridPane.rowIndex="0" HBox.hgrow="ALWAYS">
                     <GridPane hgap="3" styleClass="pane-with-border" alignment="CENTER" vgap="12" HBox.hgrow="ALWAYS" minHeight="135">
@@ -35,7 +31,6 @@
                             <RowConstraints percentHeight="16" />
                             <RowConstraints percentHeight="20" />
                         </rowConstraints>
-                        
                         <Label styleClass="label-common" text="Project Code:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
                         <HBox alignment="CENTER_LEFT" spacing="2" GridPane.columnIndex="1" GridPane.rowIndex="0" HBox.hgrow="ALWAYS">
                             <TextField fx:id="projectLogComboBox" HBox.hgrow="ALWAYS" editable="false" />
@@ -50,13 +45,10 @@
                                 </tooltip>
                             </Button>
                         </HBox>
-
                         <Label styleClass="label-common" text="Username:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
                         <TextField fx:id="usernameField" GridPane.columnIndex="1" GridPane.rowIndex="1" HBox.hgrow="ALWAYS" />
-                        
                         <Label styleClass="label-common" text="Password:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
                         <TextField fx:id="passwordField" GridPane.columnIndex="1" GridPane.rowIndex="2" HBox.hgrow="ALWAYS" />
-                        
                         <Label styleClass="label-common" text="User type:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
                         <HBox alignment="CENTER_LEFT" spacing="2" GridPane.columnIndex="1" GridPane.rowIndex="3" HBox.hgrow="ALWAYS">
                             <ComboBox fx:id="userTypeComboBox" HBox.hgrow="ALWAYS" />
@@ -71,15 +63,25 @@
                                 </tooltip>
                             </Button>
                         </HBox>
-                        
                         <HBox alignment="CENTER_LEFT" spacing="8" GridPane.columnIndex="1" GridPane.rowIndex="4">
-                            <CheckBox fx:id="autoLoginCheckBox" styleClass="checkbox-common" text="Auto login" />
-                            <CheckBox fx:id="manageToolCheckBox" styleClass="checkbox-common" text="Manage Tool" />
-                            <Button fx:id="deleteButton" styleClass="button-delete" text="DELETE" />
+                            <CheckBox fx:id="autoLoginCheckBox" styleClass="checkbox-common" text="Auto login">
+                                <tooltip>
+                                    <Tooltip text="Allow auto login with saved credentials of the project"/>
+                                </tooltip>
+                            </CheckBox>
+                            <CheckBox fx:id="manageToolCheckBox" styleClass="checkbox-common" text="Manage Tool">
+                                <tooltip>
+                                    <Tooltip text="Add Manage Tools to the application"/>
+                                </tooltip>
+                            </CheckBox>
+                            <Button fx:id="deleteButton" styleClass="button-delete" text="DELETE">
+                                <tooltip>
+                                    <Tooltip text="Delete the saved credentials of the project"/>
+                                </tooltip>
+                            </Button>
                         </HBox>
                     </GridPane>
                 </HBox>
-                
                 <!-- Right panel - Build & Application Management -->
                 <HBox alignment="CENTER" styleClass="transparent-pane" GridPane.columnIndex="1" GridPane.rowIndex="0" HBox.hgrow="ALWAYS">
                     <GridPane alignment="CENTER" hgap="3" styleClass="pane-with-border" vgap="4" HBox.hgrow="ALWAYS" minHeight="130">
@@ -92,9 +94,7 @@
                             <RowConstraints percentHeight="10" />
                             <RowConstraints percentHeight="20" />
                         </rowConstraints>
-                        
                         <Label styleClass="label-common" text="Build Type:" GridPane.columnIndex="0" GridPane.rowIndex="0" GridPane.halignment="LEFT" />
-                        
                         <!-- Build Type ComboBox and buttons on same line -->
                         <HBox alignment="CENTER_LEFT" spacing="4" GridPane.columnIndex="0" GridPane.rowIndex="1" HBox.hgrow="ALWAYS">
                             <ComboBox fx:id="buildMode" HBox.hgrow="ALWAYS" />
@@ -102,9 +102,7 @@
                             <Button fx:id="openBuildLogButton" styleClass="button-common" text="BUILD LOG" prefWidth="80" minWidth="80" maxWidth="80" />
                             <Button fx:id="buildButton" styleClass="button-common" text="BUILD" prefWidth="80" minWidth="80" maxWidth="80" />
                         </HBox>
-                        
                         <Label styleClass="label-common" text="Application:" GridPane.columnIndex="0" GridPane.rowIndex="2" GridPane.halignment="LEFT" />
-                        
                         <!-- Application ComboBox and buttons on same line -->
                         <HBox alignment="CENTER_LEFT" spacing="4" GridPane.columnIndex="0" GridPane.rowIndex="3" HBox.hgrow="ALWAYS">
                             <ComboBox fx:id="appName" HBox.hgrow="ALWAYS" />
@@ -115,7 +113,6 @@
                     </GridPane>
                 </HBox>
             </GridPane>
-
             <!-- Build log area - takes most of the available space -->
             <TextArea fx:id="buildLog" editable="false" styleClass="textarea-log" VBox.vgrow="ALWAYS" />
         </VBox>
