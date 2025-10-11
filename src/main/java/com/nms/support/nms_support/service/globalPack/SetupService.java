@@ -78,7 +78,7 @@ public class SetupService {
         SERVER_ENV_VALIDATION_FAILED,
         PRODUCT_ENV_VALIDATION_FAILED,
         SERVER_PATH_VALIDATION_FAILED,
-        PRODUCT_PATH_VALIDATION_FAILED
+        APP_URL_NOT_RECHABLE, PRODUCT_PATH_VALIDATION_FAILED
     }
     
     private final ProjectEntity project;
@@ -561,6 +561,29 @@ public class SetupService {
                 
                 // Mark the entire process as completed successfully
                 project.setManageTool("true");
+                
+                // Automatically detect and update project code (logId) after successful setup
+                try {
+                    processMonitor.logMessage("finalize", "Auto-detecting project code...");
+                    String projectCode = com.nms.support.nms_support.service.ProjectCodeService.getProjectCode(
+                        project.getJconfigPathForBuild(), 
+                        project.getExePath()
+                    );
+                    
+                    if (projectCode != null && !projectCode.trim().isEmpty()) {
+                        project.setLogId(projectCode);
+                        processMonitor.logMessage("finalize", "Project code auto-detected: " + projectCode);
+                        logger.info("Successfully auto-detected project code: " + projectCode);
+                    } else {
+                        processMonitor.logMessage("finalize", "Project code auto-detection returned null - skipping update");
+                        logger.info("Project code auto-detection returned null - will need manual setup");
+                    }
+                } catch (Exception e) {
+                    // Don't fail the setup if project code detection fails
+                    processMonitor.logMessage("finalize", "Project code auto-detection failed: " + e.getMessage());
+                    logger.warning("Failed to auto-detect project code: " + e.getMessage());
+                }
+                
                 mc.performGlobalSave();
                 processMonitor.markProcessCompleted("Setup completed successfully");
             }
@@ -2926,7 +2949,7 @@ public class SetupService {
         // Use existing method to check if NMS App URL is reachable (includes SSL disable)
         if (!appUrlConnectivity()) {
             logger.warning("NMS App URL is not reachable: " + project.getNmsAppURL());
-            return ValidationResult.MISSING_APP_URL;
+            return ValidationResult.APP_URL_NOT_RECHABLE;
         }
         
         logger.info("HAS_JAVA_MODE validation successful");
