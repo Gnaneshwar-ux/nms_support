@@ -742,13 +742,13 @@ public class MainController implements Initializable {
                     } else if (newTab == projectTab) {
                         if (projectDetailsController != null) {
                             // Tab is already loaded, just refresh
-                            projectDetailsController.loadProjectDetails();
+                            projectDetailsController.onTabSelected();
                         } else {
                             loadTabWithIndicator(newTab, "Project Details", () -> {
                                 try {
                                     loadProjectDetailsTab();
                                     if (projectDetailsController != null) {
-                                        projectDetailsController.loadProjectDetails();
+                                        projectDetailsController.onTabSelected();
                                     }
                                 } catch (IOException e) {
                                     logger.severe("Error loading project details tab: " + e.getMessage());
@@ -990,6 +990,24 @@ public class MainController implements Initializable {
                 // If current selection is no longer valid, select "None"
                 projectComboBox.setValue("None");
                 logger.info("Current selection invalid, set to None");
+                
+                // Manually trigger tab state update since listener is disabled
+                Platform.runLater(() -> {
+                    setTabState("None");
+                    // Clear all fields in all tabs
+                    if (projectDetailsController != null) {
+                        projectDetailsController.clearFields();
+                    }
+                    if (buildAutomation != null) {
+                        buildAutomation.clearFields();
+                    }
+                    if (datastoreDumpController != null) {
+                        datastoreDumpController.clearFields();
+                    }
+                    if (jarDecompilerController != null) {
+                        jarDecompilerController.clearFields();
+                    }
+                });
             }
             
             // Clear the flag after programmatic changes are complete

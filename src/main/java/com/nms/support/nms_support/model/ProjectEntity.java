@@ -41,6 +41,9 @@ public class ProjectEntity {
     
     // Project ordering
     private int order = 0;
+    
+    // Server zip file tracking for cleanup
+    private List<ServerZipFile> serverZipFiles;
 
     public List<String> getTypes(String app) {
         if (types.containsKey(app)) return types.get(app);
@@ -69,12 +72,14 @@ public class ProjectEntity {
     public ProjectEntity() {
         this.types = new HashMap<>();
         this.prevTypeSelected = new HashMap<>();
+        this.serverZipFiles = new ArrayList<>();
     }
 
     public ProjectEntity(String name){
         this.name = name;
         this.types = new HashMap<>();
         this.prevTypeSelected = new HashMap<>();
+        this.serverZipFiles = new ArrayList<>();
     }
 
     public String getName() {
@@ -350,4 +355,71 @@ public class ProjectEntity {
     // ===== Project ordering getters/setters =====
     public int getOrder() { return order; }
     public void setOrder(int order) { this.order = order; }
+    
+    // ===== Server zip file tracking getters/setters =====
+    public List<ServerZipFile> getServerZipFiles() { 
+        if (serverZipFiles == null) {
+            serverZipFiles = new ArrayList<>();
+        }
+        return serverZipFiles; 
+    }
+    
+    public void setServerZipFiles(List<ServerZipFile> serverZipFiles) { 
+        this.serverZipFiles = serverZipFiles; 
+    }
+    
+    /**
+     * Adds a server zip file to tracking
+     */
+    public synchronized void addServerZipFile(String path, String purpose) {
+        if (serverZipFiles == null) {
+            serverZipFiles = new ArrayList<>();
+        }
+        ServerZipFile zipFile = new ServerZipFile(path, purpose, System.currentTimeMillis());
+        serverZipFiles.add(zipFile);
+    }
+    
+    /**
+     * Removes a server zip file from tracking
+     */
+    public synchronized void removeServerZipFile(String path) {
+        if (serverZipFiles != null) {
+            serverZipFiles.removeIf(zip -> zip.getPath().equals(path));
+        }
+    }
+    
+    /**
+     * Checks if there are any tracked zip files on the server
+     */
+    public boolean hasServerZipFiles() {
+        return serverZipFiles != null && !serverZipFiles.isEmpty();
+    }
+    
+    /**
+     * Inner class to represent a server zip file
+     */
+    public static class ServerZipFile {
+        private String path;
+        private String purpose;
+        private long createdTimestamp;
+        
+        // Default constructor for Jackson
+        public ServerZipFile() {
+        }
+        
+        public ServerZipFile(String path, String purpose, long createdTimestamp) {
+            this.path = path;
+            this.purpose = purpose;
+            this.createdTimestamp = createdTimestamp;
+        }
+        
+        public String getPath() { return path; }
+        public void setPath(String path) { this.path = path; }
+        
+        public String getPurpose() { return purpose; }
+        public void setPurpose(String purpose) { this.purpose = purpose; }
+        
+        public long getCreatedTimestamp() { return createdTimestamp; }
+        public void setCreatedTimestamp(long createdTimestamp) { this.createdTimestamp = createdTimestamp; }
+    }
 }

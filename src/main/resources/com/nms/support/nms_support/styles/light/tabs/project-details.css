@@ -143,6 +143,20 @@
 }
 .wide-btn:hover { -fx-background-color: #256029; }
 
+/* Cleanup button - light orange styling */
+#serverZipCleanupBtn {
+    -fx-background-color: #FF9800;
+    -fx-text-fill: white;
+    -fx-font-size: 1.1em;
+    -fx-background-radius: 8;
+    -fx-padding: 7 18 7 18;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian,rgba(255,152,0,.20),2,0,0,1);
+    -fx-transition: -fx-background-color 0.2s;
+}
+#serverZipCleanupBtn:hover { -fx-background-color: #F57C00; }
+
 /* Save button and toolbar */
 .tab-toolbar {
     -fx-padding: 0 32 0 0;

@@ -330,6 +330,21 @@ public class DatastoreDumpController {
         fitColumns();
     }
 
+    /**
+     * Clear all fields in the datastore dump tab
+     */
+    public void clearFields() {
+        logger.info("Clearing all datastore dump fields");
+        if (datastoreUserField != null) {
+            datastoreUserField.clear();
+        }
+        clearFilters();
+        // Clear table data
+        if (datastoreTable != null) {
+            datastoreTable.getItems().clear();
+        }
+    }
+
     private void showSpinner() {
         logger.info("Showing enhanced loading animation");
         overlayPane.setVisible(true);

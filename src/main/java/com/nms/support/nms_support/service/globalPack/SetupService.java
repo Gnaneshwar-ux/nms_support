@@ -6,6 +6,8 @@ import com.nms.support.nms_support.service.buildTabPack.patchUpdate.CreateInstal
 import com.nms.support.nms_support.service.buildTabPack.patchUpdate.SFTPDownloadAndUnzip;
 import com.nms.support.nms_support.service.buildTabPack.patchUpdate.FileFetcher;
 import com.nms.support.nms_support.service.buildTabPack.patchUpdate.DirectoryProcessor;
+import com.nms.support.nms_support.service.globalPack.sshj.UnifiedSSHManager;
+import com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
@@ -78,12 +80,46 @@ public class SetupService {
         SERVER_ENV_VALIDATION_FAILED,
         PRODUCT_ENV_VALIDATION_FAILED,
         SERVER_PATH_VALIDATION_FAILED,
-        APP_URL_NOT_RECHABLE, PRODUCT_PATH_VALIDATION_FAILED
+        APP_URL_NOT_RECHABLE, PRODUCT_PATH_VALIDATION_FAILED,
+        CANCELLED
     }
     
     private final ProjectEntity project;
     private final ProcessMonitor processMonitor;
     private final SetupMode setupMode;
+    private final String sshSessionPurpose; // SSH session purpose based on setup mode
+    
+    /**
+     * Helper method to check if a boolean validation failure is due to user cancellation
+     * ONLY use this for boolean validations where we can't distinguish cancellation from failure
+     * 
+     * @return true if the process was cancelled by user, false otherwise
+     */
+    private boolean wasCancelledByUser() {
+        // Only return true if explicitly cancelled, not just "not running"
+        // ProcessMonitor.isRunning() is false for BOTH cancellation AND failures
+        // We should only treat it as cancelled if no other failure was already marked
+        return !processMonitor.isRunning() && !processMonitor.hasFailed();
+    }
+    
+    /**
+     * Close the SSH session for this setup
+     * Call this only on validation failure to clean up
+     */
+    private void closeSSHSession() {
+        try {
+            logger.info("Closing SSH session for purpose: " + sshSessionPurpose);
+            UnifiedSSHManager.closeSession(
+                project.getHost(),
+                project.getHostPort(),
+                project.isUseLdap() ? project.getLdapUser() : project.getHostUser(),
+                project.getTargetUser(),
+                sshSessionPurpose
+            );
+        } catch (Exception e) {
+            logger.warning("Failed to close SSH session: " + e.getMessage());
+        }
+    }
     
     /**
      * Determines the appropriate folder to clean up based on the jconfig path.
@@ -123,12 +159,14 @@ public class SetupService {
         this.project = project;
         this.processMonitor = processMonitor;
         this.setupMode = isFull ? SetupMode.FULL_CHECKOUT : SetupMode.PATCH_UPGRADE;
+        this.sshSessionPurpose = setupMode.name().toLowerCase(); // e.g., "full_checkout", "patch_upgrade"
     }
     
     public SetupService(ProjectEntity project, ProcessMonitor processMonitor, SetupMode setupMode) {
         this.project = project;
         this.processMonitor = processMonitor;
         this.setupMode = setupMode;
+        this.sshSessionPurpose = setupMode.name().toLowerCase(); // e.g., "project_only_server", "product_only"
     }
     
     /**
@@ -173,6 +211,11 @@ public class SetupService {
             // Environment variable creation and validation
             processMonitor.addStep("env_validation", "Creating environment variables");
             if (!validateAndCreateEnvironmentVariable(project)) {
+                // Check if failure is due to cancellation
+                if (wasCancelledByUser()) {
+                    processMonitor.markFailed("env_validation", "Environment variable validation cancelled by user");
+                    return;
+                }
                 processMonitor.markFailed("env_validation", "Environment variable validation and creation failed");
                 return;
             }
@@ -590,6 +633,17 @@ public class SetupService {
             
         } catch (Exception e) {
             logger.severe("Setup failed: " + e.getMessage());
+        } finally {
+            // CRITICAL: Always save project data, even on cancellation or failure
+            // This ensures zip file tracking is persisted
+            try {
+                if (mc != null && mc.projectManager != null) {
+                    mc.projectManager.saveData();
+                    logger.info("✓ Project data saved in finally block (ensures zip tracking is persisted)");
+                }
+            } catch (Exception saveEx) {
+                logger.warning("Failed to save project data in finally block: " + saveEx.getMessage());
+            }
         }
     }
 
@@ -1189,10 +1243,22 @@ public class SetupService {
                 // Use existing ServerProjectService validation method
                 boolean projectStructureValid = serverProjectService.validateServerProjectStructure(processMonitor);
                 if (!projectStructureValid) {
+                    // Check if it failed due to cancellation or actual validation failure
+                    if (!processMonitor.isRunning()) {
+                        processMonitor.markFailed("server_env_validation", "Operation cancelled by user");
+                        return ValidationResult.CANCELLED;
+                    }
+                    // Actual validation failure
                     processMonitor.markFailed("server_env_validation", "Server project structure validation failed");
                     return ValidationResult.MISSING_NMS_CONFIG;
                 }
                 processMonitor.updateState("server_env_validation", 60, "Server project structure validated successfully");
+                
+                // Check if process was cancelled
+                if (!processMonitor.isRunning()) {
+                    processMonitor.markFailed("server_env_validation", "Operation cancelled by user");
+                    return ValidationResult.CANCELLED;
+                }
                 
                 // Validate paths used in zipping operations
                 ValidationResult pathResult = validateServerPaths();
@@ -1201,6 +1267,12 @@ public class SetupService {
                     return pathResult;
                 }
                 processMonitor.updateState("server_env_validation", 70, "Server paths validated successfully");
+            }
+
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.markFailed("server_env_validation", "Operation cancelled by user");
+                return ValidationResult.CANCELLED;
             }
 
             // Validate $NMS_HOME for product operations (all product-related modes)
@@ -1215,6 +1287,12 @@ public class SetupService {
                     return nmsHomeResult;
                 }
                 processMonitor.updateState("server_env_validation", 80, "NMS_HOME validated successfully");
+                
+                // Check if process was cancelled
+                if (!processMonitor.isRunning()) {
+                    processMonitor.markFailed("server_env_validation", "Operation cancelled by user");
+                    return ValidationResult.CANCELLED;
+                }
                 
                 // Validate $NMS_HOME/java for product operations
                 ValidationResult javaPathResult = validateNmsHomeJavaPath();
@@ -1243,14 +1321,21 @@ public class SetupService {
      */
     private ValidationResult validateNmsHomeOnServer() {
         try {
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                return ValidationResult.CANCELLED;
+            }
+            
             processMonitor.logMessage("server_env_validation", "Checking NMS_HOME environment variable...");
             
             // Check if NMS_HOME environment variable is set
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult envResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "echo \"NMS_HOME: $NMS_HOME\"", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult envResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "echo \"NMS_HOME: $NMS_HOME\"", 30, sshSessionPurpose);
             
             if (!envResult.isSuccess()) {
                 processMonitor.logMessage("server_env_validation", "Failed to check NMS_HOME environment variable");
+                closeSSHSession(); // Close session on validation failure
                 return ValidationResult.MISSING_NMS_HOME;
             }
             
@@ -1274,25 +1359,40 @@ public class SetupService {
             
             processMonitor.logMessage("server_env_validation", "NMS_HOME resolved to: " + nmsHomePath);
             
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                return ValidationResult.CANCELLED;
+            }
+            
             // Check if NMS_HOME directory exists and is accessible
             processMonitor.logMessage("server_env_validation", "Verifying NMS_HOME directory exists...");
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult dirResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -d $NMS_HOME && echo 'EXISTS' || echo 'NOT_FOUND'", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult dirResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -d $NMS_HOME && echo 'EXISTS' || echo 'NOT_FOUND'", 30, sshSessionPurpose);
             
             if (!dirResult.isSuccess() || !"EXISTS".equals(dirResult.getOutput().trim())) {
                 processMonitor.logMessage("server_env_validation", "NMS_HOME directory not found or not accessible");
+                closeSSHSession(); // Close session on validation failure
                 return ValidationResult.MISSING_NMS_HOME;
+            }
+            
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                closeSSHSession(); // Close session on cancellation
+                return ValidationResult.CANCELLED;
             }
             
             // Check directory permissions and contents
             processMonitor.logMessage("server_env_validation", "Checking NMS_HOME directory permissions...");
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult lsResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "ls -ld $NMS_HOME", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult lsResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "ls -ld $NMS_HOME", 30, sshSessionPurpose);
             
             if (lsResult.isSuccess()) {
                 processMonitor.logMessage("server_env_validation", "Directory permissions: " + lsResult.getOutput().trim());
             }
             
+            processMonitor.logMessage("server_env_validation", "NMS_HOME validated successfully");
             return ValidationResult.SUCCESS;
             
         } catch (Exception e) {
@@ -1308,20 +1408,34 @@ public class SetupService {
         try {
             processMonitor.logMessage("server_env_validation", "Validating server paths for zipping operations...");
             
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                return ValidationResult.CANCELLED;
+            }
+            
             // Check if /tmp directory exists and is writable (used for zip files)
             processMonitor.logMessage("server_env_validation", "Checking /tmp directory...");
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult tmpResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -d /tmp && test -w /tmp && echo 'WRITABLE' || echo 'NOT_WRITABLE'", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult tmpResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -d /tmp && test -w /tmp && echo 'WRITABLE' || echo 'NOT_WRITABLE'", 30, sshSessionPurpose);
             
             if (!tmpResult.isSuccess() || !"WRITABLE".equals(tmpResult.getOutput().trim())) {
                 processMonitor.logMessage("server_env_validation", "/tmp directory is not accessible or not writable");
+                closeSSHSession(); // Close session on validation failure
                 return ValidationResult.SERVER_PATH_VALIDATION_FAILED;
+            }
+            
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                closeSSHSession(); // Close session on cancellation
+                return ValidationResult.CANCELLED;
             }
             
             // Check available space in /tmp (at least 100MB free)
             processMonitor.logMessage("server_env_validation", "Checking available space in /tmp...");
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult spaceResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "df /tmp | tail -1 | awk '{print $4}'", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult spaceResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "df /tmp | tail -1 | awk '{print $4}'", 30, sshSessionPurpose);
             
             if (spaceResult.isSuccess()) {
                 try {
@@ -1338,9 +1452,15 @@ public class SetupService {
                 }
             }
             
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                return ValidationResult.CANCELLED;
+            }
+            
             // Test creating a temporary file in /tmp
             processMonitor.logMessage("server_env_validation", "Testing write access to /tmp...");
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult testWriteResult = 
+            SSHJSessionManager.CommandResult testWriteResult = 
                 UnifiedSSHService.executeCommandWithPersistentSession(project, 
                     "touch /tmp/nms_validation_test_$$ && rm -f /tmp/nms_validation_test_$$ && echo 'WRITE_OK' || echo 'WRITE_FAILED'", 
                     30, "server_env_validation");
@@ -1350,23 +1470,38 @@ public class SetupService {
                 return ValidationResult.SERVER_PATH_VALIDATION_FAILED;
             }
             
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                return ValidationResult.CANCELLED;
+            }
+            
             // Check if zip command is available
             processMonitor.logMessage("server_env_validation", "Checking if zip command is available...");
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult zipResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "which zip", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult zipResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "which zip", 30, sshSessionPurpose);
             
             if (!zipResult.isSuccess() || zipResult.getOutput().trim().isEmpty()) {
                 processMonitor.logMessage("server_env_validation", "zip command not found on server");
+                closeSSHSession(); // Close session on validation failure
                 return ValidationResult.SERVER_PATH_VALIDATION_FAILED;
+            }
+            
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                closeSSHSession(); // Close session on cancellation
+                return ValidationResult.CANCELLED;
             }
             
             // Check if chmod command is available
             processMonitor.logMessage("server_env_validation", "Checking if chmod command is available...");
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult chmodResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "which chmod", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult chmodResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "which chmod", 30, sshSessionPurpose);
             
             if (!chmodResult.isSuccess() || chmodResult.getOutput().trim().isEmpty()) {
                 processMonitor.logMessage("server_env_validation", "chmod command not found on server");
+                closeSSHSession(); // Close session on validation failure
                 return ValidationResult.SERVER_PATH_VALIDATION_FAILED;
             }
             
@@ -1384,52 +1519,89 @@ public class SetupService {
      */
     private ValidationResult validateNmsHomeJavaPath() {
         try {
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                return ValidationResult.CANCELLED;
+            }
+            
             processMonitor.logMessage("server_env_validation", "Validating NMS_HOME/java path...");
             
             // First check if NMS_HOME is set (this should already be validated, but double-check)
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult envCheckResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "echo \"NMS_HOME: $NMS_HOME\"", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult envCheckResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "echo \"NMS_HOME: $NMS_HOME\"", 30, sshSessionPurpose);
             
             if (envCheckResult.isSuccess()) {
                 String envOutput = envCheckResult.getOutput().trim();
                 if (envOutput.equals("NMS_HOME:") || envOutput.equals("NMS_HOME: $NMS_HOME")) {
                     processMonitor.logMessage("server_env_validation", "NMS_HOME is not set, cannot validate NMS_HOME/java");
+                    closeSSHSession(); // Close session on validation failure
                     return ValidationResult.MISSING_NMS_HOME;
                 }
             }
             
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                closeSSHSession(); // Close session on cancellation
+                return ValidationResult.CANCELLED;
+            }
+            
             // Check if NMS_HOME/java directory exists and is accessible
             processMonitor.logMessage("server_env_validation", "Verifying NMS_HOME/java directory exists...");
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult dirResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -d $NMS_HOME/java && echo 'EXISTS' || echo 'NOT_FOUND'", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult dirResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -d $NMS_HOME/java && echo 'EXISTS' || echo 'NOT_FOUND'", 30, sshSessionPurpose);
             
             if (!dirResult.isSuccess() || !"EXISTS".equals(dirResult.getOutput().trim())) {
                 processMonitor.logMessage("server_env_validation", "NMS_HOME/java directory not found or not accessible");
+                closeSSHSession(); // Close session on validation failure
                 return ValidationResult.PRODUCT_PATH_VALIDATION_FAILED;
+            }
+            
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                closeSSHSession(); // Close session on cancellation
+                return ValidationResult.CANCELLED;
             }
             
             // Check directory permissions and contents
             processMonitor.logMessage("server_env_validation", "Checking NMS_HOME/java directory permissions...");
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult lsResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "ls -ld $NMS_HOME/java", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult lsResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "ls -ld $NMS_HOME/java", 30, sshSessionPurpose);
             
             if (lsResult.isSuccess()) {
                 processMonitor.logMessage("server_env_validation", "Directory permissions: " + lsResult.getOutput().trim());
             }
             
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                closeSSHSession(); // Close session on cancellation
+                return ValidationResult.CANCELLED;
+            }
+            
             // Check if directory is readable (for product operations)
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult readResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -r $NMS_HOME/java && echo 'READABLE' || echo 'NOT_READABLE'", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult readResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -r $NMS_HOME/java && echo 'READABLE' || echo 'NOT_READABLE'", 30, sshSessionPurpose);
             
             if (!readResult.isSuccess() || !"READABLE".equals(readResult.getOutput().trim())) {
                 processMonitor.logMessage("server_env_validation", "NMS_HOME/java directory is not readable");
+                closeSSHSession(); // Close session on validation failure
                 return ValidationResult.PRODUCT_PATH_VALIDATION_FAILED;
+            }
+            
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                processMonitor.logMessage("server_env_validation", "Validation cancelled by user");
+                closeSSHSession(); // Close session on cancellation
+                return ValidationResult.CANCELLED;
             }
             
             // Check if directory contains Java files or subdirectories
             processMonitor.logMessage("server_env_validation", "Checking NMS_HOME/java contents...");
-            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult contentsResult = 
-                UnifiedSSHService.executeCommandWithPersistentSession(project, "find $NMS_HOME/java -maxdepth 1 -type f -name '*.jar' | wc -l", 30, "server_env_validation");
+            SSHJSessionManager.CommandResult contentsResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "find $NMS_HOME/java -maxdepth 1 -type f -name '*.jar' | wc -l", 30, sshSessionPurpose);
             
             if (contentsResult.isSuccess()) {
                 try {
@@ -1622,6 +1794,12 @@ public class SetupService {
             if (setupMode != SetupMode.PROJECT_ONLY_SVN && setupMode != SetupMode.PROJECT_ONLY_SERVER) {
                 progressCallback.onProgress(15, "Validating Java installation...");
                 if (!validateJavaInstallation()) {
+                    // Check if failure is due to cancellation
+                    if (wasCancelledByUser()) {
+                        logger.info("Java validation cancelled by user");
+                        progressCallback.onError("✗ Validation cancelled by user");
+                        return ValidationResult.CANCELLED;
+                    }
                     logger.severe("Java installation validation failed");
                     progressCallback.onError("✗ Java installation validation failed");
                     return ValidationResult.MISSING_JAVA;
@@ -1632,10 +1810,23 @@ public class SetupService {
                 progressCallback.onProgress(50, "⊘ Skipping JAVA validation (project-only mode)");
             }
             
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                logger.info("Tool validation cancelled by user");
+                progressCallback.onError("✗ Validation cancelled by user");
+                return ValidationResult.CANCELLED;
+            }
+            
             // 2. Validate Launch4j installation
             if (setupMode != SetupMode.PROJECT_ONLY_SVN && setupMode != SetupMode.PROJECT_ONLY_SERVER) {
                 progressCallback.onProgress(25, "Validating Launch4j installation...");
                 if (!validateLaunch4jInstallation()) {
+                    // Check if failure is due to cancellation
+                    if (wasCancelledByUser()) {
+                        logger.info("Launch4j validation cancelled by user");
+                        progressCallback.onError("✗ Validation cancelled by user");
+                        return ValidationResult.CANCELLED;
+                    }
                     logger.severe("Launch4j installation validation failed");
                     progressCallback.onError("✗ Launch4j installation validation failed");
                     return ValidationResult.MISSING_LAUNCH4J;
@@ -1644,6 +1835,13 @@ public class SetupService {
             }else {
                 logger.info("Skipping Launch4j validation for project-only mode");
                 progressCallback.onProgress(50, "⊘ Skipping Launch4j validation (project-only mode)");
+            }
+            
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                logger.info("Tool validation cancelled by user");
+                progressCallback.onError("✗ Validation cancelled by user");
+                return ValidationResult.CANCELLED;
             }
             
             // 3. Validate NSIS installation
@@ -1657,6 +1855,12 @@ public class SetupService {
              if (setupMode != SetupMode.PROJECT_ONLY_SVN && setupMode != SetupMode.PROJECT_ONLY_SERVER) {
                  progressCallback.onProgress(40, "Validating NMS Apps URL connectivity...");
                  if (!appUrlConnectivity()) {
+                     // Check if failure is due to cancellation
+                     if (wasCancelledByUser()) {
+                         logger.info("NMS Apps URL connectivity validation cancelled by user");
+                         progressCallback.onError("✗ Validation cancelled by user");
+                         return ValidationResult.CANCELLED;
+                     }
                      logger.severe("NMS Apps URL connectivity validation failed");
                      progressCallback.onError("✗ NMS Apps URL connectivity validation failed");
                      return ValidationResult.NETWORK_CONNECTION_FAILED;
@@ -1667,10 +1871,23 @@ public class SetupService {
                 progressCallback.onProgress(50, "⊘ Skipping NMS Apps URL validation (project-only mode)");
             }
             
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                logger.info("Tool validation cancelled by user");
+                progressCallback.onError("✗ Validation cancelled by user");
+                return ValidationResult.CANCELLED;
+            }
+            
             // 5. Validate SFTP connectivity (skip for project-only modes without server)
             if (setupMode != SetupMode.PROJECT_ONLY_SVN && setupMode != SetupMode.HAS_JAVA_MODE) {
                 progressCallback.onProgress(55, "Validating SFTP connectivity...");
                 if (!validateSFTPConnectivity()) {
+                    // Check if failure is due to cancellation
+                    if (wasCancelledByUser()) {
+                        logger.info("SFTP connectivity validation cancelled by user");
+                        progressCallback.onError("✗ Validation cancelled by user");
+                        return ValidationResult.CANCELLED;
+                    }
                     logger.severe("SFTP connectivity validation failed");
                     progressCallback.onError("✗ SFTP connectivity validation failed");
                     return ValidationResult.SFTP_CONNECTION_FAILED;
@@ -1681,6 +1898,12 @@ public class SetupService {
                 progressCallback.onProgress(70, "⊘ Skipping SFTP validation (project-only mode)");
             }
 
+            // Check if process was cancelled
+            if (!processMonitor.isRunning()) {
+                logger.info("Tool validation cancelled by user");
+                progressCallback.onError("✗ Validation cancelled by user");
+                return ValidationResult.CANCELLED;
+            }
             
             // 6. Validate VPN connectivity (basic check)
 //            if (!validateVPNConnectivity()) {
@@ -1692,6 +1915,12 @@ public class SetupService {
             // 7. Validate required directories and permissions
             progressCallback.onProgress(75, "Validating directory permissions...");
             if (!validateDirectoryPermissions()) {
+                // Check if failure is due to cancellation
+                if (wasCancelledByUser()) {
+                    logger.info("Directory permissions validation cancelled by user");
+                    progressCallback.onError("✗ Validation cancelled by user");
+                    return ValidationResult.CANCELLED;
+                }
                 logger.severe("Directory permissions validation failed");
                 progressCallback.onError("✗ Directory permissions validation failed");
                 return ValidationResult.INVALID_PATHS;
@@ -2182,9 +2411,9 @@ public class SetupService {
                 return false;
             }
             
-            // Test SFTP connection using unified SSH service
+            // Test SFTP connection using unified SSH service with proper session purpose
             try {
-                com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult result = UnifiedSSHService.executeCommand(project, "echo 'SFTP connectivity test'", 10);
+                SSHJSessionManager.CommandResult result = UnifiedSSHService.executeCommandWithPersistentSession(project, "echo 'SFTP connectivity test'", 10, sshSessionPurpose);
                 boolean connected = result.isSuccess();
                 
                 if (connected) {

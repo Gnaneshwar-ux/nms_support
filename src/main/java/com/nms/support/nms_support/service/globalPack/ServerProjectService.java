@@ -95,7 +95,8 @@ public class ServerProjectService {
                 try {
                     processMonitor.logMessage(stepName, "Cleaning up remote zip file: " + remoteZipPath);
                     sshManager.executeCommandWithoutCancellation("rm -f " + remoteZipPath, 30);
-                    processMonitor.logMessage(stepName, "Remote zip file cleaned up");
+                    project.removeServerZipFile(remoteZipPath);
+                    processMonitor.logMessage(stepName, "Remote zip file cleaned up and untracked");
                 } catch (Exception cleanupEx) {
                     logger.warning("Failed to cleanup remote zip: " + cleanupEx.getMessage());
                 }
@@ -118,6 +119,7 @@ public class ServerProjectService {
                 try {
                     processMonitor.logMessage(stepName, "Cleaning up remote zip file: " + remoteZipPath);
                     sshManager.executeCommandWithoutCancellation("rm -f " + remoteZipPath, 30);
+                    project.removeServerZipFile(remoteZipPath);
                 } catch (Exception cleanupEx) {
                     logger.warning("Failed to cleanup remote zip: " + cleanupEx.getMessage());
                 }
@@ -149,6 +151,7 @@ public class ServerProjectService {
                 try {
                     processMonitor.logMessage(stepName, "Cleaning up remote zip file: " + remoteZipPath);
                     sshManager.executeCommandWithoutCancellation("rm -f " + remoteZipPath, 30);
+                    project.removeServerZipFile(remoteZipPath);
                 } catch (Exception cleanupEx) {
                     logger.warning("Failed to cleanup remote zip: " + cleanupEx.getMessage());
                 }
@@ -199,7 +202,7 @@ public class ServerProjectService {
             
             // Mark operation as failed and clean up
             ProcessMonitorManager.getInstance().updateOperationState(sshManager.getSessionId(), false);
-            // ssh.close() in session cleanup will automatically delete tracked files
+            // SSH session will be cleaned up
             ProcessMonitorManager.getInstance().immediateSessionCleanup(sshManager.getSessionId());
             return false;
         }
@@ -240,8 +243,9 @@ public class ServerProjectService {
             long timestamp = System.currentTimeMillis();
             String zipPath = String.format("/tmp/nms_project_%d.zip", timestamp);
             
-            // Track this file for automatic cleanup
-            sshManager.trackRemoteFile(zipPath);
+            // CRITICAL: Track immediately in project entity so it's recorded even if cancelled
+            project.addServerZipFile(zipPath, "Project download - " + (sshManager.getPurpose() != null ? sshManager.getPurpose() : "default"));
+            logger.info("✓ Tracked project zip file in entity: " + zipPath);
             
             String zipCommand = String.format(
                 "cd $NMS_CONFIG && zip -rv %s . 2>&1 && chmod 644 %s && echo 'ZIP_COMPLETED_SUCCESSFULLY'",
@@ -374,8 +378,7 @@ public class ServerProjectService {
             String tempDir = System.getProperty("java.io.tmpdir");
             String localZipPath = Paths.get(tempDir, "nms_project_" + System.currentTimeMillis() + ".zip").toString();
             
-            // Track local file for cleanup
-            sshManager.trackLocalFile(localZipPath);
+            // Local file will be cleaned up after extraction
             
             // Check for cancellation before download
             if (!processMonitor.isRunning()) {
@@ -646,7 +649,10 @@ public class ServerProjectService {
             try {
                 sshManager.initialize();
                 CommandResult result = sshManager.executeCommand("rm -f " + remoteZipPath, 30);
-                if (!result.isSuccess()) {
+                if (result.isSuccess()) {
+                    project.removeServerZipFile(remoteZipPath);
+                    logger.info("✓ Remote zip file cleaned up and untracked: " + remoteZipPath);
+                } else {
                     logger.warning("Failed to clean up remote zip file, exit status: " + result.getExitCode());
                 }
             } catch (Exception e) {

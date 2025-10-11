@@ -111,6 +111,41 @@ public class ProcessMonitorManager {
         return (int) operationStates.values().stream().filter(Boolean::booleanValue).count();
     }
     
+    /**
+     * Check if any setup-related operations are in progress
+     * Setup operations include: project_only, product_only, full_checkout, patch_upgrade, etc.
+     * This excludes zip_cleanup and other non-setup operations.
+     */
+    public boolean hasInProgressSetupOperations() {
+        for (Map.Entry<String, Boolean> entry : operationStates.entrySet()) {
+            if (entry.getValue()) { // If operation is in progress
+                String sessionId = entry.getKey();
+                String purpose = sessionPurposes.get(sessionId);
+                if (purpose != null && isSetupPurpose(purpose)) {
+                    LoggerUtil.getLogger().info("Found in-progress setup operation: " + sessionId + " (purpose: " + purpose + ")");
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * Check if a session purpose is setup-related
+     */
+    private boolean isSetupPurpose(String purpose) {
+        if (purpose == null) {
+            return false;
+        }
+        String lowerPurpose = purpose.toLowerCase();
+        return lowerPurpose.contains("project_only") ||
+               lowerPurpose.contains("product_only") ||
+               lowerPurpose.contains("full_checkout") ||
+               lowerPurpose.contains("patch_upgrade") ||
+               lowerPurpose.contains("has_java_mode") ||
+               lowerPurpose.contains("project_and_product");
+    }
+    
     
     /**
      * Force cleanup all active sessions

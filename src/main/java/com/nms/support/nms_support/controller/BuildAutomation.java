@@ -463,7 +463,7 @@ public class BuildAutomation implements Initializable {
         }
     }
 
-    private void clearFields() {
+    public void clearFields() {
         logger.fine("Clearing fields");
         usernameField.clear();
         passwordField.clear();

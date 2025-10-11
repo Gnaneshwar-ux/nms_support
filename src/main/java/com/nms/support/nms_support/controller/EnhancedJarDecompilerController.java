@@ -2174,4 +2174,26 @@ public class EnhancedJarDecompilerController implements Initializable {
             return name;
         }
     }
+
+    /**
+     * Clear all fields in the jar decompiler tab
+     */
+    public void clearFields() {
+        logger.info("Clearing all jar decompiler fields");
+        if (jarPathField != null) {
+            jarPathField.clear();
+        }
+        if (jarSearchField != null) {
+            jarSearchField.clear();
+        }
+        if (classSearchField != null) {
+            classSearchField.clear();
+        }
+        if (jarListView != null) {
+            jarListView.getItems().clear();
+        }
+        if (classListView != null) {
+            classListView.getItems().clear();
+        }
+    }
 }

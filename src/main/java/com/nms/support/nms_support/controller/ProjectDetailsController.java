@@ -70,6 +70,9 @@ public class ProjectDetailsController {
     @FXML private Button dbSshImportBtn;
     @FXML private Button foldersImportBtn;
     
+    // Cleanup button
+    @FXML private Button serverZipCleanupBtn;
+    
 
     private MainController mainController;
     private ChangeTrackingService changeTrackingService;
@@ -108,7 +111,7 @@ public class ProjectDetailsController {
 
     /**
      * Applies visibility between basic and LDAP auth groups with optional fade animation.
-     * Also clears the opposite authentication fields when switching to prevent stale data.
+     * Only adjusts visibility - does NOT clear or load fields (that's handled in loadProjectDetails).
      */
     private void applyAuthVisibility(boolean showLdap, boolean animate) {
         if (basicAuthBox == null || ldapAuthBox == null) return;
@@ -182,27 +185,31 @@ public class ProjectDetailsController {
             ProjectEntity project = mainController.getSelectedProject();
             if (project == null) {
                 logger.warning("No project selected for loading details.");
+                updateCleanupButtonVisibility(false);
                 return;
             }
             
             // Linux Server - safely handle null values
             hostAddressField.setText(safe(project.getHost()));
 
-            // LDAP/basicauth defaults and load
+            // LDAP/basicauth - load ALL fields regardless of checkbox status
             boolean useLdap = project.isUseLdap();
             if (useLdapToggle != null) {
                 useLdapToggle.setSelected(useLdap);
             }
-            if (useLdap) {
-                ldapUserField.setText(safe(project.getLdapUser()));
-                targetUserField.setText(safe(project.getTargetUser()));
-                ldapPasswordField.setText(safe(project.getLdapPassword()));
-                applyAuthVisibility(true, false);
-            } else {
-                hostUserField.setText(safe(project.getHostUser()));
-                hostPasswordField.setText(safe(project.getHostPass()));
-                applyAuthVisibility(false, false);
-            }
+            
+            // ALWAYS load all authentication fields from ProjectEntity
+            // Basic Auth fields
+            hostUserField.setText(safe(project.getHostUser()));
+            hostPasswordField.setText(safe(project.getHostPass()));
+            
+            // LDAP fields
+            ldapUserField.setText(safe(project.getLdapUser()));
+            targetUserField.setText(safe(project.getTargetUser()));
+            ldapPasswordField.setText(safe(project.getLdapPassword()));
+            
+            // Only adjust visibility based on checkbox status
+            applyAuthVisibility(useLdap, false);
             
             // Safely handle port values
             try {
@@ -254,13 +261,28 @@ public class ProjectDetailsController {
         } finally {
             // End loading mode to resume change tracking
             changeTrackingService.endLoading();
+            
+            // Update cleanup button visibility AFTER loading completes
+            ProjectEntity currentProject = mainController.getSelectedProject();
+            if (currentProject != null) {
+                updateCleanupButtonVisibility(currentProject.hasServerZipFiles());
+                logger.info("Cleanup button visibility updated: " + currentProject.hasServerZipFiles());
+            }
         }
+    }
+
+    /**
+     * Called when the project configuration tab is selected to refresh data
+     */
+    public void onTabSelected() {
+        logger.info("Project configuration tab selected - refreshing data");
+        loadProjectDetails();
     }
 
     /**
      * Clear all fields to prevent showing data from previous project
      */
-    private void clearFields() {
+    public void clearFields() {
         // Linux Server fields
         hostAddressField.clear();
         hostUserField.clear();
@@ -640,8 +662,8 @@ public class ProjectDetailsController {
             return;
         }
 
-        // Create process monitor with project name
-        ProcessMonitor processMonitor = new ProcessMonitor("Local Setup / Upgrade", project.getName()+" - "+ setupMode);
+        // Create process monitor with project name and mode title for readability
+        ProcessMonitor processMonitor = new ProcessMonitor("Local Setup / Upgrade", project.getName()+" - "+ selectedMode.getTitle());
         
         // Add initial steps based on setup mode
 //        processMonitor.addStep("validate", "Validating inputs");
@@ -698,6 +720,13 @@ public class ProjectDetailsController {
                 } else {
                     processMonitor.logMessage("setup_complete", "Setup failed or was cancelled");
                     processMonitor.markProcessFailed("Setup Failed");
+                }
+                
+                // Update cleanup button visibility after setup completion (success or failure)
+                ProjectEntity currentProject = mainController.getSelectedProject();
+                if (currentProject != null) {
+                    updateCleanupButtonVisibility(currentProject.hasServerZipFiles());
+                    logger.info("Cleanup button visibility updated after setup completion: " + currentProject.hasServerZipFiles());
                 }
             });
         }, "completion-handler");
@@ -942,19 +971,18 @@ public class ProjectDetailsController {
     private void copyLinuxServerData(ProjectEntity sourceProject) {
         // Copy Linux Server fields
         hostAddressField.setText(safe(sourceProject.getHost()));
-        // Copy both basic and LDAP auth values
+        
+        // Copy ALL authentication values regardless of checkbox status
         hostUserField.setText(safe(sourceProject.getHostUser()));
         hostPasswordField.setText(safe(sourceProject.getHostPass()));
+        ldapUserField.setText(safe(sourceProject.getLdapUser()));
+        targetUserField.setText(safe(sourceProject.getTargetUser()));
+        ldapPasswordField.setText(safe(sourceProject.getLdapPassword()));
+        
+        // Set checkbox and visibility
         if (useLdapToggle != null) {
             useLdapToggle.setSelected(sourceProject.isUseLdap());
-            if (sourceProject.isUseLdap()) {
-                ldapUserField.setText(safe(sourceProject.getLdapUser()));
-                targetUserField.setText(safe(sourceProject.getTargetUser()));
-                ldapPasswordField.setText(safe(sourceProject.getLdapPassword()));
-                applyAuthVisibility(true, false);
-            } else {
-                applyAuthVisibility(false, false);
-            }
+            applyAuthVisibility(sourceProject.isUseLdap(), false);
         }
         if (sourceProject.getHostPort() > 0) {
             portField.setText(String.valueOf(sourceProject.getHostPort()));
@@ -1472,6 +1500,73 @@ public class ProjectDetailsController {
         TnsNamesInfo result = parseTnsNames(testTnsContent, rdbmsHost);
         
         logger.info("Parsed result - Host: " + result.host + ", Port: " + result.port);
+    }
+    
+    /**
+     * Updates the visibility of the cleanup button based on whether there are tracked zip files
+     * and whether setup operations are in progress
+     */
+    private void updateCleanupButtonVisibility(boolean hasZipFiles) {
+        if (serverZipCleanupBtn != null) {
+            // Only show cleanup button if:
+            // 1. There are tracked zip files
+            // 2. No setup operations are currently in progress (to avoid deleting files that are being used)
+            boolean setupInProgress = ProcessMonitorManager.getInstance().hasInProgressSetupOperations();
+            boolean shouldShow = hasZipFiles && !setupInProgress;
+            
+            serverZipCleanupBtn.setVisible(shouldShow);
+            serverZipCleanupBtn.setManaged(shouldShow);
+            
+            if (hasZipFiles && setupInProgress) {
+                logger.info("Cleanup button hidden: setup operations in progress");
+            }
+        }
+    }
+    
+    /**
+     * Opens the server zip cleanup dialog
+     */
+    @FXML
+    private void cleanupServerZipFiles() {
+        ProjectEntity project = mainController.getSelectedProject();
+        if (project == null) {
+            DialogUtil.showAlert(Alert.AlertType.WARNING, "No Project", "Please select a project first.");
+            return;
+        }
+        
+        // Safety check: prevent cleanup during active setup operations
+        if (ProcessMonitorManager.getInstance().hasInProgressSetupOperations()) {
+            DialogUtil.showAlert(Alert.AlertType.WARNING, "Setup In Progress", 
+                "Cannot clean up temporary files while setup operations are in progress.\n\n" +
+                "Please wait for the setup to complete before cleaning up server files.");
+            return;
+        }
+        
+        if (!project.hasServerZipFiles()) {
+            DialogUtil.showAlert(Alert.AlertType.INFORMATION, "No Files", 
+                "There are no tracked temporary files on the server for this project.");
+            return;
+        }
+        
+        try {
+            ZipCleanupDialog cleanupDialog = new ZipCleanupDialog();
+            Stage parentStage = (Stage) rootScroller.getScene().getWindow();
+            cleanupDialog.showDialog(parentStage, project);
+            
+            // After dialog closes, update button visibility and save project data
+            updateCleanupButtonVisibility(project.hasServerZipFiles());
+            
+            // Save the project data to persist any changes made during cleanup
+            if (mainController != null && mainController.projectManager != null) {
+                mainController.projectManager.saveData();
+                logger.info("Project data saved after cleanup operation");
+            }
+            
+        } catch (Exception e) {
+            logger.severe("Error opening cleanup dialog: " + e.getMessage());
+            DialogUtil.showAlert(Alert.AlertType.ERROR, "Error", 
+                "Failed to open cleanup dialog: " + e.getMessage());
+        }
     }
     
     /**

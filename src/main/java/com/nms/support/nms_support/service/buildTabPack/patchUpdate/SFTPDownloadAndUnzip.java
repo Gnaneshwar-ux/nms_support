@@ -77,7 +77,7 @@ public class SFTPDownloadAndUnzip {
                 return;
             }
 
-            // Create zip file on server
+            // Create zip file on server (tracking happens inside createZipFile)
             remoteZipFilePath = createZipFile(ssh, remoteDir, progressCallback, project);
             progressCallback.onProgress(60, "Zip file created successfully");
 
@@ -88,6 +88,7 @@ public class SFTPDownloadAndUnzip {
                 try {
                     LoggerUtil.getLogger().info("Cleaning up remote zip after cancellation: " + remoteZipFilePath);
                     ssh.executeCommandWithoutCancellation("rm -f " + remoteZipFilePath, 30);
+                    project.removeServerZipFile(remoteZipFilePath);
                     LoggerUtil.getLogger().info("Remote zip file cleaned up successfully");
                 } catch (Exception cleanupEx) {
                     LoggerUtil.getLogger().warning("Failed to cleanup remote zip: " + cleanupEx.getMessage());
@@ -104,8 +105,7 @@ public class SFTPDownloadAndUnzip {
             String tempDir = System.getProperty("java.io.tmpdir");
             String localZipFilePath = tempDir + File.separator + "downloaded_java_" + System.currentTimeMillis() + ".zip";
             
-            // Track local file for cleanup
-            ssh.trackLocalFile(localZipFilePath);
+            // Local file will be cleaned up after download/extraction
             LoggerUtil.getLogger().info("Downloading to temp file: " + localZipFilePath);
             
             // Get file size first
@@ -241,6 +241,7 @@ public class SFTPDownloadAndUnzip {
                 try {
                     LoggerUtil.getLogger().info("Cleaning up remote zip after cancellation: " + remoteZipFilePath);
                     ssh.executeCommandWithoutCancellation("rm -f " + remoteZipFilePath, 30);
+                    project.removeServerZipFile(remoteZipFilePath);
                 } catch (Exception cleanupEx) {
                     LoggerUtil.getLogger().warning("Failed to cleanup remote zip: " + cleanupEx.getMessage());
                 }
@@ -263,6 +264,9 @@ public class SFTPDownloadAndUnzip {
                 SSHJSessionManager.CommandResult deleteResult = ssh.executeCommandWithoutCancellation("rm -f " + remoteZipFilePath, 30);
                 if (deleteResult.isSuccess()) {
                     LoggerUtil.getLogger().info("Remote zip file deleted successfully: " + remoteZipFilePath);
+                    // Remove from tracking
+                    project.removeServerZipFile(remoteZipFilePath);
+                    LoggerUtil.getLogger().info("Removed zip file from tracking: " + remoteZipFilePath);
                 } else {
                     LoggerUtil.getLogger().warning("Failed to delete remote zip file: " + deleteResult.getOutput());
                 }
@@ -299,7 +303,7 @@ public class SFTPDownloadAndUnzip {
             LoggerUtil.getLogger().info("Cleaning up temp zip file: " + localZipFilePath);
             if (new File(localZipFilePath).delete()) {
                 LoggerUtil.getLogger().info("Temp zip file deleted successfully");
-                ssh.untrackLocalFile(localZipFilePath); // Stop tracking since it's deleted
+                // Local file deleted successfully
             } else {
                 LoggerUtil.getLogger().warning("Failed to delete temp zip file: " + localZipFilePath);
             }
@@ -316,6 +320,7 @@ public class SFTPDownloadAndUnzip {
                 try {
                     LoggerUtil.getLogger().info("Cleaning up remote zip on error: " + remoteZipFilePath);
                     ssh.executeCommandWithoutCancellation("rm -f " + remoteZipFilePath, 30);
+                    project.removeServerZipFile(remoteZipFilePath);
                 } catch (Exception cleanupEx) {
                     LoggerUtil.getLogger().warning("Failed to cleanup remote zip: " + cleanupEx.getMessage());
                 }
@@ -334,8 +339,8 @@ public class SFTPDownloadAndUnzip {
                 try { 
                     // Mark operation as completed
                     ProcessMonitorManager.getInstance().updateOperationState(ssh.getSessionId(), false);
-                    // ssh.close() will automatically clean up any tracked files
-                    ssh.close(); 
+                    // Close SSH session
+                    //
                 } catch (Exception ignored) {}
             }
         }
@@ -418,8 +423,10 @@ public class SFTPDownloadAndUnzip {
         long timestamp = System.currentTimeMillis();
         String remoteZipFilePath = String.format("/tmp/downloaded_java_%d.zip", timestamp);
         
-        // Track this file for cleanup
-        ssh.trackRemoteFile(remoteZipFilePath);
+        // CRITICAL: Track immediately in project entity so it's recorded even if cancelled
+        project.addServerZipFile(remoteZipFilePath, "Java download - " + (ssh.getPurpose() != null ? ssh.getPurpose() : "default"));
+        LoggerUtil.getLogger().info("✓ Tracked zip file in project entity: " + remoteZipFilePath);
+        LoggerUtil.getLogger().info("⚠️ Note: Project data will be auto-saved by SetupService after operation completes");
         
         // Normalize the remote directory path
         String normalizedRemoteDir = remoteDir.endsWith("/") ? remoteDir : remoteDir + "/";
@@ -515,6 +522,7 @@ public class SFTPDownloadAndUnzip {
                 LoggerUtil.getLogger().info("Zip cancelled during execution, cleaning up...");
                 try {
                     ssh.executeCommandWithoutCancellation("rm -f " + remoteZipFilePath, 30);
+                    project.removeServerZipFile(remoteZipFilePath);
                 } catch (Exception cleanupEx) {
                     LoggerUtil.getLogger().warning("Cleanup failed: " + cleanupEx.getMessage());
                 }
@@ -529,6 +537,7 @@ public class SFTPDownloadAndUnzip {
             LoggerUtil.getLogger().info("Cancelled after zip execution, cleaning up...");
             try {
                 ssh.executeCommandWithoutCancellation("rm -f " + remoteZipFilePath, 30);
+                project.removeServerZipFile(remoteZipFilePath);
             } catch (Exception e) {
                 LoggerUtil.getLogger().warning("Cleanup failed: " + e.getMessage());
             }
@@ -558,9 +567,6 @@ public class SFTPDownloadAndUnzip {
         // File is ready immediately - no artificial delays needed
         LoggerUtil.getLogger().info("=== ZIP FILE CREATION COMPLETED ===");
         progressCallback.onProgress(95, "Zip file ready for download");
-        
-        // Stop tracking this file since it will be explicitly deleted after download
-        ssh.untrackRemoteFile(remoteZipFilePath);
         
         return remoteZipFilePath;
     }
