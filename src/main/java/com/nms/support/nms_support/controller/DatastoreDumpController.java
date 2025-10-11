@@ -9,6 +9,7 @@ import com.nms.support.nms_support.service.globalPack.DialogUtil;
 import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 import com.nms.support.nms_support.service.globalPack.ManageFile;
 import com.nms.support.nms_support.service.globalPack.SSHExecutor;
+import com.nms.support.nms_support.service.globalPack.UnifiedSSHService;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
@@ -406,6 +407,13 @@ public class DatastoreDumpController {
      * Load report data from file
      */
     private void loadFromFile(ProjectEntity project) {
+        loadFromFile(project, true);
+    }
+    
+    /**
+     * Load report data from file with option to show warnings
+     */
+    private void loadFromFile(ProjectEntity project, boolean showWarnings) {
         logger.info("Loading report from file for project: " + project.getName());
         
         ObservableList<DataStoreRecord> fileData = reportCacheService.loadAndCacheReportData(project);
@@ -415,8 +423,13 @@ public class DatastoreDumpController {
             refreshLastGeneratedLabel(project);
             logger.info("Loaded report data from file for project: " + project.getName());
         } else {
-            DialogUtil.showError("No Report Available", "No report file found for this project. Generating new report...");
-            generateReport(project);
+            if (showWarnings) {
+                DialogUtil.showError("No Report Available", "No report file found for this project. Generating new report...");
+                generateReport(project);
+            } else {
+                // Silent mode - just log and don't generate report
+                logger.info("No report file found for project: " + project.getName() + " (silent mode)");
+            }
         }
     }
     
@@ -430,8 +443,15 @@ public class DatastoreDumpController {
         if (reportCacheService.hasCachedReportData(project.getName())) {
             loadCachedReport(project);
         } else {
-            // Try to load from file
-            loadFromFile(project);
+            // Try to load from file in silent mode (no warnings)
+            loadFromFile(project, false);
+        }
+        
+        // If no report was loaded, clear the table and show "Report Not Found"
+        if (datastoreRecords.isEmpty()) {
+            datastoreRecords.clear(); // Ensure table is cleared
+            filterTable(); // Refresh the table display
+            lastGeneratedLabel.setText("Report Not Found");
         }
     }
     
@@ -511,7 +531,16 @@ public class DatastoreDumpController {
                     if (!userCancelled && activeThreadId.equals(threadId)) {
                         Platform.runLater(() -> {
                             if (activeThreadId.equals(threadId)) {
-                                DialogUtil.showError("Failed Generating Report", "Command failed execution\n1. Is VPN Connected?\n2. Is client running?\n3. Please check URL, username, password...");
+                                String errorDetails = "Command failed execution\n\n" +
+                                    "SSH Connection: ✓ Connected successfully\n" +
+                                    "Session Management: ✓ Using cached SSHJ session\n" +
+                                    "Command Execution: ✗ Failed with exit code 127\n\n" +
+                                    "Troubleshooting:\n" +
+                                    "1. Check Target User configuration in project settings\n" +
+                                    "2. Verify 'Action' command is available for the target user\n" +
+                                    "3. Ensure proper sudo elevation is configured\n" +
+                                    "4. Check VPN connection and server accessibility";
+                                DialogUtil.showDetailedError("Failed Generating Report", errorDetails);
                                 hideSpinner();
                             }
                         });
@@ -620,7 +649,15 @@ public class DatastoreDumpController {
                 if (!userCancelled && activeThreadId.equals(threadId)) {
                     Platform.runLater(() -> {
                         if (activeThreadId.equals(threadId)) {
-                            DialogUtil.showError("Exception", "An error occurred while generating the report.");
+                            // Show detailed error message from ReportGenerator
+                            String errorMsg = e.getMessage();
+                            if (errorMsg != null && errorMsg.contains("Command failed as user")) {
+                                // This is our detailed error from ReportGenerator - use larger dialog
+                                DialogUtil.showDetailedError("Report Generation Failed", errorMsg);
+                            } else {
+                                // Generic error fallback - use regular size
+                                DialogUtil.showError("Exception", "An error occurred while generating the report: " + e.getMessage());
+                            }
                             hideSpinner();
                         }
                     });
@@ -663,7 +700,8 @@ public class DatastoreDumpController {
                 if (metadata != null) {
                     lastGeneratedLabel.setText(metadata.getRelativeTimeAgo());
                 } else {
-                    lastGeneratedLabel.setText("");
+                    // Show "Report Not Found" when no report exists
+                    lastGeneratedLabel.setText("Report Not Found");
                 }
             }
         });
@@ -705,6 +743,11 @@ public class DatastoreDumpController {
     public void onProjectSelectionChanged(String newProjectName) {
         logger.info("Project ComboBox selection changed to: " + newProjectName);
         if (newProjectName != null && !"None".equals(newProjectName)) {
+            // Clear table first to prevent showing old data
+            datastoreRecords.clear();
+            filterTable();
+            lastGeneratedLabel.setText("Loading...");
+            
             loadProjectDetails();
             
             // Auto-load cached report for the new project
@@ -716,6 +759,7 @@ public class DatastoreDumpController {
         } else {
             // Clear data when no project is selected
             datastoreRecords.clear();
+            filterTable();
             lastGeneratedLabel.setText("");
         }
     }
@@ -737,24 +781,34 @@ public class DatastoreDumpController {
      * Validation method that uses project details for SSH fields and local field for datastore user
      */
     private boolean validation(ProjectEntity project) {
+        return validation(project, true);
+    }
+    
+    /**
+     * Validation method with option to show warnings
+     */
+    private boolean validation(ProjectEntity project, boolean showWarnings) {
         logger.info("Performing validation using project details and local datastore user field");
         if (project.getHost() == null || project.getHost().trim().isEmpty()) {
-            DialogUtil.showError("Validation Error", "Host Address is required. Please set it in Project Details tab.");
+            if (showWarnings) {
+                DialogUtil.showError("Validation Error", "Host Address is required. Please set it in Project Details tab.");
+            }
             logger.warning("Host Address is required.");
             return false;
         }
-        if (project.getHostUser() == null || project.getHostUser().trim().isEmpty()) {
-            DialogUtil.showError("Validation Error", "Username is required. Please set it in Project Details tab.");
-            logger.warning("Username is required.");
-            return false;
-        }
-        if (project.getHostPass() == null || project.getHostPass().trim().isEmpty()) {
-            DialogUtil.showError("Validation Error", "Password is required. Please set it in Project Details tab.");
-            logger.warning("Password is required.");
+        
+        // Use unified SSH service validation
+        if (!UnifiedSSHService.validateProjectAuth(project)) {
+            if (showWarnings) {
+                DialogUtil.showError("Validation Error", "SSH authentication is not properly configured. Please check your Project Details tab.");
+            }
+            logger.warning("SSH authentication is not properly configured.");
             return false;
         }
         if (datastoreUserField.getText() == null || datastoreUserField.getText().trim().isEmpty()) {
-            DialogUtil.showError("Validation Error", "Datastore User is required. Please enter it in the Datastore User field.");
+            if (showWarnings) {
+                DialogUtil.showError("Validation Error", "Datastore User is required. Please enter it in the Datastore User field.");
+            }
             logger.warning("Datastore User is required.");
             return false;
         }

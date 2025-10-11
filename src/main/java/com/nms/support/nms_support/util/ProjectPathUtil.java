@@ -207,4 +207,26 @@ public class ProjectPathUtil {
     public static String getDisplayPath(String storedPath) {
         return getProjectFolderPath(storedPath);
     }
+    
+    /**
+     * Normalizes a path to use Windows-style backslashes for Windows command compatibility.
+     * This method ensures all paths returned are compatible with Windows commands.
+     * 
+     * @param path The path to normalize
+     * @return The path with backslashes for Windows compatibility
+     */
+    public static String normalizeForWindows(String path) {
+        if (path == null || path.trim().isEmpty()) {
+            return "";
+        }
+        
+        // Convert forward slashes to backslashes for Windows compatibility
+        String normalizedPath = path.replace('/', '\\');
+        
+        // Remove duplicate backslashes
+        normalizedPath = normalizedPath.replace("\\\\", "\\");
+        
+        logger.fine("Normalized path for Windows: " + path + " -> " + normalizedPath);
+        return normalizedPath;
+    }
 }

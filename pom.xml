@@ -12,12 +12,11 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.version>5.10.0</junit.version>
-        <javafx.version>23.0.1</javafx.version>
+        <javafx.version>22.0.1</javafx.version>
         <java.version>22</java.version>
         <main.class>com.nms.support.nms_support.FakeMain</main.class>
         <maven.compiler.source>22</maven.compiler.source>
         <maven.compiler.target>22</maven.compiler.target>
-        <maven.compiler.release>22</maven.compiler.release>
     </properties>
     <!--    <repositories>-->
     <!--        <repository>-->
@@ -54,6 +53,16 @@
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-swing</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-base</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-graphics</artifactId>
             <version>${javafx.version}</version>
         </dependency>
         <dependency>
@@ -179,6 +188,43 @@
             <version>23.3.0.23.09</version>
         </dependency>
 
+        <!-- JD-Core Java Decompiler Library -->
+        <dependency>
+            <groupId>org.jd</groupId>
+            <artifactId>jd-core</artifactId>
+            <version>1.1.3</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libs/jd-core-1.1.3.jar</systemPath>
+        </dependency>
+
+        <!-- JD-GUI Java Decompiler (includes JD-Core) -->
+        <dependency>
+            <groupId>org.jd</groupId>
+            <artifactId>jd-gui</artifactId>
+            <version>1.6.6</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libs/jd-gui-1.6.6.jar</systemPath>
+        </dependency>
+
+        <!-- RichTextFX for syntax highlighting -->
+        <dependency>
+            <groupId>org.fxmisc.richtext</groupId>
+            <artifactId>richtextfx</artifactId>
+            <version>0.11.0</version>
+        </dependency>
+
+        <!-- Ikonli for icons -->
+        <dependency>
+            <groupId>org.kordamp.ikonli</groupId>
+            <artifactId>ikonli-javafx</artifactId>
+            <version>12.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.kordamp.ikonli</groupId>
+            <artifactId>ikonli-fontawesome-pack</artifactId>
+            <version>12.3.1</version>
+        </dependency>
+
     </dependencies>
 
 
@@ -207,14 +253,15 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.11.0</version>
+                <version>3.13.0</version>
                 <configuration>
-                    <release>22</release>
+                    <source>22</source>
+                    <target>22</target>
                     <compilerArgs>
-                        <arg>--add-modules</arg>
-                        <arg>javafx.controls,javafx.fxml,javafx.web,javafx.swing</arg>
                         <arg>-Xlint:all</arg>
                     </compilerArgs>
+                    <fork>true</fork>
+                    <executable>C:\Users\Gnaneshwar\.jdks\openjdk-22.0.1\bin\javac</executable>
                 </configuration>
             </plugin>
             
@@ -224,10 +271,8 @@
                 <version>0.0.8</version>
                 <configuration>
                     <mainClass>${main.class}</mainClass>
-                    <options>
-                        <option>--add-modules</option>
-                        <option>javafx.controls,javafx.fxml,javafx.web,javafx.swing</option>
-                    </options>
+                    <executable>C:\Users\Gnaneshwar\.jdks\openjdk-22.0.1\bin\java</executable>
+                    <commandlineArgs>--add-modules javafx.controls,javafx.fxml</commandlineArgs>
                 </configuration>
             </plugin>
             <plugin>
@@ -252,7 +297,6 @@
                     </execution>
                 </executions>
             </plugin>
-
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -271,27 +315,79 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.3.0</version>
-                <configuration>
-                    <finalName>nms-support-main</finalName>
-                    <archive>
-                        <manifest>
-                            <mainClass>${main.class}</mainClass>
-                        </manifest>
-                    </archive>
-                    <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                    </descriptorRefs>
-                    <appendAssemblyId>false</appendAssemblyId>
-                </configuration>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
                 <executions>
                     <execution>
-                        <id>make-assembly</id>
                         <phase>package</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>shade</goal>
                         </goals>
+                        <configuration>
+                            <finalName>nms-support-main</finalName>
+                            <shadedArtifactAttached>false</shadedArtifactAttached>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>${main.class}</mainClass>
+                                </transformer>
+                            </transformers>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.7.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-dependencies</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/libs</outputDirectory>
+                            <overWriteReleases>false</overWriteReleases>
+                            <overWriteSnapshots>false</overWriteSnapshots>
+                            <overWriteIfNewer>true</overWriteIfNewer>
+                            <includeScope>compile</includeScope>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Unpack JD-Core libraries into target/classes before packaging -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>unpack-jd-libs</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <echo message="Unpacking JD-Core libraries..."/>
+                                <unzip src="${project.basedir}/libs/jd-core-1.1.3.jar" dest="${project.build.outputDirectory}" overwrite="true"/>
+                                <unzip src="${project.basedir}/libs/jd-gui-1.6.6.jar" dest="${project.build.outputDirectory}" overwrite="true"/>
+                                <echo message="JD-Core libraries unpacked successfully"/>
+                            </target>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

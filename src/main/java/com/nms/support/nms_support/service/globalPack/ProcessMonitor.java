@@ -149,6 +149,10 @@ public class ProcessMonitor {
             updateUI();
         }
         
+        // Track last UI update time to throttle updates
+        private long lastUIUpdateTime = 0;
+        private static final long UI_UPDATE_THROTTLE_MS = 20; // Max 10 UI updates per second
+        
         public void updateProgress(int progress, String message) {
             this.progress = Math.max(0, Math.min(100, progress));
             this.status = StepStatus.RUNNING;
@@ -165,12 +169,18 @@ public class ProcessMonitor {
                     }
                 }
             }
-            updateUI();
-            // Force refresh of expandable content to update internal scroll
-            if (isExpanded && !messageLog.isEmpty()) {
-                Platform.runLater(() -> {
-                    createExpandableContent(this.message, "#3b82f6");
-                });
+            
+            // Throttle UI updates to prevent flooding the JavaFX event queue
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - lastUIUpdateTime >= UI_UPDATE_THROTTLE_MS) {
+                lastUIUpdateTime = currentTime;
+                updateUI();
+                // Force refresh of expandable content to update internal scroll
+                if (isExpanded && !messageLog.isEmpty()) {
+                    Platform.runLater(() -> {
+                        createExpandableContent(this.message, "#3b82f6");
+                    });
+                }
             }
         }
         
@@ -225,12 +235,18 @@ public class ProcessMonitor {
                 
                 // Update current message for display
                 this.message = message;
-                updateUI();
-                // Force refresh of expandable content to update internal scroll
-                if (isExpanded && !messageLog.isEmpty()) {
-                    Platform.runLater(() -> {
-                        createExpandableContent(this.message, getStatusColor());
-                    });
+                
+                // Throttle UI updates to prevent flooding
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastUIUpdateTime >= UI_UPDATE_THROTTLE_MS) {
+                    lastUIUpdateTime = currentTime;
+                    updateUI();
+                    // Force refresh of expandable content to update internal scroll
+                    if (isExpanded && !messageLog.isEmpty()) {
+                        Platform.runLater(() -> {
+                            createExpandableContent(this.message, getStatusColor());
+                        });
+                    }
                 }
             }
         }
@@ -442,17 +458,22 @@ public class ProcessMonitor {
                 logScrollPane.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
                 
                 // Track internal scroll position for auto-scroll to bottom
-                boolean[] wasInternalAtBottom = {true};
+                boolean[] userScrolledUp = {false};
                 logScrollPane.vvalueProperty().addListener((obs, oldVal, newVal) -> {
                     double maxScroll = logScrollPane.getVmax();
-                    wasInternalAtBottom[0] = (newVal.doubleValue() >= maxScroll - 0.05);
+                    // User scrolled up if not at bottom (with small tolerance)
+                    userScrolledUp[0] = (newVal.doubleValue() < maxScroll - 0.1);
                 });
                 
-                // Auto-scroll internal log to bottom when new content is added
+                // Auto-scroll to bottom when new content is added (only if user hasn't scrolled up)
+                // Use nested Platform.runLater to ensure layout is computed before scrolling
                 Platform.runLater(() -> {
-                    if (wasInternalAtBottom[0]) {
-                        logScrollPane.setVvalue(logScrollPane.getVmax());
-                    }
+                    Platform.runLater(() -> {
+                        if (!userScrolledUp[0]) {
+                            // Force scroll to absolute bottom
+                            logScrollPane.setVvalue(1.0);
+                        }
+                    });
                 });
                 
                 messageBox.getChildren().add(logScrollPane);

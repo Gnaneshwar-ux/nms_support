@@ -19,6 +19,7 @@ import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.ImageView;
+import javafx.scene.layout.VBox;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
@@ -66,6 +67,8 @@ public class MainController implements Initializable {
     @FXML
     public Tab projectTab;
     @FXML
+    public Tab jarDecompilerTab;
+    @FXML
     private Parent root;
     @FXML
     private ImageView themeIcon;
@@ -75,6 +78,7 @@ public class MainController implements Initializable {
     BuildAutomation buildAutomation;
     private ProjectDetailsController projectDetailsController;
     private DatastoreDumpController datastoreDumpController;
+    private EnhancedJarDecompilerController jarDecompilerController;
     private ChangeTrackingService changeTrackingService;
     
     // Flag to prevent listener from triggering during programmatic changes
@@ -94,6 +98,14 @@ public class MainController implements Initializable {
      */
     public DatastoreDumpController getDatastoreDumpController() {
         return datastoreDumpController;
+    }
+
+    /**
+     * Gets the jar decompiler controller instance
+     * @return the jar decompiler controller
+     */
+    public EnhancedJarDecompilerController getJarDecompilerController() {
+        return jarDecompilerController;
     }
 
 
@@ -163,39 +175,54 @@ public class MainController implements Initializable {
             
             logger.info("Project selection changed from '" + oldValue + "' to '" + newValue + "'");
             
-            // Phase 1: Immediate UI updates (synchronous)
-            setTabState(newValue);
+            // Start global loading mode to prevent change tracking during project switch
+            changeTrackingService.startLoading();
             
-            // Phase 2: Load project details for all controllers (synchronous)
-            if (projectDetailsController != null) {
-                projectDetailsController.loadProjectDetails();
-            }
-            
-            // Phase 3: Handle project ordering and combobox refresh (asynchronous)
-            if (newValue != null && !"None".equals(newValue)) {
-                Platform.runLater(() -> {
-                    try {
-                        // Update project ordering
-                        projectManager.moveProjectToTop(newValue);
-                        projectManager.saveData();
-                        
-                        // Refresh combobox with new order
-                        reloadProjectNamesCB();
-                        
-                        // Notify other controllers about the project change
-                        notifyControllersOfProjectChange(newValue);
-                        
-                    } catch (Exception e) {
-                        logger.severe("Error in project selection handling: " + e.getMessage());
-                    }
-                });
-            } else {
-                // For "None" selection, still notify controllers
-                notifyControllersOfProjectChange(newValue);
+            try {
+                // Phase 1: Immediate UI updates (synchronous)
+                setTabState(newValue);
+                
+                // Phase 2: Load project details immediately for responsive UI
+                if (projectDetailsController != null) {
+                    projectDetailsController.loadProjectDetails();
+                }
+                
+                // Phase 3: Handle project ordering and combobox refresh (asynchronous)
+                if (newValue != null && !"None".equals(newValue)) {
+                    // Use background thread for heavy operations
+                    Thread.ofVirtual().start(() -> {
+                        try {
+                            // Update project ordering
+                            projectManager.moveProjectToTop(newValue);
+                            projectManager.saveData();
+                            
+                            // Refresh combobox with new order on FX thread
+                            Platform.runLater(() -> {
+                                reloadProjectNamesCB();
+                                notifyControllersOfProjectChange(newValue);
+                                // End loading mode after all controllers are notified and data is loaded
+                                Platform.runLater(() -> changeTrackingService.endLoading());
+                            });
+                            
+                        } catch (Exception e) {
+                            logger.severe("Error in project selection handling: " + e.getMessage());
+                            Platform.runLater(() -> changeTrackingService.endLoading());
+                        }
+                    });
+                } else {
+                    // For "None" selection, notify controllers immediately
+                    notifyControllersOfProjectChange(newValue);
+                    changeTrackingService.endLoading();
+                }
+                
+            } catch (Exception e) {
+                logger.severe("Error in project selection handling: " + e.getMessage());
+                changeTrackingService.endLoading();
             }
             
         } catch (Exception e) {
             logger.severe("Error in project selection listener: " + e.getMessage());
+            changeTrackingService.endLoading();
         }
     }
     
@@ -213,6 +240,11 @@ public class MainController implements Initializable {
             // Notify DatastoreDumpController
             if (datastoreDumpController != null) {
                 datastoreDumpController.onProjectSelectionChanged(newProjectName);
+            }
+            
+            // Notify JarDecompilerController
+            if (jarDecompilerController != null) {
+                jarDecompilerController.onProjectSelectionChanged(newProjectName);
             }
             
         } catch (Exception e) {
@@ -277,6 +309,7 @@ public class MainController implements Initializable {
                             // User cancelled, prevent window from closing
                             logger.info("User cancelled window close");
                             event.consume();
+                            return; // Don't proceed with cleanup if user cancelled
                         } else if (result) {
                             // User chose to save, perform save and allow close
                             logger.info("User chose to save before closing");
@@ -285,6 +318,15 @@ public class MainController implements Initializable {
                             // User chose to discard changes, allow close
                             logger.info("User chose to discard changes before closing");
                         }
+                    }
+                    
+                    // Close all cached SSH sessions on application shutdown
+                    try {
+                        logger.info("Closing all cached SSH sessions...");
+                        SSHSessionManager.closeAllSessions();
+                        logger.info("All SSH sessions closed successfully");
+                    } catch (Exception e) {
+                        logger.warning("Error closing SSH sessions: " + e.getMessage());
                     }
                     
                     logger.info("Window close cleanup completed");
@@ -308,6 +350,26 @@ public class MainController implements Initializable {
                 // Add Ctrl+S accelerator for save
                 KeyCodeCombination saveAccelerator = new KeyCodeCombination(KeyCode.S, KeyCombination.CONTROL_DOWN);
                 scene.getAccelerators().put(saveAccelerator, this::performGlobalSave);
+                
+                // Add Ctrl+K accelerator for opening NMS support log file (swapped with L)
+                KeyCodeCombination logAccelerator = new KeyCodeCombination(KeyCode.K, KeyCombination.CONTROL_DOWN);
+                scene.getAccelerators().put(logAccelerator, this::openNmsSupportLog);
+                
+                // Add Ctrl+L accelerator for opening recent NMS log (swapped with K)
+                KeyCodeCombination nmsLogAccelerator = new KeyCodeCombination(KeyCode.L, KeyCombination.CONTROL_DOWN);
+                scene.getAccelerators().put(nmsLogAccelerator, this::openRecentNmsLog);
+                
+                // Add Ctrl+D accelerator for opening cmd at jconfig path
+                KeyCodeCombination cmdJconfigAccelerator = new KeyCodeCombination(KeyCode.D, KeyCombination.CONTROL_DOWN);
+                scene.getAccelerators().put(cmdJconfigAccelerator, this::openCmdAtJconfigPath);
+                
+                // Add Ctrl+Shift+L accelerator for opening OracleNMS log directory
+                KeyCodeCombination oracleNmsLogDirAccelerator = new KeyCodeCombination(KeyCode.L, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN);
+                scene.getAccelerators().put(oracleNmsLogDirAccelerator, this::openOracleNmsLogDirectory);
+                
+                // Add Ctrl+R accelerator for restart (only works when on application management tab)
+                KeyCodeCombination restartAccelerator = new KeyCodeCombination(KeyCode.R, KeyCombination.CONTROL_DOWN);
+                scene.getAccelerators().put(restartAccelerator, this::handleRestartShortcut);
                 
                 logger.info("Keyboard accelerators setup completed");
             } else {
@@ -344,6 +406,7 @@ public class MainController implements Initializable {
             buildTab.setDisable(true);
             dataStoreTab.setDisable(true);
             projectTab.setDisable(true);
+            jarDecompilerTab.setDisable(true);
             // Disable buttons when no project is selected
             delButton.setDisable(true);
             editProjectButton.setDisable(true);
@@ -353,6 +416,7 @@ public class MainController implements Initializable {
             buildTab.setDisable(false);
             dataStoreTab.setDisable(false);
             projectTab.setDisable(false);
+            jarDecompilerTab.setDisable(false);
             // Enable buttons when a project is selected
             delButton.setDisable(false);
             editProjectButton.setDisable(false);
@@ -362,62 +426,258 @@ public class MainController implements Initializable {
 
     private void loadTabContent() {
         try {
-            // Load build automation tab
-            FXMLLoader buildLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/build-automation.fxml"));
-            if (buildLoader.getLocation() == null) {
-                logger.severe("Build automation FXML resource not found");
-                return;
-            }
-            Parent buildContent = buildLoader.load();
-            buildAutomation = buildLoader.getController();
-            if (buildAutomation != null) {
-                buildAutomation.setMainController(this);
-                buildTab.setContent(buildContent);
-            } else {
-                logger.severe("Build automation controller is null");
-            }
-
-            // Load datastore dump tab
-            FXMLLoader dataStoreLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/datastore-dump.fxml"));
-            if (dataStoreLoader.getLocation() == null) {
-                logger.severe("Datastore dump FXML resource not found");
-                return;
-            }
-            Parent dataStoreContent = dataStoreLoader.load();
-            datastoreDumpController = dataStoreLoader.getController();
-            if (datastoreDumpController != null) {
-                datastoreDumpController.setMainController(this);
-                dataStoreTab.setContent(dataStoreContent);
-            } else {
-                logger.severe("Datastore dump controller is null");
-            }
-
-            // Load project details tab
-            FXMLLoader projectLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/project-details.fxml"));
-            if (projectLoader.getLocation() == null) {
-                logger.severe("Project details FXML resource not found");
-                return;
-            }
-            Parent projectContent = projectLoader.load();
-            projectDetailsController = projectLoader.getController();
-            if (projectDetailsController != null) {
-                projectDetailsController.setMainController(this);
-                projectTab.setContent(projectContent);
-            } else {
-                logger.severe("Project details controller is null");
-            }
-
-            // Add tab selection listeners to refresh data when tabs are selected
+            // Load only the first tab synchronously for immediate responsiveness
+            loadBuildAutomationTab();
+            
+            // Setup tab selection listeners for lazy loading
             setupTabSelectionListeners();
-
-            logger.info("Tab content loaded successfully.");
+            
+            // Preload other tabs in background for faster switching
+            preloadTabsInBackground();
+            
+            logger.info("Initial tab content loaded successfully.");
         } catch (IOException e) {
             LoggerUtil.error(e);
-            logger.severe("Error loading tab content: " + e.getMessage());
+            logger.severe("Error loading initial tab content: " + e.getMessage());
         } catch (Exception e) {
-            logger.severe("Unexpected error loading tab content: " + e.getMessage());
+            logger.severe("Unexpected error loading initial tab content: " + e.getMessage());
             LoggerUtil.error(e);
         }
+    }
+    
+    /**
+     * Preload tabs in background for faster switching
+     */
+    private void preloadTabsInBackground() {
+        Thread.ofVirtual().start(() -> {
+            try {
+                // Preload project details tab
+                Thread.sleep(100); // Small delay to not interfere with startup
+                Platform.runLater(() -> {
+                    try {
+                        loadProjectDetailsTab();
+                        logger.info("Project Details tab preloaded");
+                    } catch (IOException e) {
+                        logger.warning("Failed to preload Project Details tab: " + e.getMessage());
+                    }
+                });
+                
+                // Preload datastore dump tab
+                Thread.sleep(100);
+                Platform.runLater(() -> {
+                    try {
+                        loadDatastoreDumpTab();
+                        logger.info("Datastore Explorer tab preloaded");
+                    } catch (IOException e) {
+                        logger.warning("Failed to preload Datastore Explorer tab: " + e.getMessage());
+                    }
+                });
+                
+                // Preload jar decompiler tab
+                Thread.sleep(100);
+                Platform.runLater(() -> {
+                    try {
+                        loadJarDecompilerTab();
+                        logger.info("JAR Decompiler tab preloaded");
+                    } catch (IOException e) {
+                        logger.warning("Failed to preload JAR Decompiler tab: " + e.getMessage());
+                    }
+                });
+                
+            } catch (InterruptedException e) {
+                logger.warning("Tab preloading interrupted");
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                logger.warning("Error during tab preloading: " + e.getMessage());
+            }
+        });
+    }
+    
+    /**
+     * Load build automation tab synchronously (first tab)
+     */
+    private void loadBuildAutomationTab() throws IOException {
+        FXMLLoader buildLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/build-automation.fxml"));
+        if (buildLoader.getLocation() == null) {
+            logger.severe("Build automation FXML resource not found");
+            return;
+        }
+        Parent buildContent = buildLoader.load();
+        buildAutomation = buildLoader.getController();
+        if (buildAutomation != null) {
+            buildAutomation.setMainController(this);
+            buildTab.setContent(buildContent);
+        } else {
+            logger.severe("Build automation controller is null");
+        }
+    }
+    
+    /**
+     * Load datastore dump tab lazily
+     */
+    private void loadDatastoreDumpTab() throws IOException {
+        if (datastoreDumpController != null) return; // Already loaded
+        
+        FXMLLoader dataStoreLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/datastore-dump.fxml"));
+        if (dataStoreLoader.getLocation() == null) {
+            logger.severe("Datastore dump FXML resource not found");
+            return;
+        }
+        Parent dataStoreContent = dataStoreLoader.load();
+        datastoreDumpController = dataStoreLoader.getController();
+        if (datastoreDumpController != null) {
+            datastoreDumpController.setMainController(this);
+            // Only set content if tab doesn't already have content
+            if (dataStoreTab.getContent() == null || dataStoreTab.getContent() instanceof ProgressIndicator) {
+                dataStoreTab.setContent(dataStoreContent);
+            }
+        } else {
+            logger.severe("Datastore dump controller is null");
+        }
+    }
+    
+    /**
+     * Load project details tab lazily
+     */
+    private void loadProjectDetailsTab() throws IOException {
+        if (projectDetailsController != null) return; // Already loaded
+        
+        FXMLLoader projectLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/project-details.fxml"));
+        if (projectLoader.getLocation() == null) {
+            logger.severe("Project details FXML resource not found");
+            return;
+        }
+        Parent projectContent = projectLoader.load();
+        projectDetailsController = projectLoader.getController();
+        if (projectDetailsController != null) {
+            projectDetailsController.setMainController(this);
+            // Only set content if tab doesn't already have content
+            if (projectTab.getContent() == null || projectTab.getContent() instanceof ProgressIndicator) {
+                projectTab.setContent(projectContent);
+            }
+        } else {
+            logger.severe("Project details controller is null");
+        }
+    }
+    
+    /**
+     * Load jar decompiler tab lazily
+     */
+    private void loadJarDecompilerTab() throws IOException {
+        if (jarDecompilerController != null) return; // Already loaded
+        
+        FXMLLoader jarDecompilerLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/tabs/jar-decompiler.fxml"));
+        if (jarDecompilerLoader.getLocation() == null) {
+            logger.severe("Jar decompiler FXML resource not found");
+            return;
+        }
+        Parent jarDecompilerContent = jarDecompilerLoader.load();
+        jarDecompilerController = jarDecompilerLoader.getController();
+        if (jarDecompilerController != null) {
+            jarDecompilerController.setMainController(this);
+            // Only set content if tab doesn't already have content
+            if (jarDecompilerTab.getContent() == null || jarDecompilerTab.getContent() instanceof ProgressIndicator) {
+                jarDecompilerTab.setContent(jarDecompilerContent);
+            }
+        } else {
+            logger.severe("Jar decompiler controller is null");
+        }
+    }
+    
+    /**
+     * Load tab with loading indicator and asynchronous loading
+     */
+    private void loadTabWithIndicator(Tab tab, String tabName, Runnable loadAction) {
+        // Check if tab is already loaded
+        if (tab.getContent() != null && !(tab.getContent() instanceof ProgressIndicator)) {
+            // Tab is already loaded, just run the action
+            loadAction.run();
+            return;
+        }
+        
+        // Show loading indicator
+        showTabLoadingIndicator(tab, tabName);
+        
+        // Load tab content asynchronously
+        Thread.ofVirtual().start(() -> {
+            try {
+                // Load the tab content immediately for faster response
+                Platform.runLater(() -> {
+                    try {
+                        loadAction.run();
+                        hideTabLoadingIndicator(tab);
+                        logger.info(tabName + " tab loaded successfully");
+                    } catch (Exception e) {
+                        logger.severe("Error loading " + tabName + " tab: " + e.getMessage());
+                        showTabErrorIndicator(tab, "Error loading " + tabName);
+                    }
+                });
+            } catch (Exception e) {
+                Platform.runLater(() -> {
+                    logger.severe("Error in async loading of " + tabName + " tab: " + e.getMessage());
+                    showTabErrorIndicator(tab, "Error loading " + tabName);
+                });
+            }
+        });
+    }
+    
+    /**
+     * Show loading indicator in tab
+     */
+    private void showTabLoadingIndicator(Tab tab, String tabName) {
+        VBox loadingContainer = new VBox(10);
+        loadingContainer.setAlignment(javafx.geometry.Pos.CENTER);
+        loadingContainer.setStyle("-fx-background-color: #f8f9fa; -fx-padding: 20;");
+        
+        ProgressIndicator progressIndicator = new ProgressIndicator();
+        progressIndicator.setPrefSize(40, 40);
+        progressIndicator.setStyle("-fx-progress-color: #0366d6;");
+        
+        Label loadingLabel = new Label("Loading " + tabName + "...");
+        loadingLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: #586069; -fx-font-weight: 500;");
+        
+        loadingContainer.getChildren().addAll(progressIndicator, loadingLabel);
+        tab.setContent(loadingContainer);
+    }
+    
+    /**
+     * Hide loading indicator and show actual content
+     */
+    private void hideTabLoadingIndicator(Tab tab) {
+        // The actual content will be set by the loadAction
+        // This method is called after content is loaded to ensure cleanup
+        if (tab.getContent() instanceof ProgressIndicator) {
+            // Content should already be set by loadAction, but ensure it's not stuck
+            logger.info("Clearing loading indicator for tab: " + tab.getText());
+        }
+    }
+    
+    /**
+     * Show error indicator in tab
+     */
+    private void showTabErrorIndicator(Tab tab, String errorMessage) {
+        VBox errorContainer = new VBox(10);
+        errorContainer.setAlignment(javafx.geometry.Pos.CENTER);
+        errorContainer.setStyle("-fx-background-color: #f8f9fa; -fx-padding: 20;");
+        
+        Label errorIcon = new Label("⚠");
+        errorIcon.setStyle("-fx-font-size: 24px; -fx-text-fill: #d73a49;");
+        
+        Label errorLabel = new Label(errorMessage);
+        errorLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: #d73a49; -fx-font-weight: 500;");
+        
+        Button retryButton = new Button("Retry");
+        retryButton.setStyle("-fx-background-color: #0366d6; -fx-text-fill: white; -fx-background-radius: 4; -fx-padding: 8 16;");
+        retryButton.setOnAction(e -> {
+            // Find the tab pane and trigger a refresh
+            TabPane tabPane = findTabPane();
+            if (tabPane != null) {
+                tabPane.getSelectionModel().select(tab);
+            }
+        });
+        
+        errorContainer.getChildren().addAll(errorIcon, errorLabel, retryButton);
+        tab.setContent(errorContainer);
     }
 
     /**
@@ -476,13 +736,57 @@ public class MainController implements Initializable {
                         }
                     }
                     
-                    // Refresh data based on which tab was selected
+                    // Refresh data based on which tab was selected with lazy loading
                     if (newTab == buildTab && buildAutomation != null) {
                         buildAutomation.onTabSelected();
-                    } else if (newTab == projectTab && projectDetailsController != null) {
-                        projectDetailsController.loadProjectDetails();
-                    } else if (newTab == dataStoreTab && datastoreDumpController != null) {
-                        datastoreDumpController.onTabSelected();
+                    } else if (newTab == projectTab) {
+                        if (projectDetailsController != null) {
+                            // Tab is already loaded, just refresh
+                            projectDetailsController.loadProjectDetails();
+                        } else {
+                            loadTabWithIndicator(newTab, "Project Details", () -> {
+                                try {
+                                    loadProjectDetailsTab();
+                                    if (projectDetailsController != null) {
+                                        projectDetailsController.loadProjectDetails();
+                                    }
+                                } catch (IOException e) {
+                                    logger.severe("Error loading project details tab: " + e.getMessage());
+                                }
+                            });
+                        }
+                    } else if (newTab == dataStoreTab) {
+                        if (datastoreDumpController != null) {
+                            // Tab is already loaded, just refresh
+                            datastoreDumpController.onTabSelected();
+                        } else {
+                            loadTabWithIndicator(newTab, "Datastore Explorer", () -> {
+                                try {
+                                    loadDatastoreDumpTab();
+                                    if (datastoreDumpController != null) {
+                                        datastoreDumpController.onTabSelected();
+                                    }
+                                } catch (IOException e) {
+                                    logger.severe("Error loading datastore dump tab: " + e.getMessage());
+                                }
+                            });
+                        }
+                    } else if (newTab == jarDecompilerTab) {
+                        if (jarDecompilerController != null) {
+                            // Tab is already loaded, just refresh
+                            jarDecompilerController.onTabSelected();
+                        } else {
+                            loadTabWithIndicator(newTab, "JAR Decompiler", () -> {
+                                try {
+                                    loadJarDecompilerTab();
+                                    if (jarDecompilerController != null) {
+                                        jarDecompilerController.onTabSelected();
+                                    }
+                                } catch (IOException e) {
+                                    logger.severe("Error loading jar decompiler tab: " + e.getMessage());
+                                }
+                            });
+                        }
                     }
                 }
             });
@@ -739,7 +1043,470 @@ public class MainController implements Initializable {
         }
     }
 
+    /**
+     * Opens the NMS support log file using intelligent editor selection
+     * Priority: VS Code -> Notepad++ -> Windows Notepad
+     */
+    private void openNmsSupportLog() {
+        try {
+            // Get log file path
+            String user = System.getProperty("user.name");
+            String logPath = "C:\\Users\\" + user + "\\Documents\\nms_support_data\\nms_support.log";
+            
+            logger.info("Attempting to open NMS support log: " + logPath);
+            
+            // Check if log file exists
+            File logFile = new File(logPath);
+            if (!logFile.exists()) {
+                logger.warning("Log file does not exist: " + logPath);
+                DialogUtil.showError("Log File Not Found", 
+                    "The NMS support log file was not found at:\n" + logPath + 
+                    "\n\nThis may indicate that logging has not been initialized yet.");
+                return;
+            }
+            
+            // Try to open with intelligent editor selection
+            boolean opened = false;
+            
+            // 1. Try VS Code first
+            if (!opened) {
+                opened = tryOpenWithVSCode(logPath);
+            }
+            
+            // 2. Try Notepad++ if VS Code failed
+            if (!opened) {
+                opened = tryOpenWithNotepadPlusPlus(logPath);
+            }
+            
+            // 3. Fall back to Windows Notepad
+            if (!opened) {
+                opened = tryOpenWithNotepad(logPath);
+            }
+            
+            if (opened) {
+                logger.info("Successfully opened log file with selected editor");
+            } else {
+                logger.severe("Failed to open log file with any editor");
+                DialogUtil.showError("Cannot Open Log File", 
+                    "Unable to open the log file with any available editor.\n" +
+                    "Please check that you have VS Code, Notepad++, or Windows Notepad installed.");
+            }
+            
+        } catch (Exception e) {
+            logger.severe("Error opening NMS support log: " + e.getMessage());
+            DialogUtil.showError("Error Opening Log", "An error occurred while trying to open the log file:\n" + e.getMessage());
+        }
+    }
+    
+    /**
+     * Attempts to open file with VS Code
+     */
+    private boolean tryOpenWithVSCode(String filePath) {
+        try {
+            // Common VS Code installation paths
+            String[] vsCodePaths = {
+                System.getenv("LOCALAPPDATA") + "\\Programs\\Microsoft VS Code\\Code.exe",
+                System.getenv("PROGRAMFILES") + "\\Microsoft VS Code\\Code.exe",
+                System.getenv("PROGRAMFILES(X86)") + "\\Microsoft VS Code\\Code.exe",
+                System.getenv("USERPROFILE") + "\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
+            };
+            
+            for (String vsCodePath : vsCodePaths) {
+                File vsCodeExe = new File(vsCodePath);
+                if (vsCodeExe.exists()) {
+                    logger.info("Found VS Code at: " + vsCodePath);
+                    ProcessBuilder pb = new ProcessBuilder(vsCodePath, filePath);
+                    Process process = pb.start();
+                    
+                    // Check if process started successfully (non-zero exit code means it started)
+                    Thread.sleep(1000); // Give it a moment to start
+                    if (process.isAlive() || process.exitValue() == 0) {
+                        logger.info("Successfully opened log file with VS Code");
+                        return true;
+                    }
+                }
+            }
+            
+            // Try using 'code' command if available in PATH
+            try {
+                ProcessBuilder pb = new ProcessBuilder("code", filePath);
+                Process process = pb.start();
+                Thread.sleep(1000);
+                if (process.isAlive() || process.exitValue() == 0) {
+                    logger.info("Successfully opened log file with VS Code via command line");
+                    return true;
+                }
+            } catch (Exception e) {
+                logger.info("VS Code command line not available: " + e.getMessage());
+            }
+            
+        } catch (Exception e) {
+            logger.warning("Error trying to open with VS Code: " + e.getMessage());
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Attempts to open file with Notepad++
+     */
+    private boolean tryOpenWithNotepadPlusPlus(String filePath) {
+        try {
+            // Common Notepad++ installation paths
+            String[] notepadPaths = {
+                System.getenv("PROGRAMFILES") + "\\Notepad++\\notepad++.exe",
+                System.getenv("PROGRAMFILES(X86)") + "\\Notepad++\\notepad++.exe",
+                System.getenv("LOCALAPPDATA") + "\\Programs\\Notepad++\\notepad++.exe"
+            };
+            
+            for (String notepadPath : notepadPaths) {
+                File notepadExe = new File(notepadPath);
+                if (notepadExe.exists()) {
+                    logger.info("Found Notepad++ at: " + notepadPath);
+                    ProcessBuilder pb = new ProcessBuilder(notepadPath, filePath);
+                    Process process = pb.start();
+                    
+                    Thread.sleep(1000);
+                    if (process.isAlive() || process.exitValue() == 0) {
+                        logger.info("Successfully opened log file with Notepad++");
+                        return true;
+                    }
+                }
+            }
+            
+        } catch (Exception e) {
+            logger.warning("Error trying to open with Notepad++: " + e.getMessage());
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Attempts to open file with Windows Notepad
+     */
+    private boolean tryOpenWithNotepad(String filePath) {
+        try {
+            logger.info("Attempting to open log file with Windows Notepad");
+            ProcessBuilder pb = new ProcessBuilder("notepad.exe", filePath);
+            Process process = pb.start();
+            
+            Thread.sleep(1000);
+            if (process.isAlive() || process.exitValue() == 0) {
+                logger.info("Successfully opened log file with Windows Notepad");
+                return true;
+            }
+            
+        } catch (Exception e) {
+            logger.severe("Error trying to open with Windows Notepad: " + e.getMessage());
+        }
+        
+        return false;
+    }
 
+    /**
+     * Opens the most recent Oracle NMS log file using intelligent editor selection
+     * If a project is selected with a host URL, tries to find logs matching that URL
+     * Otherwise opens the most recent log file
+     * Priority: VS Code -> Notepad++ -> Windows Notepad
+     */
+    private void openRecentNmsLog() {
+        try {
+            logger.info("Attempting to open recent Oracle NMS log");
+            
+            // Get NMS log directory path
+            String logDirectoryPath = com.nms.support.nms_support.service.buildTabPack.ControlApp.getLogDirectoryPath();
+            File logDirectory = new File(logDirectoryPath);
+            
+            if (!logDirectory.exists()) {
+                logger.warning("NMS log directory does not exist: " + logDirectoryPath);
+                DialogUtil.showError("NMS Log Directory Not Found", 
+                    "The Oracle NMS log directory was not found at:\n" + logDirectoryPath + 
+                    "\n\nThis may indicate that Oracle NMS has not been started yet.");
+                return;
+            }
+            
+            // Get the most recent log file
+            File recentLogFile = findRecentNmsLogFile(logDirectory);
+            
+            if (recentLogFile == null) {
+                logger.warning("No NMS log files found in directory: " + logDirectoryPath);
+                DialogUtil.showError("No NMS Log Files Found", 
+                    "No Oracle NMS log files were found in:\n" + logDirectoryPath + 
+                    "\n\nPlease ensure Oracle NMS has been started at least once.");
+                return;
+            }
+            
+            logger.info("Found recent NMS log file: " + recentLogFile.getAbsolutePath());
+            
+            // Try to open with intelligent editor selection
+            boolean opened = false;
+            
+            // 1. Try VS Code first
+            if (!opened) {
+                opened = tryOpenWithVSCode(recentLogFile.getAbsolutePath());
+            }
+            
+            // 2. Try Notepad++ if VS Code failed
+            if (!opened) {
+                opened = tryOpenWithNotepadPlusPlus(recentLogFile.getAbsolutePath());
+            }
+            
+            // 3. Fall back to Windows Notepad
+            if (!opened) {
+                opened = tryOpenWithNotepad(recentLogFile.getAbsolutePath());
+            }
+            
+            if (opened) {
+                logger.info("Successfully opened recent NMS log file with selected editor");
+            } else {
+                logger.severe("Failed to open recent NMS log file with any editor");
+                DialogUtil.showError("Cannot Open NMS Log File", 
+                    "Unable to open the NMS log file with any available editor.\n" +
+                    "Please check that you have VS Code, Notepad++, or Windows Notepad installed.");
+            }
+            
+        } catch (Exception e) {
+            logger.severe("Error opening recent NMS log: " + e.getMessage());
+            DialogUtil.showError("Error Opening NMS Log", "An error occurred while trying to open the recent NMS log file:\n" + e.getMessage());
+        }
+    }
+    
+    /**
+     * Finds the most recent NMS log file, filtering by hostname from the selected project's NMS URL
+     * @param logDirectory The directory containing NMS log files
+     * @return The most recent log file, or null if none found
+     */
+    private File findRecentNmsLogFile(File logDirectory) {
+        try {
+            // Get all log files
+            File[] allLogFiles = logDirectory.listFiles((dir, name) -> 
+                name.toLowerCase().contains(".log") && new File(dir, name).isFile());
+            
+            if (allLogFiles == null || allLogFiles.length == 0) {
+                return null;
+            }
+            
+            // Get selected project info
+            ProjectEntity selectedProject = getSelectedProject();
+            String projectHostname = null;
+            
+            if (selectedProject != null && selectedProject.getNmsAppURL() != null && 
+                !selectedProject.getNmsAppURL().trim().isEmpty()) {
+                
+                String nmsUrl = selectedProject.getNmsAppURL().trim();
+                projectHostname = extractHostnameFromUrl(nmsUrl);
+                logger.info("Looking for logs containing hostname: " + projectHostname);
+            }
+            
+            File[] logFiles = allLogFiles;
+            
+            // If we have a project hostname, filter logs by hostname
+            if (projectHostname != null) {
+                java.util.List<File> filteredLogs = new java.util.ArrayList<>();
+                for (File logFile : allLogFiles) {
+                    if (logFile.getName().toLowerCase().contains(projectHostname.toLowerCase())) {
+                        filteredLogs.add(logFile);
+                    }
+                }
+                
+                if (!filteredLogs.isEmpty()) {
+                    logFiles = filteredLogs.toArray(new File[0]);
+                    logger.info("Found " + logFiles.length + " log files containing hostname: " + projectHostname);
+                } else {
+                    logger.info("No logs found containing hostname: " + projectHostname + ", using all logs");
+                }
+            }
+            
+            // Sort files by last modified (most recent first)
+            java.util.Arrays.sort(logFiles, (f1, f2) -> 
+                Long.compare(f2.lastModified(), f1.lastModified()));
+            
+            // Return the most recent log file (first in sorted array)
+            logger.info("Using most recent log file: " + logFiles[0].getName());
+            return logFiles[0];
+            
+        } catch (Exception e) {
+            logger.severe("Error finding recent NMS log file: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Extracts hostname from NMS URL
+     * Example: https://ugbu-ash-147.sniadprshared1.gbucdsint02iad.oraclevcn.com:7112/nms/nmsapplications.jsp
+     * Returns: ugbu-ash-147
+     */
+    private String extractHostnameFromUrl(String url) {
+        try {
+            // Remove protocol if present
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                url = url.substring(url.indexOf("://") + 3);
+            }
+            
+            // Get the hostname part (before first slash or colon)
+            String hostname = url.split("[/:]")[0];
+            
+            // Extract the first part before the first dot (e.g., ugbu-ash-147 from ugbu-ash-147.sniadprshared1...)
+            if (hostname.contains(".")) {
+                hostname = hostname.split("\\.")[0];
+            }
+            
+            logger.info("Extracted hostname from URL: " + hostname);
+            return hostname;
+            
+        } catch (Exception e) {
+            logger.warning("Error extracting hostname from URL: " + url + ", error: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Opens cmd at jconfig path if it exists, otherwise shows a warning
+     * Triggered by Ctrl+D keyboard shortcut
+     */
+    private void openCmdAtJconfigPath() {
+        try {
+            logger.info("Attempting to open cmd at jconfig path");
+            
+            ProjectEntity selectedProject = getSelectedProject();
+            if (selectedProject == null) {
+                logger.warning("No project selected");
+                DialogUtil.showError("No Project Selected", 
+                    "Please select a project first to open cmd at jconfig path.");
+                return;
+            }
+            
+            String jconfigPath = selectedProject.getJconfigPathForBuild();
+            if (jconfigPath == null || jconfigPath.trim().isEmpty()) {
+                logger.warning("Jconfig path is missing for project: " + selectedProject.getName());
+                DialogUtil.showError("JConfig Path Missing", 
+                    "JConfig path is not configured for the selected project: " + selectedProject.getName() + 
+                    "\n\nPlease configure the project folder in the Project Configuration tab.");
+                return;
+            }
+            
+            File jconfigDir = new File(jconfigPath);
+            if (!jconfigDir.exists()) {
+                logger.warning("Jconfig directory does not exist: " + jconfigPath);
+                DialogUtil.showError("JConfig Directory Not Found", 
+                    "The JConfig directory was not found at:\n" + jconfigPath + 
+                    "\n\nPlease verify the project folder path in the Project Configuration tab.");
+                return;
+            }
+            
+            logger.info("Opening cmd at jconfig path: " + jconfigPath);
+            
+            // Open cmd at the jconfig path
+            ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/c", "start", "cmd.exe", "/k", "cd", "/d", jconfigPath);
+            pb.start();
+            
+            logger.info("Successfully opened cmd at jconfig path");
+            
+        } catch (Exception e) {
+            logger.severe("Error opening cmd at jconfig path: " + e.getMessage());
+            DialogUtil.showError("Error Opening CMD", 
+                "An error occurred while trying to open cmd at jconfig path:\n" + e.getMessage());
+        }
+    }
+    
+    /**
+     * Opens the OracleNMS log directory in Windows Explorer
+     * Triggered by Ctrl+Shift+L keyboard shortcut
+     */
+    private void openOracleNmsLogDirectory() {
+        try {
+            logger.info("Attempting to open OracleNMS log directory");
+            
+            // Get NMS log directory path from temp
+            String logDirectoryPath = com.nms.support.nms_support.service.buildTabPack.ControlApp.getLogDirectoryPath();
+            File logDirectory = new File(logDirectoryPath);
+            
+            if (!logDirectory.exists()) {
+                logger.warning("OracleNMS log directory does not exist: " + logDirectoryPath);
+                DialogUtil.showError("OracleNMS Log Directory Not Found", 
+                    "The OracleNMS log directory was not found at:\n" + logDirectoryPath + 
+                    "\n\nThis may indicate that Oracle NMS has not been started yet.");
+                return;
+            }
+            
+            logger.info("Opening OracleNMS log directory: " + logDirectoryPath);
+            
+            // Open the directory in Windows Explorer
+            ProcessBuilder pb = new ProcessBuilder("explorer.exe", logDirectoryPath);
+            pb.start();
+            
+            logger.info("Successfully opened OracleNMS log directory in Explorer");
+            
+        } catch (Exception e) {
+            logger.severe("Error opening OracleNMS log directory: " + e.getMessage());
+            DialogUtil.showError("Error Opening Directory", 
+                "An error occurred while trying to open the OracleNMS log directory:\n" + e.getMessage());
+        }
+    }
+    
+    /**
+     * Handles the restart keyboard shortcut (Ctrl+R)
+     * Only triggers restart if the user is currently on the Application Management tab
+     */
+    private void handleRestartShortcut() {
+        try {
+            logger.info("Restart shortcut triggered (Ctrl+R)");
+            
+            // Find the TabPane and check if the selected tab is the build/application management tab
+            TabPane tabPane = findTabPane();
+            if (tabPane == null) {
+                logger.warning("Cannot find TabPane to check selected tab");
+                return;
+            }
+            
+            Tab selectedTab = tabPane.getSelectionModel().getSelectedItem();
+            if (selectedTab != buildTab) {
+                logger.info("Restart shortcut ignored - not on Application Management tab");
+                return;
+            }
+            
+            logger.info("Restart shortcut accepted - on Application Management tab");
+            
+            // Check if build automation controller is available
+            if (buildAutomation == null) {
+                logger.warning("Build automation controller is not available");
+                DialogUtil.showError("Restart Not Available", 
+                    "The restart function is not available at this time.");
+                return;
+            }
+            
+            // Trigger the restart via the BuildAutomation controller
+            // We need to call the restart method through reflection or make it public
+            // For now, let's check if the project is selected and call the button action
+            ProjectEntity project = getSelectedProject();
+            if (project == null) {
+                logger.warning("No project selected for restart");
+                DialogUtil.showError("No Project Selected", 
+                    "Please select a project first to perform restart.");
+                return;
+            }
+            
+            // Since the restart method is private in BuildAutomation, we need to trigger it
+            // by simulating the button click or calling it through the public interface
+            // For now, let's use a workaround by making the method accessible
+            try {
+                java.lang.reflect.Method restartMethod = buildAutomation.getClass().getDeclaredMethod("restart");
+                restartMethod.setAccessible(true);
+                restartMethod.invoke(buildAutomation);
+                logger.info("Restart triggered successfully via keyboard shortcut");
+            } catch (NoSuchMethodException e) {
+                logger.severe("Restart method not found in BuildAutomation");
+                DialogUtil.showError("Restart Error", "Unable to access restart functionality.");
+            } catch (Exception e) {
+                logger.severe("Error invoking restart method: " + e.getMessage());
+                DialogUtil.showError("Restart Error", "An error occurred while trying to restart:\n" + e.getMessage());
+            }
+            
+        } catch (Exception e) {
+            logger.severe("Error handling restart shortcut: " + e.getMessage());
+            DialogUtil.showError("Error", "An error occurred while handling restart shortcut:\n" + e.getMessage());
+        }
+    }
 
 
 }

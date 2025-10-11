@@ -176,6 +176,31 @@ public class DialogUtil {
         });
     }
 
+    /**
+     * Show a detailed error dialog with larger size for complex error messages
+     * @param title The dialog title
+     * @param message The detailed error message
+     */
+    public static void showDetailedError(String title, String message) {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(AlertType.ERROR);
+            setAlertIcon(alert);
+            alert.setTitle(title);
+            alert.setHeaderText(null);
+            alert.setContentText(message);
+
+            // Set dialog properties for detailed error messages with larger size
+            alert.setResizable(true);
+            int width = calculateDetailedDialogWidth(message);
+            int height = calculateDetailedDialogHeight(message);
+            alert.getDialogPane().setPrefSize(width, height);
+            alert.getDialogPane().setMinSize(Math.min(width, 600), Math.min(height, 300));
+            alert.getDialogPane().setMaxSize(800, 500); // Allow up to 800x500 for very detailed messages
+            
+            alert.showAndWait();
+        });
+    }
+
     public static void showWarning(String title, String message) {
         Platform.runLater(() -> {
             Alert alert = new Alert(AlertType.WARNING);
@@ -504,5 +529,63 @@ public class DialogUtil {
         
         // Ensure reasonable bounds with tighter range for better proportions
         return Math.max(350, Math.min(calculatedWidth, 500)); // Between 350 and 500 pixels
+    }
+
+    /**
+     * Calculate the optimal width for a detailed error dialog based on the content length
+     * @param message The detailed message content to calculate width for
+     * @return The calculated width in pixels
+     */
+    private static int calculateDetailedDialogWidth(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return 600; // Larger default width for detailed messages
+        }
+        
+        int maxLineLength = 0;
+        String[] lines = message.split("\n");
+        
+        for (String line : lines) {
+            maxLineLength = Math.max(maxLineLength, line.length());
+        }
+        
+        // Calculate width based on character count with more generous estimate for detailed messages
+        // Using ~8 pixels per character for better readability
+        int calculatedWidth = maxLineLength * 8 + 150; // More padding for detailed content
+        
+        // Ensure reasonable bounds with larger range for detailed dialogs
+        return Math.max(600, Math.min(calculatedWidth, 750)); // Between 600 and 750 pixels
+    }
+
+    /**
+     * Calculate the optimal height for a detailed error dialog based on the content length
+     * @param message The detailed message content to calculate height for
+     * @return The calculated height in pixels
+     */
+    private static int calculateDetailedDialogHeight(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return 200; // Larger default height for detailed messages
+        }
+        
+        int baseHeight = 200; // Larger base height for detailed messages
+        int lineCount = 0;
+        
+        // Split by newlines and calculate line count
+        String[] lines = message.split("\n");
+        for (String line : lines) {
+            // Calculate how many display lines this content line will need
+            // Using more generous estimate for detailed text (longer lines)
+            int displayLines = (int) Math.ceil(line.length() / 70.0); // More characters per line for wider dialogs
+            lineCount += Math.max(1, displayLines); // At least 1 line per content line
+        }
+        
+        // Add extra height for lines beyond the base (3 lines)
+        int extraHeight = 0;
+        if (lineCount > 3) {
+            extraHeight = (lineCount - 3) * 25; // 25px per additional line for better spacing
+        }
+        
+        // Ensure minimum height to accommodate buttons properly
+        int calculatedHeight = baseHeight + extraHeight;
+        return Math.max(calculatedHeight, 200); // Larger minimum height for detailed dialogs
     }
 }

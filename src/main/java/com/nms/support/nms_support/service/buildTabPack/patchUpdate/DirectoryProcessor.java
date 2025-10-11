@@ -92,7 +92,7 @@ public class DirectoryProcessor {
         // Process .jar files in java/lib directory
         progressCallback.onProgress(20, "Processing JAR files...");
         if (javaLibDir.exists() && javaLibDir.isDirectory()) {
-            File[] jarFiles = javaLibDir.listFiles((_, name) -> name.endsWith(".jar"));
+            File[] jarFiles = javaLibDir.listFiles((dir, name) -> name.endsWith(".jar"));
             if (jarFiles != null) {
                 int totalJars = jarFiles.length;
                 int processedJars = 0;

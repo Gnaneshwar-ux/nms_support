@@ -76,6 +76,54 @@ public class CreateInstallerCommand {
 		} else {
 			System.out.println("Folder already exists: " + installer_loc);
 		}
+		
+		// Create required directories if they don't exist
+		File nmsLibDir = new File(dir_temp, "nmslib");
+		File javaLibDir = new File(dir_temp, "java/lib");
+		if (!nmsLibDir.exists()) {
+			nmsLibDir.mkdirs();
+		}
+		if (!javaLibDir.exists()) {
+			javaLibDir.mkdirs();
+		}
+		
+		// Copy hotreload-agent.jar to multiple locations for different purposes
+		try {
+			// Copy to exe path folder (for -javaagent option at runtime)
+			InputStream agentJarStream1 = getClass().getClassLoader().getResourceAsStream("nms_configs/hotreload-agent.jar");
+			if (agentJarStream1 != null) {
+				File destAgentJar = new File(dir_temp, "hotreload-agent.jar");
+				Files.copy(agentJarStream1, destAgentJar.toPath(), StandardCopyOption.REPLACE_EXISTING);
+				progressCallback.onProgress(5, "Copied hotreload-agent.jar to " + dir_temp);
+				System.out.println("Copied hotreload-agent.jar to " + dir_temp);
+				agentJarStream1.close();
+			} else {
+				System.out.println("Warning: hotreload-agent.jar not found in resources");
+			}
+			
+			// Copy to nmslib folder (for runtime classpath)
+			InputStream agentJarStream2 = getClass().getClassLoader().getResourceAsStream("nms_configs/hotreload-agent.jar");
+			if (agentJarStream2 != null) {
+				File destAgentJarLib = new File(nmsLibDir, "hotreload-agent.jar");
+				Files.copy(agentJarStream2, destAgentJarLib.toPath(), StandardCopyOption.REPLACE_EXISTING);
+				progressCallback.onProgress(5, "Copied hotreload-agent.jar to nmslib");
+				System.out.println("Copied hotreload-agent.jar to nmslib");
+				agentJarStream2.close();
+			}
+			
+			// Copy to java/lib folder (for compilation classpath)
+			InputStream agentJarStream3 = getClass().getClassLoader().getResourceAsStream("nms_configs/hotreload-agent.jar");
+			if (agentJarStream3 != null) {
+				File destAgentJarJavaLib = new File(javaLibDir, "hotreload-agent.jar");
+				Files.copy(agentJarStream3, destAgentJarJavaLib.toPath(), StandardCopyOption.REPLACE_EXISTING);
+				progressCallback.onProgress(5, "Copied hotreload-agent.jar to java/lib for compilation");
+				System.out.println("Copied hotreload-agent.jar to java/lib for compilation");
+				agentJarStream3.close();
+			}
+		} catch (IOException e) {
+			System.out.println("Warning: Could not copy hotreload-agent.jar: " + e.getMessage());
+			// Don't fail the process if agent jar copy fails
+		}
 		String serverURL = adjustUrl(appURL);
 
 		
@@ -280,9 +328,15 @@ public class CreateInstallerCommand {
 				}
 
 				addElement(classPath, "cp", "nmslib/wlthint3client.jar");
+				// Add hotreload-agent.jar to classpath for HotReloadAgent class availability
+				addElement(classPath, "cp", "nmslib/hotreload-agent.jar");
 				Element app = (Element) document.getElementsByTagName("application-desc").item(0);
 				addElement(classPath, "mainClass", "com.splwg.oms.fcp.JWSLauncher");
 				addElement(jre, "minVersion", "1.8.0");
+				// Add hotreload agent with search path configuration
+				addElement(jre, "opt", "-javaagent:hotreload-agent.jar");
+				// Tell the agent where to search for class files (Oracle NMS uses java/working/config)
+				addElement(jre, "opt", "-Dhotreload.search.path=java/working/config");
 				for (String opt : systemProps) {
 					addElement(jre, "opt", opt);
 				}

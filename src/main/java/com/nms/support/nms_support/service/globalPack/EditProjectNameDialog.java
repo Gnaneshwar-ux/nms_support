@@ -172,11 +172,11 @@ public class EditProjectNameDialog {
      * Sets up button actions
      */
     private void setupButtonActions() {
-        updateButton.setOnAction(_ -> updateProjectName());
-        cancelButton.setOnAction(_ -> cancelDialog());
+        updateButton.setOnAction(event -> updateProjectName());
+        cancelButton.setOnAction(event -> cancelDialog());
         
         // Handle enter key to update
-        projectNameField.setOnAction(_ -> updateProjectName());
+        projectNameField.setOnAction(event -> updateProjectName());
         
         // Handle escape key
         dialogStage.getScene().setOnKeyPressed(event -> {
@@ -191,7 +191,7 @@ public class EditProjectNameDialog {
      */
     private void setupButtonHoverEffects() {
         // Cancel button hover effects
-        cancelButton.setOnMouseEntered(_ -> {
+        cancelButton.setOnMouseEntered(event -> {
             if (!cancelButton.isDisabled()) {
                 cancelButton.setStyle(
                     "-fx-background-color: #f8fafc; " +
@@ -209,7 +209,7 @@ public class EditProjectNameDialog {
             }
         });
         
-        cancelButton.setOnMouseExited(_ -> {
+        cancelButton.setOnMouseExited(event -> {
             if (!cancelButton.isDisabled()) {
                 cancelButton.setStyle(
                     "-fx-background-color: #ffffff; " +
@@ -228,7 +228,7 @@ public class EditProjectNameDialog {
         });
         
         // Update button hover effects
-        updateButton.setOnMouseEntered(_ -> {
+        updateButton.setOnMouseEntered(event -> {
             if (!updateButton.isDisabled()) {
                 updateButton.setStyle(
                     "-fx-background-color: #0d47a1; " +
@@ -247,7 +247,7 @@ public class EditProjectNameDialog {
             }
         });
         
-        updateButton.setOnMouseExited(_ -> {
+        updateButton.setOnMouseExited(event -> {
             if (!updateButton.isDisabled()) {
                 updateButton.setStyle(
                     "-fx-background-color: #1565c0; " +

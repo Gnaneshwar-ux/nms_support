@@ -33,7 +33,7 @@ public class ProjectCodeService {
         logger.info("Product Folder Path: " + (productFolderPath != null ? productFolderPath : "null"));
         
         String projectName = getProjectNameFromBuildProperties(jconfigPath);
-        String cvsTag = getCvsTagFromNmsCommonJar(productFolderPath);
+        String cvsTag = getCvsTagFromNmsCommonJar(productFolderPath+File.separator+"nmslib");
         
         logger.info("Project Name from build.properties: " + (projectName != null ? projectName : "null"));
         logger.info("CVS Tag from nms_common.jar: " + (cvsTag != null ? cvsTag : "null"));
@@ -108,14 +108,14 @@ public class ProjectCodeService {
      * @param productFolderPath The product folder path
      * @return CVS tag or null if not found
      */
-    private static String getCvsTagFromNmsCommonJar(String productFolderPath) {
+    public static String getCvsTagFromNmsCommonJar(String productFolderPath) {
         if (productFolderPath == null || productFolderPath.trim().isEmpty()) {
             logger.warning("Product folder path is null or empty");
             return null;
         }
 
         try {
-            String nmsCommonJarPath = productFolderPath + File.separator + "nmslib" + File.separator + "nms_common.jar";
+            String nmsCommonJarPath = productFolderPath + File.separator + "nms_common.jar";
             File nmsCommonJar = new File(nmsCommonJarPath);
             
             logger.info("Looking for nms_common.jar at: " + nmsCommonJarPath);

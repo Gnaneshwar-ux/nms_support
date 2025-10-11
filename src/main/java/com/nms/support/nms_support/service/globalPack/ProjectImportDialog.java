@@ -216,7 +216,7 @@ public class ProjectImportDialog {
             // Set up the list view
             ObservableList<ProjectEntity> projectList = FXCollections.observableArrayList(availableProjects);
             projectListView.setItems(projectList);
-            projectListView.setCellFactory(_ -> new ProjectListCell());
+            projectListView.setCellFactory(listView -> new ProjectListCell());
             
             // Ensure ListView is enabled and has proper styling when it has items
             projectListView.setDisable(false);
@@ -250,8 +250,8 @@ public class ProjectImportDialog {
      * Sets up button actions
      */
     private void setupButtonActions() {
-        importButton.setOnAction(_ -> importSelectedProject());
-        cancelButton.setOnAction(_ -> cancelDialog());
+        importButton.setOnAction(event -> importSelectedProject());
+        cancelButton.setOnAction(event -> cancelDialog());
         
         // Handle escape key
         dialogStage.getScene().setOnKeyPressed(event -> {
@@ -266,7 +266,7 @@ public class ProjectImportDialog {
      */
     private void setupButtonHoverEffects() {
         // Cancel button hover effects
-        cancelButton.setOnMouseEntered(_ -> {
+        cancelButton.setOnMouseEntered(event -> {
             if (!cancelButton.isDisabled()) {
                 cancelButton.setStyle(
                     "-fx-background-color: #f1f5f9; " +
@@ -283,7 +283,7 @@ public class ProjectImportDialog {
             }
         });
         
-        cancelButton.setOnMouseExited(_ -> {
+        cancelButton.setOnMouseExited(event -> {
             if (!cancelButton.isDisabled()) {
                 cancelButton.setStyle(
                     "-fx-background-color: transparent; " +
@@ -301,7 +301,7 @@ public class ProjectImportDialog {
         });
         
         // Import button hover effects
-        importButton.setOnMouseEntered(_ -> {
+        importButton.setOnMouseEntered(event -> {
             if (!importButton.isDisabled()) {
                 importButton.setStyle(
                     "-fx-background-color: #0d47a1; " +
@@ -319,7 +319,7 @@ public class ProjectImportDialog {
             }
         });
         
-        importButton.setOnMouseExited(_ -> {
+        importButton.setOnMouseExited(event -> {
             if (!importButton.isDisabled()) {
                 importButton.setStyle(
                     "-fx-background-color: #1565c0; " +

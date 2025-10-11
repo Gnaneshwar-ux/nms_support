@@ -18,6 +18,9 @@ set INSTALLER_TYPE=exe
 rem ------ SETUP DIRECTORIES AND FILES ----------------------------------------
 rem Remove previously generated java runtime and installers. Copy all required
 rem jar files into the input/libs folder.
+rem Note: JD-Core decompiler libraries (jd-core-1.1.3.jar, jd-gui-1.6.6.jar) 
+rem are copied to target/libs by maven-resources-plugin and included in the 
+rem main JAR by maven-assembly-plugin.
 
 IF EXIST target\java-runtime rmdir /S /Q  .\target\java-runtime
 IF EXIST target\installer rmdir /S /Q target\installer
@@ -88,7 +91,7 @@ call "%JAVA22_HOME%\bin\jpackage" ^
   --type %INSTALLER_TYPE% ^
   --dest target/installer ^
   --input target/installer/input/libs ^
-  --name NMS-DevTools ^
+  --name "NMS DevTools" ^
   --main-class com.nms.support.nms_support.FakeMain ^
   --main-jar %MAIN_JAR% ^
   --java-options -Xmx2048m ^

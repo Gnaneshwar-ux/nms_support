@@ -9,7 +9,9 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class ProjectManager implements IManager {
 
@@ -132,6 +134,8 @@ public class ProjectManager implements IManager {
     public List<ProjectEntity> getProjects() {
         List<ProjectEntity> projects = projectWrapper != null ? projectWrapper.getProjects() : new ArrayList<>();
         if (projects != null) {
+            // Remove duplicates based on project name to prevent data corruption
+            projects = removeDuplicateProjects(projects);
             // Sort by order in descending order (highest order first - most recent first)
             projects.sort(Comparator.comparingInt(ProjectEntity::getOrder).reversed());
         }
@@ -151,6 +155,14 @@ public class ProjectManager implements IManager {
             if (projectWrapper == null) {
                 projectWrapper = new ProjectWrapper();
             }
+            
+            // Clean up any duplicate projects before saving
+            List<ProjectEntity> projects = projectWrapper.getProjects();
+            if (projects != null) {
+                projects = removeDuplicateProjects(projects);
+                projectWrapper.setProjects(projects);
+            }
+            
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(this.source, projectWrapper);
             return  true;
         } catch (IOException e) {
@@ -234,6 +246,10 @@ public class ProjectManager implements IManager {
             return;
         }
         
+        // Remove duplicates first to prevent issues
+        projects = removeDuplicateProjects(projects);
+        projectWrapper.setProjects(projects);
+        
         ProjectEntity targetProject = null;
         int maxOrder = -1;
         
@@ -275,5 +291,36 @@ public class ProjectManager implements IManager {
         for (int i = 0; i < projects.size(); i++) {
             projects.get(i).setOrder(i);
         }
+    }
+    
+    /**
+     * Removes duplicate projects based on project name, keeping the one with the highest order
+     * This prevents data corruption and duplicate entries
+     * @param projects List of projects to deduplicate
+     * @return Deduplicated list of projects
+     */
+    private List<ProjectEntity> removeDuplicateProjects(List<ProjectEntity> projects) {
+        if (projects == null || projects.isEmpty()) {
+            return projects;
+        }
+        
+        Map<String, ProjectEntity> uniqueProjects = new HashMap<>();
+        
+        for (ProjectEntity project : projects) {
+            String projectName = project.getName();
+            if (projectName != null && !projectName.trim().isEmpty()) {
+                if (!uniqueProjects.containsKey(projectName)) {
+                    uniqueProjects.put(projectName, project);
+                } else {
+                    // Keep the project with the higher order (more recent)
+                    ProjectEntity existingProject = uniqueProjects.get(projectName);
+                    if (project.getOrder() > existingProject.getOrder()) {
+                        uniqueProjects.put(projectName, project);
+                    }
+                }
+            }
+        }
+        
+        return new ArrayList<>(uniqueProjects.values());
     }
 }

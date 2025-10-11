@@ -10,6 +10,8 @@ import com.nms.support.nms_support.service.userdata.ProjectManager;
 import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.HashSet;
+import java.util.Set;
 
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
 import com.nms.support.nms_support.service.globalPack.ManageFile;
@@ -264,6 +266,7 @@ public class ControlApp {
                         logger.info("build.xml found in working directory: " + finalPath);
                         buildAutomation.appendTextToLog("  → build.xml found in working directory");
                     }
+                    
                     
                     ProcessBuilder builder = new ProcessBuilder("cmd.exe", "/c", type + " && exit 0 || exit 1");
                     builder.directory(workingDir);
@@ -586,6 +589,7 @@ public class ControlApp {
 
             buildAutomation.appendTextToLog("SUCCESS: Application process started successfully");
             buildAutomation.appendTextToLog("INFO: Application is now running in background");
+
 
         } catch (IOException e) {
             buildAutomation.appendTextToLog("ERROR: FAILED TO START APPLICATION");

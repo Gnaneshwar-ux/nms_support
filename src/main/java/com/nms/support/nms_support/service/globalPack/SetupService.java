@@ -1,15 +1,13 @@
 package com.nms.support.nms_support.service.globalPack;
 
-import com.nms.support.nms_support.controller.BuildAutomation;
 import com.nms.support.nms_support.controller.MainController;
 import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.service.buildTabPack.patchUpdate.CreateInstallerCommand;
 import com.nms.support.nms_support.service.buildTabPack.patchUpdate.SFTPDownloadAndUnzip;
 import com.nms.support.nms_support.service.buildTabPack.patchUpdate.FileFetcher;
 import com.nms.support.nms_support.service.buildTabPack.patchUpdate.DirectoryProcessor;
-import com.nms.support.nms_support.service.globalPack.ProcessMonitorAdapter;
-import com.nms.support.nms_support.service.userdata.ProjectManager;
 import javafx.application.Platform;
+import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
 import org.tmatesoft.svn.core.SVNException;
 
@@ -17,20 +15,19 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.*;
+import java.util.ArrayList;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
-import java.nio.file.FileVisitResult;
-import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.cert.X509Certificate;
 import javax.net.ssl.*;
@@ -44,8 +41,13 @@ public class SetupService {
 
     private static String validation = "VALIDATION";
     public enum SetupMode {
+        PATCH_UPGRADE,          // Product installation with project validation and build files update
+        PRODUCT_ONLY,           // Product installation only, no project validation
         FULL_CHECKOUT,
-        PRODUCT_ONLY
+        PROJECT_AND_PRODUCT_FROM_SERVER,
+        PROJECT_ONLY_SVN,
+        PROJECT_ONLY_SERVER,
+        HAS_JAVA_MODE           // Java already extracted, perform loading resources, exe creation, and build file updates
     }
     
     public enum ValidationResult {
@@ -53,6 +55,7 @@ public class SetupService {
         MISSING_ENV_VAR,
         MISSING_PRODUCT_FOLDER,
         MISSING_SVN_URL,
+        MISSING_SVN_CREDENTIALS,
         MISSING_PROJECT_FOLDER,
         MISSING_LAUNCH4J,
         MISSING_NSIS,
@@ -65,7 +68,17 @@ public class SetupService {
         SFTP_CONNECTION_FAILED,
         VPN_CONNECTION_FAILED,
         NETWORK_CONNECTION_FAILED,
-        EXCEPTION, NOT_ALLOWED, INVALID_PATHS
+        EXCEPTION, NOT_ALLOWED, INVALID_PATHS,
+        MISSING_SERVER_DETAILS,
+        SERVER_CONNECTION_FAILED,
+        PROJECT_DOWNLOAD_FAILED,
+        PROJECT_EXTRACTION_FAILED,
+        MISSING_NMS_CONFIG,
+        MISSING_NMS_HOME,
+        SERVER_ENV_VALIDATION_FAILED,
+        PRODUCT_ENV_VALIDATION_FAILED,
+        SERVER_PATH_VALIDATION_FAILED,
+        PRODUCT_PATH_VALIDATION_FAILED
     }
     
     private final ProjectEntity project;
@@ -109,7 +122,13 @@ public class SetupService {
     public SetupService(ProjectEntity project, ProcessMonitor processMonitor, Boolean isFull) {
         this.project = project;
         this.processMonitor = processMonitor;
-        this.setupMode = isFull ? SetupMode.FULL_CHECKOUT : SetupMode.PRODUCT_ONLY;
+        this.setupMode = isFull ? SetupMode.FULL_CHECKOUT : SetupMode.PATCH_UPGRADE;
+    }
+    
+    public SetupService(ProjectEntity project, ProcessMonitor processMonitor, SetupMode setupMode) {
+        this.project = project;
+        this.processMonitor = processMonitor;
+        this.setupMode = setupMode;
     }
     
     /**
@@ -131,12 +150,21 @@ public class SetupService {
             
             // Run comprehensive tool and connectivity validation
             processMonitor.addStep("tool_validation", "Validating Tools");
-            ValidationResult toolValidationRes = validateRequiredToolsAndConnectivity();
+            ProgressCallback toolValidationCallback = new ProcessMonitorAdapter(processMonitor, "tool_validation");
+            ValidationResult toolValidationRes = validateRequiredToolsAndConnectivity(toolValidationCallback);
             if (toolValidationRes != ValidationResult.SUCCESS) {
                 processMonitor.markFailed("tool_validation", toolValidationRes.toString());
                 return;
             } else {
                 processMonitor.markComplete("tool_validation", "All required tools and connectivity validated successfully");
+            }
+            if(!processMonitor.isRunning()) return;
+
+            // Validate server environment variables for server-based operations
+            ValidationResult serverEnvValidationRes = validateServerEnvironmentVariables(setupMode);
+            if (serverEnvValidationRes != ValidationResult.SUCCESS) {
+                processMonitor.markFailed("server_env_validation", serverEnvValidationRes.toString());
+                return;
             }
             
             processMonitor.markComplete(validation, "Pre-validation completed successfully");
@@ -152,7 +180,24 @@ public class SetupService {
             
             if(!processMonitor.isRunning()) return;
             
-            if (setupMode == SetupMode.FULL_CHECKOUT) {
+            // Kill running exe processes before product setup (first step in product-containing setups)
+            // This prevents issues with demon processes that haven't created log files yet
+            if (setupMode != SetupMode.PROJECT_ONLY_SVN && setupMode != SetupMode.PROJECT_ONLY_SERVER) {
+                processMonitor.addStep("process_cleanup", "Killing running exe processes");
+                try {
+                    killAllExeProcessesFromLogs(project);
+                    processMonitor.markComplete("process_cleanup", "All exe processes terminated successfully");
+                } catch (Exception e) {
+                    // Don't fail the setup if process killing fails, just warn
+                    logger.warning("Error killing processes during setup: " + e.getMessage());
+                    processMonitor.markComplete("process_cleanup", "Process cleanup completed with warnings");
+                }
+                if(!processMonitor.isRunning()) return;
+            }
+            
+            // Handle different setup modes
+            switch (setupMode) {
+                case FULL_CHECKOUT: {
                 // SVN checkout
                 // Clean folder before checkout
                 processMonitor.addStep("cleanup", "Cleaning project directory");
@@ -191,8 +236,9 @@ public class SetupService {
 
                 //Here call a method to validate project folder if project folder contains jconfig update the project folder path with this new jconfig path, if jconfig missing report error stop the process 
                 processMonitor.addStep("validation", "Validating project structure");
+                ProgressCallback validationCallback = new ProcessMonitorAdapter(processMonitor, "validation");
                 String projectFolderPath = project.getProjectFolderPathForCheckout();
-                String validatedJconfigPath = validateProjectFolder(projectFolderPath);
+                String validatedJconfigPath = validateProjectFolder(projectFolderPath, validationCallback);
                 if (validatedJconfigPath == null) {
                     processMonitor.markFailed("validation", "Project validation failed: jconfig folder not found in project folder");
                     return;
@@ -215,13 +261,14 @@ public class SetupService {
                 if (!processMonitor.isRunning()) return; 
 
                 // SFTP download and unzip
-                processMonitor.addStep("sftp_download", "SFTP download and extraction");
+                processMonitor.addStep("sftp_download", "Java download and extraction");
                 try {
                     ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "sftp_download");
                     String dir_temp = project.getExePath();
-                    SFTPDownloadAndUnzip.start(dir_temp, project, callback);
+                    // Use setupMode as purpose for session isolation
+                    SFTPDownloadAndUnzip.start(dir_temp, project, callback, setupMode.name().toLowerCase());
                 } catch (Exception e) {
-                    processMonitor.markFailed("sftp_download", "SFTP download failed: " + e.getMessage());
+                    processMonitor.markFailed("sftp_download", "Java download failed: " + e.getMessage());
                     return;
                 }
                 if (!processMonitor.isRunning()) return;
@@ -234,6 +281,7 @@ public class SetupService {
                     String serverURL = adjustUrl(project.getNmsAppURL()); // Using SVN repo as server URL
                     FileFetcher.loadResources(dir_temp, serverURL, callback);
                 } catch (Exception e) {
+                    e.printStackTrace();
                     processMonitor.markFailed("resource_loading", "Resource loading failed: " + e.getMessage());
                     return;
                 }
@@ -269,48 +317,37 @@ public class SetupService {
                 }
                 if (!processMonitor.isRunning()) return;
 
-                // Update build files with environment variable
+                // Update build files with environment variable using automated logic
                 processMonitor.addStep("build_file_updates", "Updating build files with environment variable");
                 try {
                     String env_name = project.getNmsEnvVar();
                     String exePath = project.getExePath();
                     
-                    // Update build.properties file
-                    String buildPropertiesPath = exePath + "/java/ant/build.properties";
-                    File buildPropertiesFile = new File(buildPropertiesPath);
-                    if (buildPropertiesFile.exists() && buildPropertiesFile.isFile() && buildPropertiesFile.canRead()) {
-                        ManageFile.replaceTextInFiles(List.of(buildPropertiesPath), "NMS_HOME", env_name);
-                        processMonitor.updateState("build_file_updates", 50);
-                        logger.info("Updated build.properties with environment variable: " + env_name);
-                    } else {
-                        logger.warning("build.properties file not found or not accessible: " + buildPropertiesPath);
-                    }
+                    // Use automated replacement logic
+                    boolean replacementSuccess = performAutomatedBuildFileReplacement(exePath, env_name, processMonitor);
                     
-                    // Update build.xml file
-                    String buildXmlPath = exePath + "/java/ant/build.xml";
-                    File buildXmlFile = new File(buildXmlPath);
-                    if (buildXmlFile.exists() && buildXmlFile.isFile() && buildXmlFile.canRead()) {
-                        ManageFile.replaceTextInFiles(List.of(buildXmlPath), "NMS_HOME", env_name);
-                        processMonitor.updateState("build_file_updates", 100);
-                        logger.info("Updated build.xml with environment variable: " + env_name);
+                    if (replacementSuccess) {
+                        processMonitor.markComplete("build_file_updates", "Build files updated successfully with environment variable: " + env_name);
                     } else {
-                        logger.warning("build.xml file not found or not accessible: " + buildXmlPath);
+                        processMonitor.markFailed("build_file_updates", "Automated build file replacement failed - manual replacement required");
+                        // Show warning dialog about manual replacement needed
+                        showManualReplacementWarning(env_name);
                     }
-                    
-                    processMonitor.markComplete("build_file_updates", "Build files updated successfully with environment variable: " + env_name);
                 } catch (Exception e) {
                     logger.severe("Failed to update build files: " + e.getMessage());
                     processMonitor.markFailed("build_file_updates", "Failed to update build files: " + e.getMessage());
                     return;
                 }
                 if (!processMonitor.isRunning()) return;
-
-            }
-            else if(setupMode == SetupMode.PRODUCT_ONLY) {
-                //Here call a method to validate project folder if project folder contains jconfig update the project folder path with this new jconfig path, if jconfig missing report error stop the process 
+                }
+                    break;
+                    
+                case PATCH_UPGRADE: {
+                // Patch upgrade mode: validate project structure and update build files
                 processMonitor.addStep("validation", "Validating project structure");
+                ProgressCallback validationCallback2 = new ProcessMonitorAdapter(processMonitor, "validation");
                 String projectFolderPath = project.getProjectFolderPathForCheckout();
-                String validatedJconfigPath = validateProjectFolder(projectFolderPath);
+                String validatedJconfigPath = validateProjectFolder(projectFolderPath, validationCallback2);
                 if (validatedJconfigPath == null) {
                     processMonitor.markFailed("validation", "Project validation failed: jconfig folder not found in project folder");
                     return;
@@ -333,13 +370,88 @@ public class SetupService {
                 if (!processMonitor.isRunning()) return;
 
                 // SFTP download and unzip
-                processMonitor.addStep("sftp_download", "SFTP download and extraction");
+                processMonitor.addStep("sftp_download", "Java download and extraction");
                 try {
                     ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "sftp_download");
                     String dir_temp = project.getExePath();
-                    SFTPDownloadAndUnzip.start(dir_temp, project, callback);
+                    // Use setupMode as purpose for session isolation
+                    SFTPDownloadAndUnzip.start(dir_temp, project, callback, setupMode.name().toLowerCase());
                 } catch (Exception e) {
-                    processMonitor.markFailed("sftp_download", "SFTP download failed: " + e.getMessage());
+                    processMonitor.markFailed("sftp_download", "Java download failed: " + e.getMessage());
+                    return;
+                }
+                if (!processMonitor.isRunning()) return;
+
+                // Load additional resources
+                processMonitor.addStep("resource_loading", "Loading additional resources");
+                try {
+                    ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "resource_loading");
+                    String dir_temp = project.getExePath();
+                    String serverURL = adjustUrl(project.getNmsAppURL());
+                    FileFetcher.loadResources(dir_temp, serverURL, callback);
+                } catch (Exception e) {
+                    processMonitor.markFailed("resource_loading", "Resource loading failed: " + e.getMessage());
+                    return;
+                }
+                if (!processMonitor.isRunning()) return; 
+                
+                // Process directory structure
+                processMonitor.addStep("directory_processing", "Processing directory structure");
+                try {
+                    ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "directory_processing");
+                    String dir_temp = project.getExePath();
+                    DirectoryProcessor.processDirectory(dir_temp, callback);
+                } catch (Exception e) {
+                    processMonitor.markFailed("directory_processing", "Directory processing failed: " + e.getMessage());
+                    return;
+                }
+                if (!processMonitor.isRunning()) return;
+
+                // Create installer
+                processMonitor.addStep("installer_creation", "Creating executables");
+                try {
+                    ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "installer_creation");
+                    CreateInstallerCommand cic = new CreateInstallerCommand();
+                    String appURL = project.getNmsAppURL();
+                    String envVarName = project.getNmsEnvVar();
+                    boolean success = cic.execute(appURL, envVarName, project, callback);
+                    if (!success) {
+                        processMonitor.markFailed("installer_creation", "Installer creation failed");
+                        return;
+                    }
+                    processMonitor.markComplete("installer_creation", "Setup completed successfully");
+                } catch (Exception e) {
+                    processMonitor.markFailed("installer_creation", "Installer creation failed: " + e.getMessage());
+                    return;
+                }
+                if (!processMonitor.isRunning()) return;
+                }
+                    break;
+                    
+                case PRODUCT_ONLY: {
+                // Product only mode: skip project validation and build files update
+                processMonitor.addStep("validation", "Skipping project validation (Product Only mode)");
+                processMonitor.markComplete("validation", "Project validation skipped");
+                if (!processMonitor.isRunning()) return;
+
+                // Clean product directory
+                processMonitor.addStep("product_cleanup", "Cleaning product directory");
+                if (!cleanProductDirectory(project.getExePath())) {
+                    processMonitor.markFailed("product_cleanup", "Failed to clean product directory");
+                    return;
+                }
+                processMonitor.markComplete("product_cleanup", "Product directory cleaned successfully");
+                if (!processMonitor.isRunning()) return;
+
+                // SFTP download and unzip
+                processMonitor.addStep("sftp_download", "Java download and extraction");
+                try {
+                    ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "sftp_download");
+                    String dir_temp = project.getExePath();
+                    // Use setupMode as purpose for session isolation
+                    SFTPDownloadAndUnzip.start(dir_temp, project, callback, setupMode.name().toLowerCase());
+                } catch (Exception e) {
+                    processMonitor.markFailed("sftp_download", "Java download failed: " + e.getMessage());
                     return;
                 }
                 if (!processMonitor.isRunning()) return;
@@ -387,43 +499,58 @@ public class SetupService {
                 }
                 if (!processMonitor.isRunning()) return;
 
-                // Update build files with environment variable
+                // Update build files with environment variable using automated logic
                 processMonitor.addStep("build_file_updates", "Updating build files with environment variable");
                 try {
                     String env_name = project.getNmsEnvVar();
                     String exePath = project.getExePath();
                     
-                    // Update build.properties file
-                    String buildPropertiesPath = exePath + "/java/ant/build.properties";
-                    File buildPropertiesFile = new File(buildPropertiesPath);
-                    if (buildPropertiesFile.exists() && buildPropertiesFile.isFile() && buildPropertiesFile.canRead()) {
-                        ManageFile.replaceTextInFiles(List.of(buildPropertiesPath), "NMS_HOME", env_name);
-                        processMonitor.updateState("build_file_updates", 50);
-                        logger.info("Updated build.properties with environment variable: " + env_name);
-                    } else {
-                        logger.warning("build.properties file not found or not accessible: " + buildPropertiesPath);
-                    }
+                    // Use automated replacement logic
+                    boolean replacementSuccess = performAutomatedBuildFileReplacement(exePath, env_name, processMonitor);
                     
-                    // Update build.xml file
-                    String buildXmlPath = exePath + "/java/ant/build.xml";
-                    File buildXmlFile = new File(buildXmlPath);
-                    if (buildXmlFile.exists() && buildXmlFile.isFile() && buildXmlFile.canRead()) {
-                        ManageFile.replaceTextInFiles(List.of(buildXmlPath), "NMS_HOME", env_name);
-                        processMonitor.updateState("build_file_updates", 100);
-                        logger.info("Updated build.xml with environment variable: " + env_name);
+                    if (replacementSuccess) {
+                        processMonitor.markComplete("build_file_updates", "Build files updated successfully with environment variable: " + env_name);
                     } else {
-                        logger.warning("build.xml file not found or not accessible: " + buildXmlPath);
+                        processMonitor.markFailed("build_file_updates", "Automated build file replacement failed - manual replacement required");
+                        // Show warning dialog about manual replacement needed
+                        showManualReplacementWarning(env_name);
                     }
-                    
-                    processMonitor.markComplete("build_file_updates", "Build files updated successfully with environment variable: " + env_name);
                 } catch (Exception e) {
                     logger.severe("Failed to update build files: " + e.getMessage());
                     processMonitor.markFailed("build_file_updates", "Failed to update build files: " + e.getMessage());
                     return;
                 }
                 if (!processMonitor.isRunning()) return;
-            } else {
-
+                }
+                    break;
+                    
+                case PROJECT_AND_PRODUCT_FROM_SERVER:
+                    // Server-based project download + Product installation
+                    if (!performServerProjectAndProductInstallation(processMonitor)) {
+                        return;
+                    }
+                    break;
+                    
+                case PROJECT_ONLY_SVN:
+                    // SVN checkout only (no product installation)
+                    if (!performSVNCheckoutOnly(processMonitor)) {
+                        return;
+                    }
+                    break;
+                    
+                case PROJECT_ONLY_SERVER:
+                    // Server project download only (no product installation)
+                    if (!performServerProjectOnly(processMonitor)) {
+                        return;
+                    }
+                    break;
+                    
+                case HAS_JAVA_MODE:
+                    // Java already extracted, perform loading resources, exe creation, and build file updates
+                    if (!performHasJavaModeSetup(processMonitor)) {
+                        return;
+                    }
+                    break;
             }
             
             // Finalize setup
@@ -656,111 +783,649 @@ public class SetupService {
     }
     
     /**
-     * Validate all required inputs
+     * Validate all required inputs based on setup mode
      */
     private ValidationResult validateInputs() {
         try {
             if (project == null) {
                 return ValidationResult.MISSING_PROJECT_FOLDER;
             }
-                processMonitor.updateState(validation, 5);
+            processMonitor.updateState(validation, 5);
 
+            // Common validations for all modes
             if (project.getNmsEnvVar() == null || project.getNmsEnvVar().trim().isEmpty()) {
                 return ValidationResult.MISSING_ENV_VAR;
             }
-                processMonitor.updateState(validation, 10);
+            processMonitor.updateState(validation, 10);
 
-            if (project.getExePath() == null || project.getExePath().trim().isEmpty()) {
-                return ValidationResult.MISSING_PRODUCT_FOLDER;
+            // Validate based on setup mode
+            switch (setupMode) {
+                case PATCH_UPGRADE:
+                    return validatePatchUpgradeMode();
+                case PRODUCT_ONLY:
+                    return validateProductOnlyMode();
+                case FULL_CHECKOUT:
+                    return validateFullCheckoutMode();
+                case PROJECT_AND_PRODUCT_FROM_SERVER:
+                    return validateProjectAndProductFromServerMode();
+                case PROJECT_ONLY_SVN:
+                    return validateProjectOnlySvnMode();
+                case PROJECT_ONLY_SERVER:
+                    return validateProjectOnlyServerMode();
+                case HAS_JAVA_MODE:
+                    return validateHasJavaMode();
+                default:
+                    logger.severe("Unknown setup mode: " + setupMode);
+                    return ValidationResult.EXCEPTION;
             }
-                processMonitor.updateState(validation, 15);
+        } catch (Exception e) {
+            logger.severe("Validation failed with exception: " + e.getMessage());
+            return ValidationResult.EXCEPTION;
+        }
+    }
+    
+    /**
+     * Validate for Patch Upgrade mode (Product installation with project validation)
+     */
+    private ValidationResult validatePatchUpgradeMode() {
+        // Product folder validation
+        if (project.getExePath() == null || project.getExePath().trim().isEmpty()) {
+            logger.severe("Product folder is not configured");
+            return ValidationResult.MISSING_PRODUCT_FOLDER;
+        }
+        processMonitor.updateState(validation, 10);
+        
+        // Project folder validation (required for build files update)
+        if (project.getProjectFolderPathForCheckout() == null || project.getProjectFolderPathForCheckout().trim().isEmpty()) {
+            logger.severe("Project folder path is not configured");
+            return ValidationResult.MISSING_PROJECT_FOLDER;
+        }
+        processMonitor.updateState(validation, 15);
 
-            // Validate SFTP credentials for both setup modes
-            if (project.getHost() == null || project.getHost().trim().isEmpty()) {
-                logger.severe("SFTP Host is not configured");
-                return ValidationResult.MISSING_SFTP_HOST;
+        // App URL validation
+        if (project.getNmsAppURL() == null || project.getNmsAppURL().trim().isEmpty()) {
+            logger.severe("App URL is not configured");
+            return ValidationResult.MISSING_APP_URL;
+        }
+        processMonitor.updateState(validation, 20);
+
+        return ValidationResult.SUCCESS;
+    }
+    
+    /**
+     * Validate for Product Only mode (Product installation only, no project validation)
+     */
+    private ValidationResult validateProductOnlyMode() {
+        // Product folder validation
+        if (project.getExePath() == null || project.getExePath().trim().isEmpty()) {
+            return ValidationResult.MISSING_PRODUCT_FOLDER;
+        }
+        processMonitor.updateState(validation, 15);
+
+        // App URL validation
+        if (project.getNmsAppURL() == null || project.getNmsAppURL().trim().isEmpty()) {
+            logger.severe("App URL is not configured");
+            return ValidationResult.MISSING_APP_URL;
+        }
+        processMonitor.updateState(validation, 20);
+
+        return ValidationResult.SUCCESS;
+    }
+    
+    /**
+     * Validate for Full Checkout mode (SVN + Product)
+     */
+    private ValidationResult validateFullCheckoutMode() {
+        // Product folder validation
+        if (project.getExePath() == null || project.getExePath().trim().isEmpty()) {
+            logger.severe("Product folder is not configured");
+            return ValidationResult.MISSING_PRODUCT_FOLDER;
+        }
+        processMonitor.updateState(validation, 10);
+        
+        // Project folder validation (required for SVN checkout)
+        if (project.getProjectFolderPathForCheckout() == null || project.getProjectFolderPathForCheckout().trim().isEmpty()) {
+            logger.severe("Project folder path is not configured");
+            return ValidationResult.MISSING_PROJECT_FOLDER;
+        }
+        processMonitor.updateState(validation, 15);
+
+        // SVN URL validation
+        if (project.getSvnRepo() == null || project.getSvnRepo().trim().isEmpty() || project.getSvnRepo().trim().equals("NULL")) {
+            logger.severe("SVN repository URL is not configured");
+            return ValidationResult.MISSING_SVN_URL;
+        }
+        processMonitor.updateState(validation, 20);
+        
+        // SVN credentials validation
+        if (project.getUsername() == null || project.getUsername().trim().isEmpty()) {
+            logger.severe("SVN username is not configured");
+            return ValidationResult.MISSING_SVN_CREDENTIALS;
+        }
+        if (project.getPassword() == null || project.getPassword().trim().isEmpty()) {
+            logger.severe("SVN password is not configured");
+            return ValidationResult.MISSING_SVN_CREDENTIALS;
+        }
+        processMonitor.updateState(validation, 22);
+
+        // App URL validation
+        if (project.getNmsAppURL() == null || project.getNmsAppURL().trim().isEmpty()) {
+            logger.severe("App URL is not configured");
+            return ValidationResult.MISSING_APP_URL;
+        }
+        processMonitor.updateState(validation, 25);
+
+        return ValidationResult.SUCCESS;
+    }
+    
+    /**
+     * Validate for Project and Product from Server mode
+     */
+    private ValidationResult validateProjectAndProductFromServerMode() {
+        // Server details validation (includes host and auth validation)
+        ValidationResult serverValidation = validateServerDetails();
+        if (serverValidation != ValidationResult.SUCCESS) {
+            return serverValidation;
+        }
+        processMonitor.updateState(validation, 10);
+        
+        // Project folder validation (required for server project download)
+        if (project.getProjectFolderPath() == null || project.getProjectFolderPath().trim().isEmpty()) {
+            logger.severe("Project folder path is not configured");
+            return ValidationResult.MISSING_PROJECT_FOLDER;
+        }
+        processMonitor.updateState(validation, 15);
+
+        // Product folder validation (required for product operations)
+        if (project.getExePath() == null || project.getExePath().trim().isEmpty()) {
+            logger.severe("Product folder is not configured");
+            return ValidationResult.MISSING_PRODUCT_FOLDER;
+        }
+        processMonitor.updateState(validation, 20);
+
+        // App URL validation
+        if (project.getNmsAppURL() == null || project.getNmsAppURL().trim().isEmpty()) {
+            logger.severe("App URL is not configured");
+            return ValidationResult.MISSING_APP_URL;
+        }
+        processMonitor.updateState(validation, 25);
+
+        // Check for existing project folder and ask for confirmation
+        File projectFolder = new File(project.getProjectFolderPath());
+        if (projectFolder.exists() && projectFolder.isDirectory() &&
+                projectFolder.listFiles() != null && projectFolder.listFiles().length > 0) {
+
+            final boolean[] proceed = {false};
+            CountDownLatch latch = new CountDownLatch(1);
+
+            Platform.runLater(() -> {
+                Optional<ButtonType> result = DialogUtil.showConfirmationDialog(
+                        "Server Project Download",
+                        "The project folder chosen is not empty. Do you want to proceed with clean download?\nWarning: This will delete entire local project folder, unsaved changes will be lost.",
+                        "Ok to delete project directory."
+                );
+
+                if (result.isPresent() && result.get() == ButtonType.OK) {
+                    proceed[0] = true;
+                }
+                latch.countDown();
+            });
+
+            // Wait for the user to respond
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warning("Thread interrupted while waiting for user response");
+                return ValidationResult.EXCEPTION;
             }
-            processMonitor.updateState(validation, 20);
 
-            if (project.getHostUser() == null || project.getHostUser().trim().isEmpty()) {
-                logger.severe("SFTP Username is not configured");
+            if (!proceed[0]) {
+                return ValidationResult.NOT_ALLOWED;
+            }
+        }
+        processMonitor.updateState(validation, 30);
+
+        return ValidationResult.SUCCESS;
+    }
+    
+    
+    /**
+     * Validate for Project Only SVN mode
+     */
+    private ValidationResult validateProjectOnlySvnMode() {
+        // Project folder validation (required for SVN checkout)
+        if (project.getProjectFolderPathForCheckout() == null || project.getProjectFolderPathForCheckout().trim().isEmpty()) {
+            logger.severe("Project folder path is not configured");
+            return ValidationResult.MISSING_PROJECT_FOLDER;
+        }
+        processMonitor.updateState(validation, 10);
+        
+        // SVN URL validation
+        if (project.getSvnRepo() == null || project.getSvnRepo().trim().isEmpty() || project.getSvnRepo().trim().equals("NULL")) {
+            logger.severe("SVN repository URL is not configured");
+            return ValidationResult.MISSING_SVN_URL;
+        }
+        processMonitor.updateState(validation, 15);
+        
+        // SVN credentials validation
+        if (project.getUsername() == null || project.getUsername().trim().isEmpty()) {
+            logger.severe("SVN username is not configured");
+            return ValidationResult.MISSING_SVN_CREDENTIALS;
+        }
+        if (project.getPassword() == null || project.getPassword().trim().isEmpty()) {
+            logger.severe("SVN password is not configured");
+            return ValidationResult.MISSING_SVN_CREDENTIALS;
+        }
+        processMonitor.updateState(validation, 20);
+
+        return ValidationResult.SUCCESS;
+    }
+    
+    /**
+     * Validate for Project Only Server mode
+     */
+    private ValidationResult validateProjectOnlyServerMode() {
+        // Server details validation (includes host and auth validation)
+        ValidationResult serverValidation = validateServerDetails();
+        if (serverValidation != ValidationResult.SUCCESS) {
+            return serverValidation;
+        }
+        processMonitor.updateState(validation, 10);
+        
+        // Project folder validation (required for server project download)
+        if (project.getProjectFolderPath() == null || project.getProjectFolderPath().trim().isEmpty()) {
+            logger.severe("Project folder path is not configured");
+            return ValidationResult.MISSING_PROJECT_FOLDER;
+        }
+        processMonitor.updateState(validation, 15);
+
+        // Check for existing project folder and ask for confirmation
+        File projectFolder = new File(project.getProjectFolderPath());
+        if (projectFolder.exists() && projectFolder.isDirectory() &&
+                projectFolder.listFiles() != null && projectFolder.listFiles().length > 0) {
+
+            final boolean[] proceed = {false};
+            CountDownLatch latch = new CountDownLatch(1);
+
+            Platform.runLater(() -> {
+                Optional<ButtonType> result = DialogUtil.showConfirmationDialog(
+                        "Server Project Download",
+                        "The project folder chosen is not empty. Do you want to proceed with clean download?\nWarning: This will delete entire local project folder, unsaved changes will be lost.",
+                        "Ok to delete project directory."
+                );
+
+                if (result.isPresent() && result.get() == ButtonType.OK) {
+                    proceed[0] = true;
+                }
+                latch.countDown();
+            });
+
+            // Wait for the user to respond
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warning("Thread interrupted while waiting for user response");
+                return ValidationResult.EXCEPTION;
+            }
+
+            if (!proceed[0]) {
+                return ValidationResult.NOT_ALLOWED;
+            }
+        }
+        processMonitor.updateState(validation, 20);
+
+        return ValidationResult.SUCCESS;
+    }
+    
+    /**
+     * Validate server details (SFTP credentials)
+     */
+    private ValidationResult validateServerDetails() {
+        // Validate host
+        if (project.getHost() == null || project.getHost().trim().isEmpty()) {
+            logger.severe("Server host is not configured");
+            return ValidationResult.MISSING_SFTP_HOST;
+        }
+
+        // Validate authentication based on LDAP setting
+        boolean useLdap = project.isUseLdap();
+        
+        if (useLdap) {
+            // Validate LDAP authentication
+            String ldapUser = project.getLdapUser();
+            String ldapPassword = project.getLdapPassword();
+            
+            if (ldapUser == null || ldapUser.trim().isEmpty()) {
+                logger.severe("LDAP User is not configured (LDAP authentication is enabled)");
                 return ValidationResult.MISSING_SFTP_USER;
             }
-            processMonitor.updateState(validation, 25);
-
-            if (project.getHostPass() == null || project.getHostPass().trim().isEmpty()) {
-                logger.severe("SFTP Password is not configured");
+            
+            if (ldapPassword == null || ldapPassword.trim().isEmpty()) {
+                logger.severe("LDAP Password is not configured (LDAP authentication is enabled)");
                 return ValidationResult.MISSING_SFTP_PASSWORD;
             }
-            processMonitor.updateState(validation, 30);
-
-            // Validate App URL
-            if (project.getNmsAppURL() == null || project.getNmsAppURL().trim().isEmpty()) {
-                logger.severe("App URL is not configured");
-                return ValidationResult.MISSING_APP_URL;
+        } else {
+            // Validate basic authentication
+            String hostUser = project.getHostUser();
+            String hostPassword = project.getHostPass();
+            
+            if (hostUser == null || hostUser.trim().isEmpty()) {
+                logger.severe("Host User is not configured (Basic authentication is enabled)");
+                return ValidationResult.MISSING_SFTP_USER;
             }
-            processMonitor.updateState(validation, 32);
-
-            // Validate SFTP host format
-            if (!isValidHostFormat(project.getHost())) {
-                logger.severe("Invalid SFTP host format: " + project.getHost());
-                return ValidationResult.INVALID_PATHS;
+            
+            if (hostPassword == null || hostPassword.trim().isEmpty()) {
+                logger.severe("Host Password is not configured (Basic authentication is enabled)");
+                return ValidationResult.MISSING_SFTP_PASSWORD;
             }
-            processMonitor.updateState(validation, 37);
+        }
 
-            // Validate SFTP port if specified
-            if (project.getHostPort() > 0 && (project.getHostPort() < 1 || project.getHostPort() > 65535)) {
-                logger.severe("Invalid SFTP port number: " + project.getHostPort() + " (must be between 1-65535)");
-                return ValidationResult.INVALID_PATHS;
+        // Validate SFTP host format
+        if (!isValidHostFormat(project.getHost())) {
+            logger.severe("Invalid SFTP host format: " + project.getHost());
+            return ValidationResult.INVALID_PATHS;
+        }
+
+        // Validate SFTP port if specified
+        if (project.getHostPort() > 0 && (project.getHostPort() < 1 || project.getHostPort() > 65535)) {
+            logger.severe("Invalid SFTP port number: " + project.getHostPort() + " (must be between 1-65535)");
+            return ValidationResult.INVALID_PATHS;
+        }
+
+        return ValidationResult.SUCCESS;
+    }
+
+    /**
+     * Validates server environment variables and paths required for server operations
+     * @param setupMode The setup mode to determine which validations are needed
+     * @return ValidationResult indicating success or specific failure
+     */
+    private ValidationResult validateServerEnvironmentVariables(SetupMode setupMode) {
+        try {
+            processMonitor.addStep("server_env_validation", "Validating server environment variables");
+            processMonitor.updateState("server_env_validation", 10, "Initializing server environment validation...");
+
+            processMonitor.updateState("server_env_validation", 20, "Connecting to server...");
+            
+            if (!processMonitor.isRunning()) {
+                processMonitor.markFailed("server_env_validation", "Operation cancelled during server connection");
+                return ValidationResult.SERVER_CONNECTION_FAILED;
             }
-            processMonitor.updateState(validation, 42);
 
-            if (setupMode == SetupMode.FULL_CHECKOUT) {
-                if (project.getSvnRepo() == null || project.getSvnRepo().trim().isEmpty() || project.getSvnRepo().trim().equals("NULL")) {
-                    return ValidationResult.MISSING_SVN_URL;
-                }
-                processMonitor.updateState(validation, 47);
+            processMonitor.updateState("server_env_validation", 30, "Server connection established");
 
-                File jconfigFolder = new File(project.getJconfigPathForBuild());
-                if (jconfigFolder.exists() && jconfigFolder.isDirectory() &&
-                        jconfigFolder.listFiles() != null && jconfigFolder.listFiles().length > 0) {
-
-                    final boolean[] proceed = {false};
-                    CountDownLatch latch = new CountDownLatch(1);
-
-                    Platform.runLater(() -> {
-                        Optional<ButtonType> result = DialogUtil.showConfirmationDialog(
-                                "SVN Checkout",
-                                "The project folder chosen is not empty. Do you want to proceed with clean checkout?\nWarning: This will delete entire local project folder, unsaved changes will be lost.",
-                                "Ok to delete project directory."
-                        );
-
-                        if (result.isPresent() && result.get() == ButtonType.OK) {
-                            proceed[0] = true;
-                        }
-                        latch.countDown();
-                    });
-
-                    // Wait for the user to respond
-                    latch.await();
-
-                    if (!proceed[0]) {
-                        return ValidationResult.NOT_ALLOWED;
-                    }
-                }
-                processMonitor.updateState(validation, 52);
-            } else {
-                // For PRODUCT_ONLY mode, still validate SFTP credentials but skip SVN validation
-                processMonitor.updateState(validation, 52);
+            // Validate $NMS_CONFIG for project operations using existing ServerProjectService validation
+            if (setupMode == SetupMode.PROJECT_AND_PRODUCT_FROM_SERVER || 
+                setupMode == SetupMode.PROJECT_ONLY_SERVER) {
                 
+                processMonitor.updateState("server_env_validation", 40, "Validating server project structure...");
+                ServerProjectService serverProjectService = new ServerProjectService(project);
+                
+                // Use existing ServerProjectService validation method
+                boolean projectStructureValid = serverProjectService.validateServerProjectStructure(processMonitor);
+                if (!projectStructureValid) {
+                    processMonitor.markFailed("server_env_validation", "Server project structure validation failed");
+                    return ValidationResult.MISSING_NMS_CONFIG;
+                }
+                processMonitor.updateState("server_env_validation", 60, "Server project structure validated successfully");
+                
+                // Validate paths used in zipping operations
+                ValidationResult pathResult = validateServerPaths();
+                if (pathResult != ValidationResult.SUCCESS) {
+                    processMonitor.markFailed("server_env_validation", "Server path validation failed: " + pathResult);
+                    return pathResult;
+                }
+                processMonitor.updateState("server_env_validation", 70, "Server paths validated successfully");
             }
 
-            logger.info("All input validations completed successfully");
+            // Validate $NMS_HOME for product operations (all product-related modes)
+            if (setupMode == SetupMode.PROJECT_AND_PRODUCT_FROM_SERVER || 
+                setupMode == SetupMode.PATCH_UPGRADE ||
+                setupMode == SetupMode.PRODUCT_ONLY ||
+                setupMode == SetupMode.FULL_CHECKOUT) {
+                
+                ValidationResult nmsHomeResult = validateNmsHomeOnServer();
+                if (nmsHomeResult != ValidationResult.SUCCESS) {
+                    processMonitor.markFailed("server_env_validation", "NMS_HOME validation failed: " + nmsHomeResult);
+                    return nmsHomeResult;
+                }
+                processMonitor.updateState("server_env_validation", 80, "NMS_HOME validated successfully");
+                
+                // Validate $NMS_HOME/java for product operations
+                ValidationResult javaPathResult = validateNmsHomeJavaPath();
+                if (javaPathResult != ValidationResult.SUCCESS) {
+                    processMonitor.markFailed("server_env_validation", "NMS_HOME/java validation failed: " + javaPathResult);
+                    return javaPathResult;
+                }
+                processMonitor.updateState("server_env_validation", 90, "NMS_HOME/java validated successfully");
+            }
+
+            processMonitor.updateState("server_env_validation", 100, "All server environment variables validated successfully");
+            processMonitor.markComplete("server_env_validation", "Server environment validation completed successfully");
+            
             return ValidationResult.SUCCESS;
             
-        } catch (Exception e){
-            LoggerUtil.error(e);
-            return ValidationResult.EXCEPTION;
+        } catch (Exception e) {
+            logger.severe("Server environment validation failed with exception: " + e.getMessage());
+            processMonitor.markFailed("server_env_validation", "Server environment validation failed: " + e.getMessage());
+            return ValidationResult.SERVER_ENV_VALIDATION_FAILED;
+        }
+    }
+
+
+    /**
+     * Validates $NMS_HOME environment variable and directory on server
+     */
+    private ValidationResult validateNmsHomeOnServer() {
+        try {
+            processMonitor.logMessage("server_env_validation", "Checking NMS_HOME environment variable...");
+            
+            // Check if NMS_HOME environment variable is set
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult envResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "echo \"NMS_HOME: $NMS_HOME\"", 30, "server_env_validation");
+            
+            if (!envResult.isSuccess()) {
+                processMonitor.logMessage("server_env_validation", "Failed to check NMS_HOME environment variable");
+                return ValidationResult.MISSING_NMS_HOME;
+            }
+            
+            String output = envResult.getOutput().trim();
+            processMonitor.logMessage("server_env_validation", "Environment check output: " + output);
+            
+            // Check if NMS_HOME is empty or unset
+            // Valid output: "NMS_HOME: /path/to/nms"
+            // Invalid output: "NMS_HOME:" (empty) or "NMS_HOME: $NMS_HOME" (unset)
+            if (output.equals("NMS_HOME:") || output.equals("NMS_HOME: $NMS_HOME")) {
+                processMonitor.logMessage("server_env_validation", "NMS_HOME environment variable is not set or empty");
+                return ValidationResult.MISSING_NMS_HOME;
+            }
+            
+            // Extract the actual path from the output
+            String nmsHomePath = output.substring(output.indexOf(":") + 1).trim();
+            if (nmsHomePath.isEmpty()) {
+                processMonitor.logMessage("server_env_validation", "NMS_HOME environment variable is empty");
+                return ValidationResult.MISSING_NMS_HOME;
+            }
+            
+            processMonitor.logMessage("server_env_validation", "NMS_HOME resolved to: " + nmsHomePath);
+            
+            // Check if NMS_HOME directory exists and is accessible
+            processMonitor.logMessage("server_env_validation", "Verifying NMS_HOME directory exists...");
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult dirResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -d $NMS_HOME && echo 'EXISTS' || echo 'NOT_FOUND'", 30, "server_env_validation");
+            
+            if (!dirResult.isSuccess() || !"EXISTS".equals(dirResult.getOutput().trim())) {
+                processMonitor.logMessage("server_env_validation", "NMS_HOME directory not found or not accessible");
+                return ValidationResult.MISSING_NMS_HOME;
+            }
+            
+            // Check directory permissions and contents
+            processMonitor.logMessage("server_env_validation", "Checking NMS_HOME directory permissions...");
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult lsResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "ls -ld $NMS_HOME", 30, "server_env_validation");
+            
+            if (lsResult.isSuccess()) {
+                processMonitor.logMessage("server_env_validation", "Directory permissions: " + lsResult.getOutput().trim());
+            }
+            
+            return ValidationResult.SUCCESS;
+            
+        } catch (Exception e) {
+            logger.severe("NMS_HOME validation failed: " + e.getMessage());
+            return ValidationResult.SERVER_ENV_VALIDATION_FAILED;
+        }
+    }
+
+    /**
+     * Validates server paths used in zipping and download operations
+     */
+    private ValidationResult validateServerPaths() {
+        try {
+            processMonitor.logMessage("server_env_validation", "Validating server paths for zipping operations...");
+            
+            // Check if /tmp directory exists and is writable (used for zip files)
+            processMonitor.logMessage("server_env_validation", "Checking /tmp directory...");
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult tmpResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -d /tmp && test -w /tmp && echo 'WRITABLE' || echo 'NOT_WRITABLE'", 30, "server_env_validation");
+            
+            if (!tmpResult.isSuccess() || !"WRITABLE".equals(tmpResult.getOutput().trim())) {
+                processMonitor.logMessage("server_env_validation", "/tmp directory is not accessible or not writable");
+                return ValidationResult.SERVER_PATH_VALIDATION_FAILED;
+            }
+            
+            // Check available space in /tmp (at least 100MB free)
+            processMonitor.logMessage("server_env_validation", "Checking available space in /tmp...");
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult spaceResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "df /tmp | tail -1 | awk '{print $4}'", 30, "server_env_validation");
+            
+            if (spaceResult.isSuccess()) {
+                try {
+                    long freeKB = Long.parseLong(spaceResult.getOutput().trim());
+                    long freeMB = freeKB / 1024;
+                    processMonitor.logMessage("server_env_validation", "Available space in /tmp: " + freeMB + " MB");
+                    
+                    if (freeMB < 100) {
+                        processMonitor.logMessage("server_env_validation", "Warning: Less than 100MB free space in /tmp (" + freeMB + " MB)");
+                        // Don't fail, just warn - operations might still work
+                    }
+                } catch (NumberFormatException e) {
+                    processMonitor.logMessage("server_env_validation", "Could not parse available space, continuing...");
+                }
+            }
+            
+            // Test creating a temporary file in /tmp
+            processMonitor.logMessage("server_env_validation", "Testing write access to /tmp...");
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult testWriteResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, 
+                    "touch /tmp/nms_validation_test_$$ && rm -f /tmp/nms_validation_test_$$ && echo 'WRITE_OK' || echo 'WRITE_FAILED'", 
+                    30, "server_env_validation");
+            
+            if (!testWriteResult.isSuccess() || !"WRITE_OK".equals(testWriteResult.getOutput().trim())) {
+                processMonitor.logMessage("server_env_validation", "Write test failed in /tmp directory");
+                return ValidationResult.SERVER_PATH_VALIDATION_FAILED;
+            }
+            
+            // Check if zip command is available
+            processMonitor.logMessage("server_env_validation", "Checking if zip command is available...");
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult zipResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "which zip", 30, "server_env_validation");
+            
+            if (!zipResult.isSuccess() || zipResult.getOutput().trim().isEmpty()) {
+                processMonitor.logMessage("server_env_validation", "zip command not found on server");
+                return ValidationResult.SERVER_PATH_VALIDATION_FAILED;
+            }
+            
+            // Check if chmod command is available
+            processMonitor.logMessage("server_env_validation", "Checking if chmod command is available...");
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult chmodResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "which chmod", 30, "server_env_validation");
+            
+            if (!chmodResult.isSuccess() || chmodResult.getOutput().trim().isEmpty()) {
+                processMonitor.logMessage("server_env_validation", "chmod command not found on server");
+                return ValidationResult.SERVER_PATH_VALIDATION_FAILED;
+            }
+            
+            processMonitor.logMessage("server_env_validation", "All server paths validated successfully");
+            return ValidationResult.SUCCESS;
+            
+        } catch (Exception e) {
+            logger.severe("Server path validation failed: " + e.getMessage());
+            return ValidationResult.SERVER_PATH_VALIDATION_FAILED;
+        }
+    }
+
+    /**
+     * Validates $NMS_HOME/java path for product operations
+     */
+    private ValidationResult validateNmsHomeJavaPath() {
+        try {
+            processMonitor.logMessage("server_env_validation", "Validating NMS_HOME/java path...");
+            
+            // First check if NMS_HOME is set (this should already be validated, but double-check)
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult envCheckResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "echo \"NMS_HOME: $NMS_HOME\"", 30, "server_env_validation");
+            
+            if (envCheckResult.isSuccess()) {
+                String envOutput = envCheckResult.getOutput().trim();
+                if (envOutput.equals("NMS_HOME:") || envOutput.equals("NMS_HOME: $NMS_HOME")) {
+                    processMonitor.logMessage("server_env_validation", "NMS_HOME is not set, cannot validate NMS_HOME/java");
+                    return ValidationResult.MISSING_NMS_HOME;
+                }
+            }
+            
+            // Check if NMS_HOME/java directory exists and is accessible
+            processMonitor.logMessage("server_env_validation", "Verifying NMS_HOME/java directory exists...");
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult dirResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -d $NMS_HOME/java && echo 'EXISTS' || echo 'NOT_FOUND'", 30, "server_env_validation");
+            
+            if (!dirResult.isSuccess() || !"EXISTS".equals(dirResult.getOutput().trim())) {
+                processMonitor.logMessage("server_env_validation", "NMS_HOME/java directory not found or not accessible");
+                return ValidationResult.PRODUCT_PATH_VALIDATION_FAILED;
+            }
+            
+            // Check directory permissions and contents
+            processMonitor.logMessage("server_env_validation", "Checking NMS_HOME/java directory permissions...");
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult lsResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "ls -ld $NMS_HOME/java", 30, "server_env_validation");
+            
+            if (lsResult.isSuccess()) {
+                processMonitor.logMessage("server_env_validation", "Directory permissions: " + lsResult.getOutput().trim());
+            }
+            
+            // Check if directory is readable (for product operations)
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult readResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "test -r $NMS_HOME/java && echo 'READABLE' || echo 'NOT_READABLE'", 30, "server_env_validation");
+            
+            if (!readResult.isSuccess() || !"READABLE".equals(readResult.getOutput().trim())) {
+                processMonitor.logMessage("server_env_validation", "NMS_HOME/java directory is not readable");
+                return ValidationResult.PRODUCT_PATH_VALIDATION_FAILED;
+            }
+            
+            // Check if directory contains Java files or subdirectories
+            processMonitor.logMessage("server_env_validation", "Checking NMS_HOME/java contents...");
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult contentsResult = 
+                UnifiedSSHService.executeCommandWithPersistentSession(project, "find $NMS_HOME/java -maxdepth 1 -type f -name '*.jar' | wc -l", 30, "server_env_validation");
+            
+            if (contentsResult.isSuccess()) {
+                try {
+                    int jarCount = Integer.parseInt(contentsResult.getOutput().trim());
+                    processMonitor.logMessage("server_env_validation", "NMS_HOME/java contains " + jarCount + " jar files");
+                    if (jarCount == 0) {
+                        processMonitor.logMessage("server_env_validation", "Warning: NMS_HOME/java directory appears to be empty");
+                    }
+                } catch (NumberFormatException e) {
+                    processMonitor.logMessage("server_env_validation", "Could not count jar files in NMS_HOME/java");
+                }
+            }
+            
+            processMonitor.logMessage("server_env_validation", "NMS_HOME/java validated successfully");
+            return ValidationResult.SUCCESS;
+            
+        } catch (Exception e) {
+            logger.severe("NMS_HOME/java validation failed: " + e.getMessage());
+            return ValidationResult.PRODUCT_PATH_VALIDATION_FAILED;
         }
     }
 
@@ -772,40 +1437,57 @@ public class SetupService {
      * @param projectPath The initial project path to validate
      * @return The validated project path containing jconfig, or null if not found
      */
-    private String validateProjectFolder(String projectPath) {
+    private String validateProjectFolder(String projectPath, ProgressCallback progressCallback) {
+        progressCallback.onProgress(10, "Starting project folder validation...");
+        progressCallback.onProgress(15, "Project path: " + projectPath);
+        
         if (projectPath == null || projectPath.trim().isEmpty()) {
             logger.warning("Project path is null or empty");
+            progressCallback.onError("✗ Project path is null or empty");
             return null;
         }
 
         File projectFolder = new File(projectPath);
+        progressCallback.onProgress(20, "Checking if project folder exists...");
+        
         if (!projectFolder.exists() || !projectFolder.isDirectory()) {
             logger.warning("Project folder does not exist or is not a directory: " + projectPath);
+            progressCallback.onError("✗ Project folder does not exist: " + projectPath);
             return null;
         }
+        
+        progressCallback.onProgress(30, "✓ Project folder exists: " + projectPath);
 
         // Check if the provided path itself ends with jconfig folder, return it if it does
         if (projectFolder.getName().equals("jconfig")) {
             logger.info("Provided path itself is a jconfig folder: " + projectPath);
+            progressCallback.onProgress(100, "✓ Provided path is already jconfig folder");
             return projectPath;
         }
 
         // First, check if jconfig exists directly in the project folder
+        progressCallback.onProgress(40, "Searching for jconfig folder...");
         File jconfigFolder = new File(projectFolder, "jconfig");
+        
         if (jconfigFolder.exists() && jconfigFolder.isDirectory()) {
             String jconfigFullPath = jconfigFolder.getAbsolutePath();
             logger.info("Found jconfig folder directly in project folder: " + jconfigFullPath);
+            progressCallback.onProgress(100, "✓ Found jconfig folder: " + jconfigFullPath);
             return jconfigFullPath;
         }
 
         // If not found directly, search recursively in subdirectories
-        String jconfigPath = findJconfigRecursively(projectFolder);
+        progressCallback.onProgress(50, "jconfig not found directly, searching subdirectories...");
+        String jconfigPath = findJconfigRecursively(projectFolder, progressCallback, 50);
+        
         if (jconfigPath != null) {
             logger.info("Found jconfig folder in subdirectory: " + jconfigPath);
+            progressCallback.onProgress(100, "✓ Found jconfig folder in subdirectory: " + jconfigPath);
             return jconfigPath;
         }
 
         logger.warning("jconfig folder not found in project folder or any subdirectories: " + projectPath);
+        progressCallback.onError("✗ jconfig folder not found in project folder or subdirectories");
         return null;
     }
 
@@ -813,9 +1495,11 @@ public class SetupService {
      * Recursively searches for jconfig folder in the given directory and its subdirectories
      * 
      * @param directory The directory to search in
+     * @param progressCallback Progress callback for logging
+     * @param currentProgress Current progress percentage (incremented as we search)
      * @return The path to the directory containing jconfig, or null if not found
      */
-    private String findJconfigRecursively(File directory) {
+    private String findJconfigRecursively(File directory, ProgressCallback progressCallback, int currentProgress) {
         if (directory == null || !directory.exists() || !directory.isDirectory()) {
             return null;
         }
@@ -833,9 +1517,12 @@ public class SetupService {
         }
 
         // If not found, search in subdirectories
+        int progressIncrement = Math.min(5, (90 - currentProgress) / Math.max(1, files.length));
         for (File file : files) {
             if (file.isDirectory()) {
-                String result = findJconfigRecursively(file);
+                currentProgress = Math.min(90, currentProgress + progressIncrement);
+                progressCallback.onProgress(currentProgress, "  Searching in: " + file.getName());
+                String result = findJconfigRecursively(file, progressCallback, currentProgress);
                 if (result != null) {
                     return result;
                 }
@@ -852,170 +1539,124 @@ public class SetupService {
      */
     private void processBuildFiles(ProjectEntity project) {
         String env_name = project.getNmsEnvVar();
-        String jconfigPath = project.getJconfigPathForBuild();
         
-        // Process build.properties file
-        processBuildPropertiesFile(jconfigPath, env_name);
-        
-        // Check if process should continue
-        if (!processMonitor.isRunning()) return;
-        
-        // Process build.xml file
-        processBuildXmlFile(jconfigPath, env_name);
-    }
-
-    /**
-     * Processes build.properties file with validation and monitoring
-     * 
-     * @param jconfigPath The path to the jconfig directory
-     * @param env_name The environment variable name
-     */
-    private void processBuildPropertiesFile(String jconfigPath, String env_name) {
-        String buildPropertiesPath = jconfigPath + "/build.properties";
-        
-        processMonitor.addStep("build_properties", "Processing build.properties file");
-        
-        // Validate file exists before processing
-        File buildPropertiesFile = new File(buildPropertiesPath);
-        if (!buildPropertiesFile.exists()) {
-            processMonitor.markFailed("build_properties", "build.properties file not found at: " + buildPropertiesPath);
-            return;
-        }
-        
-        if (!buildPropertiesFile.isFile()) {
-            processMonitor.markFailed("build_properties", "build.properties path is not a file: " + buildPropertiesPath);
-            return;
-        }
-        
-        if (!buildPropertiesFile.canRead()) {
-            processMonitor.markFailed("build_properties", "build.properties file is not readable: " + buildPropertiesPath);
-            return;
-        }
-        
-        processMonitor.updateState("build_properties", 25);
+        processMonitor.addStep("build_files", "Processing project build files");
         
         try {
-            // Process the file
-            ManageFile.replaceTextInFiles(List.of(buildPropertiesPath), "NMS_HOME", env_name);
+            // First validate that required project build files exist
+            List<String> missingFiles = BuildFileParser.validateBuildFiles(project, false); // false for project files
             
-            // Validate file still exists after processing
-            if (!buildPropertiesFile.exists()) {
-                processMonitor.markFailed("build_properties", "build.properties file was deleted during processing");
+            if (!missingFiles.isEmpty()) {
+                processMonitor.markFailed("build_files", "Required project build files are missing: " + missingFiles);
                 return;
             }
             
-            if (!buildPropertiesFile.canRead()) {
-                processMonitor.markFailed("build_properties", "build.properties file became unreadable after processing");
+            // Parse environment variables from project build files
+            List<String> existingEnvVars = BuildFileParser.parseEnvironmentVariablesFromJconfig(project);
+            
+            if (existingEnvVars.isEmpty()) {
+                processMonitor.markFailed("build_files", "No environment variables found in project build files");
                 return;
             }
             
-            processMonitor.updateState("build_properties", 100);
-            processMonitor.markComplete("build_properties", "build.properties file processed successfully");
+            // Determine which variable to replace based on priority rules
+            String variableToReplace = determineReplacementVariable(existingEnvVars);
+            
+            if (variableToReplace == null) {
+                processMonitor.markFailed("build_files", "Could not determine which variable to replace from: " + existingEnvVars);
+                return;
+            }
+            
+            logger.info("Processing project build files - replacing: " + variableToReplace + " with: " + env_name);
+            
+            // Use BuildFileParser to perform the replacement
+            List<String> updatedFiles = BuildFileParser.replaceEnvironmentVariable(project, false, variableToReplace, env_name);
+            
+            if (!updatedFiles.isEmpty()) {
+                processMonitor.updateState("build_files", 100);
+                processMonitor.markComplete("build_files", "Successfully updated " + updatedFiles.size() + " project build files: " + updatedFiles);
+            } else {
+                processMonitor.markFailed("build_files", "No project build files were updated during replacement");
+            }
             
         } catch (Exception e) {
-            logger.severe("Failed to process build.properties: " + e.getMessage());
-            processMonitor.markFailed("build_properties", "Failed to process build.properties: " + e.getMessage());
+            logger.severe("Error processing project build files: " + e.getMessage());
+            processMonitor.markFailed("build_files", "Failed to process project build files: " + e.getMessage());
         }
     }
 
-    /**
-     * Processes build.xml file with validation and monitoring
-     * 
-     * @param jconfigPath The path to the jconfig directory
-     * @param env_name The environment variable name
-     */
-    private void processBuildXmlFile(String jconfigPath, String env_name) {
-        String buildXmlPath = jconfigPath + "/build.xml";
-        
-        processMonitor.addStep("build_xml", "Processing build.xml file");
-        
-        // Validate file exists before processing
-        File buildXmlFile = new File(buildXmlPath);
-        if (!buildXmlFile.exists()) {
-            processMonitor.markFailed("build_xml", "build.xml file not found at: " + buildXmlPath);
-            return;
-        }
-        
-        if (!buildXmlFile.isFile()) {
-            processMonitor.markFailed("build_xml", "build.xml path is not a file: " + buildXmlPath);
-            return;
-        }
-        
-        if (!buildXmlFile.canRead()) {
-            processMonitor.markFailed("build_xml", "build.xml file is not readable: " + buildXmlPath);
-            return;
-        }
-        
-        processMonitor.updateState("build_xml", 25);
-        
-        try {
-            // Process the file
-            ManageFile.replaceTextInFiles(List.of(buildXmlPath), "NMS_HOME", env_name);
-            
-            // Validate file still exists after processing
-            if (!buildXmlFile.exists()) {
-                processMonitor.markFailed("build_xml", "build.xml file was deleted during processing");
-                return;
-            }
-            
-            if (!buildXmlFile.canRead()) {
-                processMonitor.markFailed("build_xml", "build.xml file became unreadable after processing");
-                return;
-            }
-            
-            processMonitor.updateState("build_xml", 100);
-            processMonitor.markComplete("build_xml", "build.xml file processed successfully");
-            
-        } catch (Exception e) {
-            logger.severe("Failed to process build.xml: " + e.getMessage());
-            processMonitor.markFailed("build_xml", "Failed to process build.xml: " + e.getMessage());
-        }
-    }
 
     /**
      * Comprehensive validation of required tools, files, and connectivity
      * 
      * @return ValidationResult indicating success or specific failure
      */
-    private ValidationResult validateRequiredToolsAndConnectivity() {
+    private ValidationResult validateRequiredToolsAndConnectivity(ProgressCallback progressCallback) {
         try {
-            processMonitor.updateState("tool_validation", 10);
+            progressCallback.onProgress(10, "Starting tool and connectivity validation...");
             
             // 1. Validate Java installation
-            if (!validateJavaInstallation()) {
-                logger.severe("Java installation validation failed");
-                return ValidationResult.MISSING_JAVA;
+            if (setupMode != SetupMode.PROJECT_ONLY_SVN && setupMode != SetupMode.PROJECT_ONLY_SERVER) {
+                progressCallback.onProgress(15, "Validating Java installation...");
+                if (!validateJavaInstallation()) {
+                    logger.severe("Java installation validation failed");
+                    progressCallback.onError("✗ Java installation validation failed");
+                    return ValidationResult.MISSING_JAVA;
+                }
+                progressCallback.onProgress(20, "✓ Java installation validated");
+            } else {
+                logger.info("Skipping java validation for project-only mode");
+                progressCallback.onProgress(50, "⊘ Skipping JAVA validation (project-only mode)");
             }
-            processMonitor.updateState("tool_validation", 20);
             
             // 2. Validate Launch4j installation
-            if (!validateLaunch4jInstallation()) {
-                logger.severe("Launch4j installation validation failed");
-                return ValidationResult.MISSING_LAUNCH4J;
+            if (setupMode != SetupMode.PROJECT_ONLY_SVN && setupMode != SetupMode.PROJECT_ONLY_SERVER) {
+                progressCallback.onProgress(25, "Validating Launch4j installation...");
+                if (!validateLaunch4jInstallation()) {
+                    logger.severe("Launch4j installation validation failed");
+                    progressCallback.onError("✗ Launch4j installation validation failed");
+                    return ValidationResult.MISSING_LAUNCH4J;
+                }
+                progressCallback.onProgress(30, "✓ Launch4j installation validated");
+            }else {
+                logger.info("Skipping Launch4j validation for project-only mode");
+                progressCallback.onProgress(50, "⊘ Skipping Launch4j validation (project-only mode)");
             }
-            processMonitor.updateState("tool_validation", 30);
             
             // 3. Validate NSIS installation
 //            if (!validateNSISInstallation()) {
 //                logger.severe("NSIS installation validation failed");
 //                return ValidationResult.MISSING_NSIS;
 //            }
-//            processMonitor.updateState("tool_validation", 40);
+//            progressCallback.onProgress(40, "✓ NSIS installation validated");
             
-             //4. Validate network connectivity
-             if (!appUrlConnectivity()) {
-                 logger.severe("NMS Apps URL connectivity validation failed");
-                 return ValidationResult.NETWORK_CONNECTION_FAILED;
-             }
-            processMonitor.updateState("tool_validation", 50);
-            
-            // 5. Validate SFTP connectivity (if SFTP mode is enabled)
-
-            if (!validateSFTPConnectivity()) {
-                logger.severe("SFTP connectivity validation failed");
-                return ValidationResult.SFTP_CONNECTION_FAILED;
+             //4. Validate network connectivity (skip for project-only modes)
+             if (setupMode != SetupMode.PROJECT_ONLY_SVN && setupMode != SetupMode.PROJECT_ONLY_SERVER) {
+                 progressCallback.onProgress(40, "Validating NMS Apps URL connectivity...");
+                 if (!appUrlConnectivity()) {
+                     logger.severe("NMS Apps URL connectivity validation failed");
+                     progressCallback.onError("✗ NMS Apps URL connectivity validation failed");
+                     return ValidationResult.NETWORK_CONNECTION_FAILED;
+                 }
+                progressCallback.onProgress(50, "✓ NMS Apps URL connectivity validated");
+            } else {
+                logger.info("Skipping NMS Apps URL connectivity validation for project-only mode");
+                progressCallback.onProgress(50, "⊘ Skipping NMS Apps URL validation (project-only mode)");
             }
-            processMonitor.updateState("tool_validation", 70);
+            
+            // 5. Validate SFTP connectivity (skip for project-only modes without server)
+            if (setupMode != SetupMode.PROJECT_ONLY_SVN && setupMode != SetupMode.HAS_JAVA_MODE) {
+                progressCallback.onProgress(55, "Validating SFTP connectivity...");
+                if (!validateSFTPConnectivity()) {
+                    logger.severe("SFTP connectivity validation failed");
+                    progressCallback.onError("✗ SFTP connectivity validation failed");
+                    return ValidationResult.SFTP_CONNECTION_FAILED;
+                }
+                progressCallback.onProgress(70, "✓ SFTP connectivity validated");
+            } else {
+                logger.info("Skipping SFTP connectivity validation for project-only mode");
+                progressCallback.onProgress(70, "⊘ Skipping SFTP validation (project-only mode)");
+            }
 
             
             // 6. Validate VPN connectivity (basic check)
@@ -1023,27 +1664,33 @@ public class SetupService {
 //                logger.warning("VPN connectivity validation failed - continuing with warning");
 //                // Don't fail the process for VPN, just log a warning
 //            }
-//            processMonitor.updateState("tool_validation", 80);
+//            progressCallback.onProgress(80, "✓ VPN connectivity validated");
             
             // 7. Validate required directories and permissions
+            progressCallback.onProgress(75, "Validating directory permissions...");
             if (!validateDirectoryPermissions()) {
                 logger.severe("Directory permissions validation failed");
+                progressCallback.onError("✗ Directory permissions validation failed");
                 return ValidationResult.INVALID_PATHS;
             }
-            processMonitor.updateState("tool_validation", 90);
+            progressCallback.onProgress(90, "✓ Directory permissions validated");
             
             // 8. Validate external tools availability
-            if (!validateExternalTools()) {
-                logger.severe("External tools validation failed");
-                return ValidationResult.MISSING_TOOLS;
-            }
-            processMonitor.updateState("tool_validation", 100);
+//            progressCallback.onProgress(92, "Validating external tools...");
+//            if (!validateExternalTools()) {
+//                logger.severe("External tools validation failed");
+//                progressCallback.onError("✗ External tools validation failed");
+//                return ValidationResult.MISSING_TOOLS;
+//            }
+//            progressCallback.onProgress(100, "✓ External tools validated");
             
             logger.info("All required tools and connectivity validated successfully");
+            progressCallback.onProgress(100, "✓ All validations completed successfully");
         return ValidationResult.SUCCESS;
             
         } catch (Exception e) {
             logger.severe("Tool validation failed with exception: " + e.getMessage());
+            progressCallback.onError("✗ Validation failed with exception: " + e.getMessage());
             return ValidationResult.EXCEPTION;
         }
     }
@@ -1492,7 +2139,7 @@ public class SetupService {
             HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
 
             // Create an all-trusting host name verifier
-            HostnameVerifier allHostsValid = (_, _) -> true;
+            HostnameVerifier allHostsValid = (hostname, session) -> true;
             HttpsURLConnection.setDefaultHostnameVerifier(allHostsValid);
             
             logger.info("SSL certificate verification disabled for connectivity test");
@@ -1506,31 +2153,26 @@ public class SetupService {
      */
     private boolean validateSFTPConnectivity() {
         try {
-            if (project.getHost() == null || project.getHostUser() == null || project.getHostPass() == null) {
-                logger.severe("SFTP credentials not configured in project");
+            // Use unified SSH service validation
+            if (!UnifiedSSHService.validateProjectAuth(project)) {
+                logger.severe("SFTP credentials not properly configured in project");
                 return false;
             }
             
-            // Test SFTP connection using JSch
-            com.jcraft.jsch.JSch jsch = new com.jcraft.jsch.JSch();
-            com.jcraft.jsch.Session session = jsch.getSession(
-                project.getHostUser(), 
-                project.getHost(), 
-                project.getHostPort() > 0 ? project.getHostPort() : 22
-            );
-            session.setPassword(project.getHostPass());
-            session.setConfig("StrictHostKeyChecking", "no");
-            session.setTimeout(10000); // 10 second timeout
-            
-            session.connect();
-            boolean connected = session.isConnected();
-            session.disconnect();
-            
-            if (connected) {
-                logger.info("SFTP connectivity validated successfully to: " + project.getHost());
-                return true;
-            } else {
-                logger.severe("SFTP connection failed to: " + project.getHost());
+            // Test SFTP connection using unified SSH service
+            try {
+                com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult result = UnifiedSSHService.executeCommand(project, "echo 'SFTP connectivity test'", 10);
+                boolean connected = result.isSuccess();
+                
+                if (connected) {
+                    logger.info("SFTP connectivity validated successfully to: " + project.getHost());
+                    return true;
+                } else {
+                    logger.severe("SFTP connection failed to: " + project.getHost());
+                    return false;
+                }
+            } catch (Exception e) {
+                logger.severe("SFTP connectivity test failed: " + e.getMessage());
                 return false;
             }
             
@@ -1710,6 +2352,814 @@ public class SetupService {
             LoggerUtil.error(e);
             return null;
         }
+    }
+    
+    /**
+     * Performs server-based project download and product installation
+     */
+    private boolean performServerProjectAndProductInstallation(ProcessMonitor processMonitor) {
+        try {
+            // Clean project folder before download
+            processMonitor.addStep("project_cleanup", "Cleaning project directory");
+            try {
+                ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "project_cleanup");
+                String projectFolderPath = project.getProjectFolderPath();
+                File folderToClean = new File(projectFolderPath);
+                processMonitor.logMessage("project_cleanup", "Cleaning folder: " + folderToClean.getAbsolutePath());
+                SVNAutomationTool.deleteFolderContents(folderToClean, callback);
+                processMonitor.markComplete("project_cleanup", "Project directory cleaned successfully");
+            } catch (IOException e) {
+                processMonitor.markFailed("project_cleanup", "Failed to clean directory: " + e.getMessage());
+                return false;
+            }
+            
+            if (!processMonitor.isRunning()) return false;
+            
+            // Download project from server
+            processMonitor.addStep("server_project_download", "Downloading project(server)");
+            // Use setupMode as purpose for session isolation
+            ServerProjectService serverProjectService = new ServerProjectService(project, setupMode.name().toLowerCase());
+            
+            // Validate server project structure first
+            if (!serverProjectService.validateServerProjectStructure(processMonitor)) {
+                processMonitor.markFailed("server_project_download", "Server project validation failed");
+                return false;
+            }
+            
+            // Download project from server
+            if (!serverProjectService.downloadProjectFromServer(processMonitor)) {
+                processMonitor.markFailed("server_project_download", "Failed to download project from server");
+                return false;
+            }
+            processMonitor.markComplete("server_project_download", "Project downloaded from server successfully");
+            
+            if (!processMonitor.isRunning()) return false;
+            
+            // Validate project structure
+            processMonitor.addStep("validation", "Validating project structure");
+            ProgressCallback validationCallback7 = new ProcessMonitorAdapter(processMonitor, "validation");
+            String projectFolderPath = project.getProjectFolderPathForCheckout();
+            String validatedJconfigPath = validateProjectFolder(projectFolderPath, validationCallback7);
+            if (validatedJconfigPath == null) {
+                processMonitor.markFailed("validation", "Project validation failed: jconfig folder not found in project folder");
+                return false;
+            }
+            project.setJconfigPath(validatedJconfigPath);
+            processMonitor.markComplete("validation", "Project structure validated successfully");
+            
+            if (!processMonitor.isRunning()) return false;
+            
+            // Process build files
+            processBuildFiles(project);
+            if (!processMonitor.isRunning()) return false;
+            
+            // Perform product installation
+            return performProductInstallation(processMonitor);
+            
+        } catch (Exception e) {
+            logger.severe("Error in server project and product installation: " + e.getMessage());
+            processMonitor.markFailed("server_project_download", "Exception: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Performs SVN checkout only (no product installation)
+     */
+    private boolean performSVNCheckoutOnly(ProcessMonitor processMonitor) {
+        try {
+            // Clean folder before checkout
+            processMonitor.addStep("cleanup", "Cleaning project directory");
+            try {
+                ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "cleanup");
+                String projectFolderPath = project.getProjectFolderPathForCheckout();
+                File folderToClean = new File(projectFolderPath);
+                processMonitor.logMessage("cleanup", "Cleaning folder: " + folderToClean.getAbsolutePath());
+                SVNAutomationTool.deleteFolderContents(folderToClean, callback);
+            } catch (IOException e) {
+                processMonitor.markFailed("cleanup", "Failed to clean directory: " + e.getMessage());
+                return false;
+            }
+            
+            if (!processMonitor.isRunning()) return false;
+            
+            // SVN checkout
+            processMonitor.addStep("checkout", "SVN project checkout");
+            try {
+                String projectFolderPath = project.getProjectFolderPathForCheckout();
+                File folderToCheckout = new File(projectFolderPath);
+                processMonitor.logMessage("checkout", "Checking out to folder: " + folderToCheckout.getAbsolutePath());
+                ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "checkout");
+                SVNAutomationTool.performCheckout(project.getSvnRepo(), folderToCheckout.getAbsolutePath(), callback);
+            } catch (SVNException e) {
+                processMonitor.markFailed("checkout", "Failed to checkout: " + e.getMessage());
+                return false;
+            }
+            
+            if (!processMonitor.isRunning()) return false;
+            
+            // Validate project structure
+            processMonitor.addStep("validation", "Validating project structure");
+            ProgressCallback validationCallback4 = new ProcessMonitorAdapter(processMonitor, "validation");
+            String projectFolderPath = project.getProjectFolderPathForCheckout();
+            String validatedJconfigPath = validateProjectFolder(projectFolderPath, validationCallback4);
+            if (validatedJconfigPath == null) {
+                processMonitor.markFailed("validation", "Project validation failed: jconfig folder not found in project folder");
+                return false;
+            }
+            project.setJconfigPath(validatedJconfigPath);
+            processMonitor.markComplete("validation", "Project structure validated successfully");
+            
+            if (!processMonitor.isRunning()) return false;
+            
+            // Process build files
+            processBuildFiles(project);
+            if (!processMonitor.isRunning()) return false;
+            
+            processMonitor.markComplete("svn_checkout_only", "SVN checkout completed successfully");
+            return true;
+            
+        } catch (Exception e) {
+            logger.severe("Error in SVN checkout only: " + e.getMessage());
+            processMonitor.markFailed("svn_checkout_only", "Exception: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Performs server project download only (no product installation)
+     */
+    private boolean performServerProjectOnly(ProcessMonitor processMonitor) {
+        try {
+            // Clean project folder before download
+            processMonitor.addStep("project_cleanup", "Cleaning project directory");
+            try {
+                ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "project_cleanup");
+                String projectFolderPath = project.getProjectFolderPath();
+                File folderToClean = new File(projectFolderPath);
+                processMonitor.logMessage("project_cleanup", "Cleaning folder: " + folderToClean.getAbsolutePath());
+                SVNAutomationTool.deleteFolderContents(folderToClean, callback);
+                processMonitor.markComplete("project_cleanup", "Project directory cleaned successfully");
+            } catch (IOException e) {
+                processMonitor.markFailed("project_cleanup", "Failed to clean directory: " + e.getMessage());
+                return false;
+            }
+            
+            if (!processMonitor.isRunning()) return false;
+            
+            // Use setupMode as purpose for session isolation
+            ServerProjectService serverProjectService = new ServerProjectService(project, setupMode.name().toLowerCase());
+            
+            // Validate server project structure first
+            processMonitor.addStep("server_validation", "Validating server project structure");
+            if (!serverProjectService.validateServerProjectStructure(processMonitor)) {
+                processMonitor.markFailed("server_validation", "Server project validation failed");
+                return false;
+            }
+            processMonitor.markComplete("server_validation", "Server project structure validated successfully");
+            
+            if (!processMonitor.isRunning()) return false;
+            
+            // Download project from server
+            processMonitor.addStep("project_download", "Downloading project(server)");
+            if (!serverProjectService.downloadProjectFromServer(processMonitor, "project_download")) {
+                processMonitor.markFailed("project_download", "Failed to download project from server");
+                return false;
+            }
+            processMonitor.markComplete("project_download", "Project downloaded from server successfully");
+            
+            if (!processMonitor.isRunning()) return false;
+            
+            // Validate project structure
+            processMonitor.addStep("validation", "Validating project structure");
+            ProgressCallback validationCallback5 = new ProcessMonitorAdapter(processMonitor, "validation");
+            String projectFolderPath = project.getProjectFolderPathForCheckout();
+            String validatedJconfigPath = validateProjectFolder(projectFolderPath, validationCallback5);
+            if (validatedJconfigPath == null) {
+                processMonitor.markFailed("validation", "Project validation failed: jconfig folder not found in project folder");
+                return false;
+            }
+            project.setJconfigPath(validatedJconfigPath);
+            processMonitor.markComplete("validation", "Project structure validated successfully");
+            
+            if (!processMonitor.isRunning()) return false;
+            
+            // Process build files
+            processBuildFiles(project);
+            if (!processMonitor.isRunning()) return false;
+            
+            processMonitor.markComplete("server_project_only", "Server project download completed successfully");
+            return true;
+            
+        } catch (Exception e) {
+            logger.severe("Error in server project only: " + e.getMessage());
+            processMonitor.markFailed("server_project_only", "Exception: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Performs product installation only (no project download)
+     */
+    private boolean performProductInstallationOnly(ProcessMonitor processMonitor) {
+        try {
+            // Validate project structure
+            processMonitor.addStep("validation", "Validating project structure");
+            ProgressCallback validationCallback9 = new ProcessMonitorAdapter(processMonitor, "validation");
+            String projectFolderPath = project.getProjectFolderPathForCheckout();
+            String validatedJconfigPath = validateProjectFolder(projectFolderPath, validationCallback9);
+            if (validatedJconfigPath == null) {
+                processMonitor.markFailed("validation", "Project validation failed: jconfig folder not found in project folder");
+                return false;
+            }
+            project.setJconfigPath(validatedJconfigPath);
+            processMonitor.markComplete("validation", "Project structure validated successfully");
+            
+            if (!processMonitor.isRunning()) return false;
+            
+            // Process build files
+            processBuildFiles(project);
+            if (!processMonitor.isRunning()) return false;
+            
+            // Perform product installation
+            return performProductInstallation(processMonitor);
+            
+        } catch (Exception e) {
+            logger.severe("Error in product installation only: " + e.getMessage());
+            processMonitor.markFailed("product_installation_only", "Exception: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Performs product installation steps
+     */
+    private boolean performProductInstallation(ProcessMonitor processMonitor) {
+        try {
+            // Clean product directory
+            processMonitor.addStep("product_cleanup", "Cleaning product directory");
+            if (!cleanProductDirectory(project.getExePath())) {
+                processMonitor.markFailed("product_cleanup", "Failed to clean product directory");
+                return false;
+            }
+            processMonitor.markComplete("product_cleanup", "Product directory cleaned successfully");
+            if (!processMonitor.isRunning()) return false;
+            
+            // SFTP download and unzip
+            processMonitor.addStep("sftp_download", "Java download and extraction");
+            try {
+                ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "sftp_download");
+                String dir_temp = project.getExePath();
+                // Use setupMode as purpose for session isolation - fallback to setupMode if available
+                String purpose = (setupMode != null) ? setupMode.name().toLowerCase() : "product_installation";
+                SFTPDownloadAndUnzip.start(dir_temp, project, callback, purpose);
+            } catch (Exception e) {
+                processMonitor.markFailed("sftp_download", "Java download failed: " + e.getMessage());
+                return false;
+            }
+            if (!processMonitor.isRunning()) return false;
+            
+            // Load additional resources
+            processMonitor.addStep("resource_loading", "Loading additional resources");
+            try {
+                ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "resource_loading");
+                String dir_temp = project.getExePath();
+                String serverURL = adjustUrl(project.getNmsAppURL());
+                FileFetcher.loadResources(dir_temp, serverURL, callback);
+            } catch (Exception e) {
+                processMonitor.markFailed("resource_loading", "Resource loading failed: " + e.getMessage());
+                return false;
+            }
+            if (!processMonitor.isRunning()) return false;
+            
+            // Process directory structure
+            processMonitor.addStep("directory_processing", "Processing directory structure");
+            try {
+                ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "directory_processing");
+                String dir_temp = project.getExePath();
+                DirectoryProcessor.processDirectory(dir_temp, callback);
+            } catch (Exception e) {
+                processMonitor.markFailed("directory_processing", "Directory processing failed: " + e.getMessage());
+                return false;
+            }
+            if (!processMonitor.isRunning()) return false;
+            
+            // Create installer
+            processMonitor.addStep("installer_creation", "Creating executables");
+            try {
+                ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "installer_creation");
+                CreateInstallerCommand cic = new CreateInstallerCommand();
+                String appURL = project.getNmsAppURL();
+                String envVarName = project.getNmsEnvVar();
+                boolean success = cic.execute(appURL, envVarName, project, callback);
+                if (!success) {
+                    processMonitor.markFailed("installer_creation", "Installer creation failed");
+                    return false;
+                }
+            } catch (Exception e) {
+                processMonitor.markFailed("installer_creation", "Installer creation failed: " + e.getMessage());
+                return false;
+            }
+            if (!processMonitor.isRunning()) return false;
+            
+            // Update build files with environment variable using automated logic
+            processMonitor.addStep("build_file_updates", "Updating build files with environment variable");
+            try {
+                String env_name = project.getNmsEnvVar();
+                
+                // Use automated replacement logic
+                boolean replacementSuccess = performAutomatedBuildFileReplacement(project.getExePath(), env_name, processMonitor);
+                
+                if (replacementSuccess) {
+                    processMonitor.markComplete("build_file_updates", "Build files updated successfully with environment variable: " + env_name);
+                } else {
+                    processMonitor.markFailed("build_file_updates", "Automated build file replacement failed - manual replacement required");
+                    // Show warning dialog about manual replacement needed
+                    showManualReplacementWarning(env_name);
+                }
+            } catch (Exception e) {
+                logger.severe("Failed to update build files: " + e.getMessage());
+                processMonitor.markFailed("build_file_updates", "Failed to update build files: " + e.getMessage());
+                return false;
+            }
+            if (!processMonitor.isRunning()) return false;
+            
+            processMonitor.markComplete("product_installation", "Product installation completed successfully");
+            return true;
+            
+        } catch (Exception e) {
+            logger.severe("Error in product installation: " + e.getMessage());
+            processMonitor.markFailed("product_installation", "Exception: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Performs automated build file replacement using intelligent variable detection
+     * 
+     * @param exePath The execution path containing build files
+     * @param newEnvVar The new environment variable name to use
+     * @param processMonitor Process monitor for progress updates
+     * @return true if replacement was successful, false otherwise
+     */
+    private boolean performAutomatedBuildFileReplacement(String exePath, String newEnvVar, ProcessMonitor processMonitor) {
+        try {
+            // First validate that required files exist
+            List<String> missingFiles = BuildFileParser.validateBuildFiles(project, true); // true for product files
+            
+            if (!missingFiles.isEmpty()) {
+                logger.warning("Required product build files are missing: " + missingFiles);
+                return false;
+            }
+            
+            // Parse environment variables from product build files
+            List<String> existingEnvVars = BuildFileParser.parseEnvironmentVariablesFromProduct(project);
+            
+            if (existingEnvVars.isEmpty()) {
+                logger.warning("No environment variables found in product build files");
+                return false;
+            }
+            
+            // Determine which variable to replace based on priority rules
+            String variableToReplace = determineReplacementVariable(existingEnvVars);
+            
+            if (variableToReplace == null) {
+                logger.warning("Could not determine which variable to replace from: " + existingEnvVars);
+                return false;
+            }
+            
+            logger.info("Automatically replacing variable: " + variableToReplace + " with: " + newEnvVar);
+            
+            // Use BuildFileParser to perform the replacement
+            List<String> updatedFiles = BuildFileParser.replaceEnvironmentVariable(project, true, variableToReplace, newEnvVar);
+            
+            if (!updatedFiles.isEmpty()) {
+                processMonitor.updateState("build_file_updates", 100);
+                logger.info("Successfully updated " + updatedFiles.size() + " product build files: " + updatedFiles);
+                return true;
+            } else {
+                logger.warning("No files were updated during replacement");
+                return false;
+            }
+            
+        } catch (Exception e) {
+            logger.severe("Error in automated build file replacement: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Determines which environment variable to replace based on priority rules
+     * 
+     * @param existingEnvVars List of existing environment variables
+     * @return The variable to replace, or null if none can be determined
+     */
+    private String determineReplacementVariable(List<String> existingEnvVars) {
+        // Rule 1: If there's NMS_HOME, use that
+        for (String var : existingEnvVars) {
+            if ("NMS_HOME".equals(var)) {
+                return var;
+            }
+        }
+        
+        // Rule 2: If there's any variable starting with OPAL_HOME, use the first one
+        for (String var : existingEnvVars) {
+            if (var.startsWith("OPAL_HOME")) {
+                return var;
+            }
+        }
+        
+        // Rule 3: If there's only one variable containing HOME, use that
+        List<String> homeVars = new ArrayList<>();
+        for (String var : existingEnvVars) {
+            if (var.toUpperCase().contains("HOME")) {
+                homeVars.add(var);
+            }
+        }
+        
+        if (homeVars.size() == 1) {
+            return homeVars.get(0);
+        }
+        
+        // Rule 4: If multiple HOME variables, prefer the first one (already sorted by BuildFileParser)
+        if (!homeVars.isEmpty()) {
+            return homeVars.get(0);
+        }
+        
+        // Rule 5: If no HOME variables, use the first variable in the list
+        if (!existingEnvVars.isEmpty()) {
+            return existingEnvVars.get(0);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Shows a warning dialog about manual replacement being required
+     * 
+     * @param envVarName The environment variable name that was supposed to be set
+     */
+    private void showManualReplacementWarning(String envVarName) {
+        Platform.runLater(() -> {
+            String message = "The automated replacement of environment variables in build files failed.\n\n" +
+                           "Please use the 'Replace' option next to the project and product folder path fields\n" +
+                           "to manually update the environment variables.\n\n" +
+                           "Expected environment variable: " + envVarName;
+            
+            DialogUtil.showAlert(Alert.AlertType.WARNING, "Manual Replacement Required", message);
+        });
+    }
+    
+    /**
+     * Kill all running exe processes for the project before setup
+     * Uses existing log-based killing logic
+     * This prevents issues with demon processes that may not have log files yet
+     */
+    private void killAllExeProcessesFromLogs(ProjectEntity project) {
+        processMonitor.logMessage("process_cleanup", "Searching for running exe processes...");
+        
+        int totalKilled = 0;
+        
+        try {
+            // Get log directory and scan for processes (reuse ControlApp logic)
+            String logDirPath = com.nms.support.nms_support.service.buildTabPack.ControlApp.getLogDirectoryPath();
+            File logDir = new File(logDirPath);
+            
+            if (logDir.exists()) {
+                File[] logFiles = logDir.listFiles((dir, name) -> name.toLowerCase().endsWith(".log") && new File(dir, name).isFile());
+                
+                if (logFiles != null && logFiles.length > 0) {
+                    processMonitor.logMessage("process_cleanup", "Scanning " + logFiles.length + " log files...");
+                    
+                    // Load process map using jps (reuse ControlApp logic)
+                    Map<String, String> jpsMap = new HashMap<>();
+                    try {
+                        Process jpsProcess = Runtime.getRuntime().exec("jps");
+                        BufferedReader reader = new BufferedReader(new InputStreamReader(jpsProcess.getInputStream()));
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            String[] parts = line.split(" ");
+                            if (parts.length >= 2) {
+                                jpsMap.put(parts[0], parts[1]);
+                            }
+                        }
+                        reader.close();
+                        jpsProcess.waitFor();
+                    } catch (Exception e) {
+                        logger.warning("Error loading process map: " + e.getMessage());
+                    }
+                    
+                    // Scan log files for matching processes (reuse ControlApp logic)
+                    for (File logFile : logFiles) {
+                        try {
+                            Map<String, String> logData = com.nms.support.nms_support.service.buildTabPack.ControlApp.parseLog(logFile);
+                            if (logData != null && 
+                                logData.get("PROJECT_KEY").equals(project.getLogId()) && 
+                                "EXE".equalsIgnoreCase(logData.get("LAUNCHER")) && 
+                                jpsMap.containsKey(logData.get("PID"))) {
+                                
+                                String pid = logData.get("PID");
+                                try {
+                                    Process killProcess = Runtime.getRuntime().exec("cmd /c taskkill /F /pid " + pid);
+                                    int exitCode = killProcess.waitFor();
+                                    if (exitCode == 0) {
+                                        totalKilled++;
+                                        processMonitor.logMessage("process_cleanup", "Killed process from log: PID " + pid);
+                                    }
+                                } catch (Exception e) {
+                                    // Process might already be dead
+                                    logger.warning("Error killing PID " + pid + ": " + e.getMessage());
+                                }
+                            }
+                        } catch (Exception e) {
+                            // Skip problematic log files
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("Error killing processes from logs: " + e.getMessage());
+            processMonitor.logMessage("process_cleanup", "Warning: Error scanning log files - " + e.getMessage());
+        }
+        
+        // Summary
+        if (totalKilled > 0) {
+            processMonitor.logMessage("process_cleanup", 
+                "Process cleanup complete: Killed " + totalKilled + " exe processes from logs");
+            logger.info("Killed " + totalKilled + " exe processes before setup for project: " + project.getName());
+        } else {
+            processMonitor.logMessage("process_cleanup", "No running exe processes found in logs");
+        }
+    }
+    
+    /**
+     * Validate HAS_JAVA_MODE setup requirements
+     */
+    private ValidationResult validateHasJavaMode() {
+        logger.info("Validating HAS_JAVA_MODE setup requirements");
+        
+        // Check if product folder exists and contains Java
+        if (project.getExePath() == null || project.getExePath().isEmpty()) {
+            logger.warning("Product folder path not configured for HAS_JAVA_MODE");
+            return ValidationResult.MISSING_PRODUCT_FOLDER;
+        }
+        
+        File productFolder = new File(project.getExePath());
+        if (!productFolder.exists() || !productFolder.isDirectory()) {
+            logger.warning("Product folder does not exist: " + project.getExePath());
+            return ValidationResult.MISSING_PRODUCT_FOLDER;
+        }
+        
+        // Check if Java folder exists in product directory
+        File javaFolder = new File(productFolder, "java");
+        if (!javaFolder.exists() || !javaFolder.isDirectory()) {
+            logger.warning("Java folder not found in product directory: " + javaFolder.getAbsolutePath());
+            return ValidationResult.MISSING_PRODUCT_FOLDER;
+        }
+        
+        // Check if NMS App URL is configured
+        if (project.getNmsAppURL() == null || project.getNmsAppURL().isEmpty()) {
+            logger.warning("NMS App URL not configured");
+            return ValidationResult.MISSING_APP_URL;
+        }
+        
+        // Use existing method to check if NMS App URL is reachable (includes SSL disable)
+        if (!appUrlConnectivity()) {
+            logger.warning("NMS App URL is not reachable: " + project.getNmsAppURL());
+            return ValidationResult.MISSING_APP_URL;
+        }
+        
+        logger.info("HAS_JAVA_MODE validation successful");
+        return ValidationResult.SUCCESS;
+    }
+    
+    /**
+     * Perform HAS_JAVA_MODE setup: clean product dir, then same as PRODUCT_ONLY process
+     */
+    private boolean performHasJavaModeSetup(ProcessMonitor processMonitor) {
+        logger.info("Starting HAS_JAVA_MODE setup");
+        
+        try {
+            // Step 1: Clean product directory (except Java folder)
+            processMonitor.addStep("clean_product_dir", "Cleaning product directory");
+            if (!cleanProductDirectoryExceptJava(processMonitor)) {
+                processMonitor.markFailed("clean_product_dir", "Failed to clean product directory");
+                return false;
+            }
+            processMonitor.markComplete("clean_product_dir", "Product directory cleaned successfully");
+            if (!processMonitor.isRunning()) return false;
+            
+            // Step 2: Load resources - same as PRODUCT_ONLY
+            processMonitor.addStep("resource_loading", "Loading additional resources");
+            try {
+                ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "resource_loading");
+                String dir_temp = project.getExePath();
+                String serverURL = adjustUrl(project.getNmsAppURL());
+                FileFetcher.loadResources(dir_temp, serverURL, callback);
+            } catch (Exception e) {
+                processMonitor.markFailed("resource_loading", "Resource loading failed: " + e.getMessage());
+                return false;
+            }
+            if (!processMonitor.isRunning()) return false;
+            
+            // Step 3: Process directory structure - same as PRODUCT_ONLY
+            processMonitor.addStep("directory_processing", "Processing directory structure");
+            try {
+                ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "directory_processing");
+                String dir_temp = project.getExePath();
+                DirectoryProcessor.processDirectory(dir_temp, callback);
+            } catch (Exception e) {
+                processMonitor.markFailed("directory_processing", "Directory processing failed: " + e.getMessage());
+                return false;
+            }
+            if (!processMonitor.isRunning()) return false;
+            
+            // Step 4: Create installer/executables - same as PRODUCT_ONLY
+            processMonitor.addStep("installer_creation", "Creating executables");
+            try {
+                ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "installer_creation");
+                CreateInstallerCommand cic = new CreateInstallerCommand();
+                String appURL = project.getNmsAppURL();
+                String envVarName = project.getNmsEnvVar();
+                boolean success = cic.execute(appURL, envVarName, project, callback);
+                if (!success) {
+                    processMonitor.markFailed("installer_creation", "Installer creation failed");
+                    return false;
+                }
+            } catch (Exception e) {
+                processMonitor.markFailed("installer_creation", "Installer creation failed: " + e.getMessage());
+                return false;
+            }
+            if (!processMonitor.isRunning()) return false;
+            
+            // Step 5: Update build files - same as PRODUCT_ONLY
+            processMonitor.addStep("build_file_updates", "Updating build files with environment variable");
+            try {
+                String env_name = project.getNmsEnvVar();
+                String exePath = project.getExePath();
+                
+                boolean replacementSuccess = performAutomatedBuildFileReplacement(exePath, env_name, processMonitor);
+                
+                if (replacementSuccess) {
+                    processMonitor.markComplete("build_file_updates", "Build files updated successfully");
+                } else {
+                    processMonitor.markComplete("build_file_updates", "Build files update completed with manual intervention required");
+                }
+            } catch (Exception e) {
+                processMonitor.markFailed("build_file_updates", "Failed to update build files: " + e.getMessage());
+                return false;
+            }
+            if (!processMonitor.isRunning()) return false;
+            
+            logger.info("HAS_JAVA_MODE setup completed successfully");
+            return true;
+            
+        } catch (Exception e) {
+            logger.severe("HAS_JAVA_MODE setup failed: " + e.getMessage());
+            processMonitor.markFailed("has_java_mode_setup", "Setup failed: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Clean product directory except Java folder
+     */
+    private boolean cleanProductDirectoryExceptJava(ProcessMonitor processMonitor) {
+        try {
+            File productFolder = new File(project.getExePath());
+            File javaFolder = new File(productFolder, "java");
+            
+            processMonitor.logMessage("clean_product_dir", "Cleaning product directory: " + productFolder.getAbsolutePath());
+            
+            // Delete all files and folders except the Java folder
+            File[] files = productFolder.listFiles();
+            if (files != null) {
+                int deletedCount = 0;
+                for (File file : files) {
+                    // Skip the Java folder
+                    if (file.equals(javaFolder)) {
+                        processMonitor.logMessage("clean_product_dir", "Preserving Java folder: " + file.getName());
+                        continue;
+                    }
+                    
+                    // Delete everything else
+                    if (deleteRecursively(file)) {
+                        deletedCount++;
+                        processMonitor.logMessage("clean_product_dir", "Deleted: " + file.getName());
+                    } else {
+                        logger.warning("Failed to delete: " + file.getAbsolutePath());
+                    }
+                }
+                
+                processMonitor.logMessage("clean_product_dir", 
+                    "Cleanup complete: Deleted " + deletedCount + " items, preserved Java folder");
+            }
+            
+            return true;
+            
+        } catch (Exception e) {
+            logger.severe("Failed to clean product directory: " + e.getMessage());
+            processMonitor.logMessage("clean_product_dir", "ERROR: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Recursively delete a file or directory
+     */
+    private boolean deleteRecursively(File file) {
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    if (!deleteRecursively(child)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return file.delete();
+    }
+    
+    /**
+     * Update build.xml files with environment variables
+     */
+    private void updateBuildXmlFiles(File projectFolder, ProcessMonitor processMonitor) {
+        try {
+            processMonitor.logMessage("update_build_files", "Updating build.xml files...");
+            
+            // Find and update build.xml files
+            Files.walk(projectFolder.toPath())
+                .filter(path -> path.getFileName().toString().equals("build.xml"))
+                .forEach(path -> {
+                    try {
+                        // Update the build.xml file with environment variables
+                        updateBuildXmlFile(path.toFile());
+                        processMonitor.logMessage("update_build_files", "Updated: " + path.toString());
+                    } catch (Exception e) {
+                        logger.warning("Failed to update build.xml: " + path + " - " + e.getMessage());
+                    }
+                });
+                
+        } catch (Exception e) {
+            logger.warning("Error updating build.xml files: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Update a single build.xml file
+     */
+    private void updateBuildXmlFile(File buildXmlFile) throws IOException {
+        // Read the file content
+        String content = new String(Files.readAllBytes(buildXmlFile.toPath()));
+        
+        // Replace environment variable placeholders
+        if (project.getNmsEnvVar() != null && project.getExePath() != null) {
+            content = content.replace("${" + project.getNmsEnvVar() + "}", project.getExePath());
+        }
+        
+        // Write back to file
+        Files.write(buildXmlFile.toPath(), content.getBytes());
+    }
+    
+    /**
+     * Update other build-related files
+     */
+    private void updateOtherBuildFiles(File projectFolder, ProcessMonitor processMonitor) {
+        try {
+            processMonitor.logMessage("update_build_files", "Updating other build files...");
+            
+            // Update properties files
+            Files.walk(projectFolder.toPath())
+                .filter(path -> path.getFileName().toString().endsWith(".properties"))
+                .forEach(path -> {
+                    try {
+                        updatePropertiesFile(path.toFile());
+                        processMonitor.logMessage("update_build_files", "Updated properties: " + path.toString());
+                    } catch (Exception e) {
+                        logger.warning("Failed to update properties file: " + path + " - " + e.getMessage());
+                    }
+                });
+                
+        } catch (Exception e) {
+            logger.warning("Error updating other build files: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Update a properties file
+     */
+    private void updatePropertiesFile(File propertiesFile) throws IOException {
+        // Read the file content
+        String content = new String(Files.readAllBytes(propertiesFile.toPath()));
+        
+        // Replace environment variable placeholders
+        if (project.getNmsEnvVar() != null && project.getExePath() != null) {
+            content = content.replace("${" + project.getNmsEnvVar() + "}", project.getExePath());
+        }
+        
+        // Write back to file
+        Files.write(propertiesFile.toPath(), content.getBytes());
     }
 
 }

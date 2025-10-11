@@ -2,16 +2,11 @@ package com.nms.support.nms_support.service.globalPack;
 
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
-import javafx.beans.value.ChangeListener;
-import javafx.beans.value.ObservableValue;
 import javafx.scene.control.Control;
 import javafx.scene.control.TextInputControl;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.CheckBox;
-import javafx.scene.control.Toggle;
-import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.TableView;
-import javafx.collections.ObservableList;
 import javafx.collections.ListChangeListener;
 
 import java.util.HashMap;
@@ -56,6 +51,13 @@ public class ChangeTrackingService {
      */
     public boolean hasUnsavedChanges() {
         return hasUnsavedChanges.get();
+    }
+    
+    /**
+     * Check if the service is currently in loading mode
+     */
+    public boolean isLoading() {
+        return isLoading;
     }
     
     /**
@@ -222,7 +224,10 @@ public class ChangeTrackingService {
                 originalValues.get(tabName).put(control, currentValue);
             }
         }
-        hasUnsavedChanges.set(false);
+        // Use Platform.runLater to ensure UI updates happen after all data loading is complete
+        javafx.application.Platform.runLater(() -> {
+            hasUnsavedChanges.set(false);
+        });
     }
     
     /**

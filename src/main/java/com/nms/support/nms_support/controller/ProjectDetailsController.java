@@ -2,25 +2,22 @@ package com.nms.support.nms_support.controller;
 
 import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.service.globalPack.*;
-import org.tmatesoft.svn.core.SVNException;
-import org.tmatesoft.svn.core.SVNURL;
-
 import javafx.application.Platform;
 import javafx.fxml.FXML;
-import javafx.geometry.Insets;
-import javafx.geometry.Pos;
-import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.DirectoryChooser;
-import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import javafx.scene.control.Control;
 import com.nms.support.nms_support.service.globalPack.ChangeTrackingService;
 
@@ -42,6 +39,12 @@ public class ProjectDetailsController {
     @FXML private TextField hostAddressField;
     @FXML private TextField hostUserField;
     @FXML private PasswordField hostPasswordField;
+    @FXML private CheckBox useLdapToggle;
+    @FXML private VBox basicAuthBox;
+    @FXML private VBox ldapAuthBox;
+    @FXML private TextField ldapUserField;
+    @FXML private TextField targetUserField;
+    @FXML private PasswordField ldapPasswordField;
     @FXML private TextField portField; // TODO: Add to ProjectEntity if needed
     @FXML private TextField appUrlField;
 
@@ -64,7 +67,9 @@ public class ProjectDetailsController {
     // Import buttons
     @FXML private Button linuxImportBtn;
     @FXML private Button dbImportBtn;
+    @FXML private Button dbSshImportBtn;
     @FXML private Button foldersImportBtn;
+    
 
     private MainController mainController;
     private ChangeTrackingService changeTrackingService;
@@ -81,14 +86,60 @@ public class ProjectDetailsController {
         enforceNumericOnly(portField);
         enforceNumericOnly(dbPortField);
         
+        
+        // Initialize LDAP toggle (default OFF)
+        if (useLdapToggle != null) {
+            useLdapToggle.setSelected(false);
+            applyAuthVisibility(false, false);
+            useLdapToggle.selectedProperty().addListener((obs, oldVal, newVal) -> {
+                applyAuthVisibility(newVal, true);
+            });
+        }
+
         // Add listener to product folder field to notify build automation when it changes
-        productFolderField.textProperty().addListener((_, oldValue, newValue) -> {
+        productFolderField.textProperty().addListener((obs, oldValue, newValue) -> {
             // Only notify if the value actually changed
             if (changeTrackingService != null && 
                 !java.util.Objects.equals(oldValue, newValue)) {
                 notifyProductFolderPathChange();
             }
         });
+    }
+
+    /**
+     * Applies visibility between basic and LDAP auth groups with optional fade animation.
+     * Also clears the opposite authentication fields when switching to prevent stale data.
+     */
+    private void applyAuthVisibility(boolean showLdap, boolean animate) {
+        if (basicAuthBox == null || ldapAuthBox == null) return;
+
+        VBox toShow = showLdap ? ldapAuthBox : basicAuthBox;
+        VBox toHide = showLdap ? basicAuthBox : ldapAuthBox;
+
+        if (!animate) {
+            toShow.setVisible(true);
+            toShow.setManaged(true);
+            toHide.setVisible(false);
+            toHide.setManaged(false);
+            return;
+        }
+
+        // Fade out the current box, then show the other with fade in
+        javafx.animation.FadeTransition fadeOut = new javafx.animation.FadeTransition(javafx.util.Duration.millis(180), toHide);
+        fadeOut.setFromValue(1.0);
+        fadeOut.setToValue(0.0);
+        fadeOut.setOnFinished(e -> {
+            toHide.setVisible(false);
+            toHide.setManaged(false);
+            toShow.setOpacity(0.0);
+            toShow.setVisible(true);
+            toShow.setManaged(true);
+            javafx.animation.FadeTransition fadeIn = new javafx.animation.FadeTransition(javafx.util.Duration.millis(180), toShow);
+            fadeIn.setFromValue(0.0);
+            fadeIn.setToValue(1.0);
+            fadeIn.play();
+        });
+        fadeOut.play();
     }
 
     /**
@@ -100,6 +151,10 @@ public class ProjectDetailsController {
             controls.add(hostAddressField);
             controls.add(hostUserField);
             controls.add(hostPasswordField);
+            controls.add(useLdapToggle);
+            controls.add(ldapUserField);
+            controls.add(targetUserField);
+            controls.add(ldapPasswordField);
             controls.add(portField);
             controls.add(appUrlField);
             controls.add(dbHostField);
@@ -121,6 +176,9 @@ public class ProjectDetailsController {
             // Start loading mode to prevent change tracking during data loading
             changeTrackingService.startLoading();
             
+            // Clear all fields first to prevent showing data from previous project
+            clearFields();
+            
             ProjectEntity project = mainController.getSelectedProject();
             if (project == null) {
                 logger.warning("No project selected for loading details.");
@@ -129,8 +187,22 @@ public class ProjectDetailsController {
             
             // Linux Server - safely handle null values
             hostAddressField.setText(safe(project.getHost()));
-            hostUserField.setText(safe(project.getHostUser()));
-            hostPasswordField.setText(safe(project.getHostPass()));
+
+            // LDAP/basicauth defaults and load
+            boolean useLdap = project.isUseLdap();
+            if (useLdapToggle != null) {
+                useLdapToggle.setSelected(useLdap);
+            }
+            if (useLdap) {
+                ldapUserField.setText(safe(project.getLdapUser()));
+                targetUserField.setText(safe(project.getTargetUser()));
+                ldapPasswordField.setText(safe(project.getLdapPassword()));
+                applyAuthVisibility(true, false);
+            } else {
+                hostUserField.setText(safe(project.getHostUser()));
+                hostPasswordField.setText(safe(project.getHostPass()));
+                applyAuthVisibility(false, false);
+            }
             
             // Safely handle port values
             try {
@@ -165,7 +237,15 @@ public class ProjectDetailsController {
             // Display project folder path (not jconfig path) to user
             projectFolderField.setText(safe(project.getProjectFolderPath()));
             productFolderField.setText(safe(project.getExePath()));
-            envVarField.setText(safe(project.getNmsEnvVar()));
+            
+            // Auto-fill environment variable if empty or newly created
+            String envVar = project.getNmsEnvVar();
+            if (envVar == null || envVar.trim().isEmpty()) {
+                envVar = project.getName() + "_HOME_DEVTOOLS";
+                project.setNmsEnvVar(envVar);
+                logger.info("Auto-filled environment variable for project '" + project.getName() + "': " + envVar);
+            }
+            envVarField.setText(envVar);
             svnUrlField.setText(safe(project.getSvnRepo()));
 
         } catch (Exception e) {
@@ -174,6 +254,40 @@ public class ProjectDetailsController {
         } finally {
             // End loading mode to resume change tracking
             changeTrackingService.endLoading();
+        }
+    }
+
+    /**
+     * Clear all fields to prevent showing data from previous project
+     */
+    private void clearFields() {
+        // Linux Server fields
+        hostAddressField.clear();
+        hostUserField.clear();
+        hostPasswordField.clear();
+        ldapUserField.clear();
+        targetUserField.clear();
+        ldapPasswordField.clear();
+        portField.clear();
+        appUrlField.clear();
+        
+        // Oracle DB fields
+        dbHostField.clear();
+        dbPortField.clear();
+        dbUserField.clear();
+        dbPasswordField.clear();
+        dbSidField.clear();
+        
+        // Project Folders fields
+        projectFolderField.clear();
+        productFolderField.clear();
+        envVarField.clear();
+        svnUrlField.clear();
+        
+        // Reset LDAP toggle to default state
+        if (useLdapToggle != null) {
+            useLdapToggle.setSelected(false);
+            applyAuthVisibility(false, false);
         }
     }
 
@@ -187,8 +301,20 @@ public class ProjectDetailsController {
 
             // Linux Server
             project.setHost(hostAddressField.getText().trim());
-            project.setHostUser(hostUserField.getText().trim());
-            project.setHostPass(hostPasswordField.getText());
+            boolean useLdap = useLdapToggle != null && useLdapToggle.isSelected();
+            project.setUseLdap(useLdap);
+            if (useLdap) {
+                project.setLdapUser(ldapUserField != null ? ldapUserField.getText().trim() : "");
+                project.setTargetUser(targetUserField != null ? targetUserField.getText().trim() : "");
+                project.setLdapPassword(ldapPasswordField != null ? ldapPasswordField.getText() : "");
+            } else {
+                project.setHostUser(hostUserField.getText().trim());
+                project.setHostPass(hostPasswordField.getText());
+                // Clear LDAP fields to avoid stale data if desired
+                project.setLdapUser(safe(ldapUserField != null ? ldapUserField.getText() : null));
+                project.setTargetUser(safe(targetUserField != null ? targetUserField.getText() : null));
+                project.setLdapPassword(safe(ldapPasswordField != null ? ldapPasswordField.getText() : null));
+            }
             try {
                 project.setHostPort(Integer.parseInt(portField.getText().trim()));
             } catch (NumberFormatException e) {
@@ -477,7 +603,35 @@ public class ProjectDetailsController {
             LoggerUtil.getLogger().info("Setup cancelled by user");
             return;
         }
-        boolean isFull = (selectedMode == SetupModeDialog.FULL_CHECKOUT);
+        // Determine setup mode based on selected option
+        SetupService.SetupMode setupMode;
+        switch (selectedMode.getId()) {
+            case "PATCH_UPGRADE":
+                setupMode = SetupService.SetupMode.PATCH_UPGRADE;
+                break;
+            case "PRODUCT_ONLY":
+                setupMode = SetupService.SetupMode.PRODUCT_ONLY;
+                break;
+            case "FULL_CHECKOUT":
+                setupMode = SetupService.SetupMode.FULL_CHECKOUT;
+                break;
+            case "PROJECT_AND_PRODUCT_FROM_SERVER":
+                setupMode = SetupService.SetupMode.PROJECT_AND_PRODUCT_FROM_SERVER;
+                break;
+            case "PROJECT_ONLY_SVN":
+                setupMode = SetupService.SetupMode.PROJECT_ONLY_SVN;
+                break;
+            case "PROJECT_ONLY_SERVER":
+                setupMode = SetupService.SetupMode.PROJECT_ONLY_SERVER;
+                break;
+            case "HAS_JAVA_MODE":
+                setupMode = SetupService.SetupMode.HAS_JAVA_MODE;
+                break;
+            default:
+                LoggerUtil.getLogger().warning("Unknown setup mode: " + selectedMode.getId());
+                setupMode = SetupService.SetupMode.PATCH_UPGRADE;
+                break;
+        }
 
         // Get the selected project first to get its name
         ProjectEntity project = mainController.getSelectedProject();
@@ -487,7 +641,7 @@ public class ProjectDetailsController {
         }
 
         // Create process monitor with project name
-        ProcessMonitor processMonitor = new ProcessMonitor("Local Setup / Upgrade", project.getName());
+        ProcessMonitor processMonitor = new ProcessMonitor("Local Setup / Upgrade", project.getName()+" - "+ setupMode);
         
         // Add initial steps based on setup mode
 //        processMonitor.addStep("validate", "Validating inputs");
@@ -508,7 +662,7 @@ public class ProjectDetailsController {
         Thread setupThread = new Thread(() -> {
             try {
                 processMonitor.logMessage("setup_init", "Starting setup process...");
-                processMonitor.logMessage("setup_init", "Setup mode: " + (isFull ? "FULL_CHECKOUT" : "PRODUCT_ONLY"));
+                processMonitor.logMessage("setup_init", "Setup mode: " + setupMode.toString());
                 
                 // Project is already validated and available from earlier in the method
                 
@@ -517,7 +671,7 @@ public class ProjectDetailsController {
                 processMonitor.logMessage("setup_init", "JConfig path: " + project.getJconfigPathForBuild());
                 processMonitor.logMessage("setup_init", "Product path: " + project.getExePath());
 
-                SetupService setup = new SetupService(project, processMonitor, isFull);
+                SetupService setup = new SetupService(project, processMonitor, setupMode);
                 processMonitor.logMessage("setup_init", "SetupService created successfully");
 
                 setup.executeSetup(mainController);
@@ -581,7 +735,7 @@ public class ProjectDetailsController {
     private void enforceNumericOnly(TextField field) {
         if (field == null) return;
         
-        field.textProperty().addListener((_, _, newValue) -> {
+        field.textProperty().addListener((obs, oldValue, newValue) -> {
             if (newValue != null && !newValue.matches("\\d*")) {
                 field.setText(newValue.replaceAll("[^\\d]", ""));
             }
@@ -602,15 +756,28 @@ public class ProjectDetailsController {
             return;
         }
 
-        DialogUtil.showTextInputDialog("ENV INPUT", "Enter env var name created for this project:", "Ex: OPAL_HOME", project.getNmsEnvVar()).thenAccept(result -> {
+        EnhancedEnvironmentVariableDialog envDialog = new EnhancedEnvironmentVariableDialog();
+        envDialog.showDialog((Stage) rootScroller.getScene().getWindow(), project, null, false).thenAccept(result -> {
             if (result.isPresent()) {
-                String env_name = result.get().trim();
+                EnhancedEnvironmentVariableDialog.EnvVarReplacement replacement = result.get();
+                String oldValue = replacement.getOldValue();
+                String newValue = replacement.getNewValue();
+                
                 try {
-                    ManageFile.replaceTextInFiles(List.of(projectPath + "/build.properties"), "NMS_HOME", env_name);
-                    ManageFile.replaceTextInFiles(List.of(projectPath + "/build.xml"), "NMS_HOME", env_name);
-                    project.setNmsEnvVar(env_name);
-                    mainController.projectManager.saveData();
-                    DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Success", "Replaced NMS_HOME with " + env_name + " in project build files.");
+                    // Use BuildFileParser to perform the replacement
+                    List<String> updatedFiles = BuildFileParser.replaceEnvironmentVariable(project, false, oldValue, newValue);
+                    
+                    if (!updatedFiles.isEmpty()) {
+                        project.setNmsEnvVar(newValue);
+                        mainController.projectManager.saveData();
+                        
+                        String message = String.format("Successfully replaced '%s' with '%s' in %d project build files:\n\n%s", 
+                            oldValue, newValue, updatedFiles.size(), String.join("\n", updatedFiles));
+                        DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Replacement Complete", message);
+                    } else {
+                        DialogUtil.showAlert(Alert.AlertType.WARNING, "No Changes", 
+                            String.format("No files were updated. The environment variable '%s' was not found in any project build files.", oldValue));
+                    }
                 } catch (Exception e) {
                     logger.severe("Error replacing text in project build files: " + e.getMessage());
                     DialogUtil.showAlert(Alert.AlertType.ERROR, "Error", "Failed to replace text in project build files: " + e.getMessage());
@@ -633,15 +800,28 @@ public class ProjectDetailsController {
             return;
         }
 
-        DialogUtil.showTextInputDialog("ENV INPUT", "Enter env var name created for this product:", "Ex: OPAL_HOME", project.getNmsEnvVar()).thenAccept(result -> {
+        EnhancedEnvironmentVariableDialog envDialog = new EnhancedEnvironmentVariableDialog();
+        envDialog.showDialog((Stage) rootScroller.getScene().getWindow(), project, null, true).thenAccept(result -> {
             if (result.isPresent()) {
-                String env_name = result.get().trim();
+                EnhancedEnvironmentVariableDialog.EnvVarReplacement replacement = result.get();
+                String oldValue = replacement.getOldValue();
+                String newValue = replacement.getNewValue();
+                
                 try {
-                    ManageFile.replaceTextInFiles(List.of(productPath + "/java/ant/build.properties"), "NMS_HOME", env_name);
-                    ManageFile.replaceTextInFiles(List.of(productPath + "/java/ant/build.xml"), "NMS_HOME", env_name);
-                    project.setNmsEnvVar(env_name);
-                    mainController.projectManager.saveData();
-                    DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Success", "Replaced NMS_HOME with " + env_name + " in product build files.");
+                    // Use BuildFileParser to perform the replacement
+                    List<String> updatedFiles = BuildFileParser.replaceEnvironmentVariable(project, true, oldValue, newValue);
+                    
+                    if (!updatedFiles.isEmpty()) {
+                        project.setNmsEnvVar(newValue);
+                        mainController.projectManager.saveData();
+                        
+                        String message = String.format("Successfully replaced '%s' with '%s' in %d product build files:\n\n%s", 
+                            oldValue, newValue, updatedFiles.size(), String.join("\n", updatedFiles));
+                        DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Replacement Complete", message);
+                    } else {
+                        DialogUtil.showAlert(Alert.AlertType.WARNING, "No Changes", 
+                            String.format("No files were updated. The environment variable '%s' was not found in any product build files.", oldValue));
+                    }
                 } catch (Exception e) {
                     logger.severe("Error replacing text in product build files: " + e.getMessage());
                     DialogUtil.showAlert(Alert.AlertType.ERROR, "Error", "Failed to replace text in product build files: " + e.getMessage());
@@ -665,6 +845,38 @@ public class ProjectDetailsController {
     @FXML
     private void importProjectFoldersData() {
         importCardData("Project Folders", this::copyProjectFoldersData);
+    }
+    
+    @FXML
+    private void importOracleDbDataFromSSH() {
+        ProjectEntity currentProject = mainController.getSelectedProject();
+        if (currentProject == null) {
+            DialogUtil.showAlert(Alert.AlertType.WARNING, "No Project Selected", "Please select a project first.");
+            return;
+        }
+        
+        // Check if SSH connection details are available
+        if (currentProject.getHost() == null || currentProject.getHost().trim().isEmpty()) {
+            DialogUtil.showAlert(Alert.AlertType.WARNING, "SSH Configuration Missing", 
+                "Please configure Linux Server connection details first before importing DB data from SSH.");
+            return;
+        }
+        
+        // Show confirmation dialog
+        Alert confirmDialog = new Alert(Alert.AlertType.CONFIRMATION);
+        confirmDialog.setTitle("Import DB Data from SSH");
+        confirmDialog.setHeaderText("Import Oracle DB Configuration from SSH Server");
+        confirmDialog.setContentText("This will execute SSH commands to retrieve database configuration from the server.\n\n" +
+            "Host: " + currentProject.getHost() + "\n" +
+            "This will overwrite existing DB configuration. Continue?");
+        
+        confirmDialog.showAndWait().ifPresent(response -> {
+            if (response == ButtonType.OK) {
+                // Disable project switching and show progress dialog
+                disableProjectSwitching();
+                importDbDataFromSSHAsync(currentProject);
+            }
+        });
     }
     
     /**
@@ -730,8 +942,20 @@ public class ProjectDetailsController {
     private void copyLinuxServerData(ProjectEntity sourceProject) {
         // Copy Linux Server fields
         hostAddressField.setText(safe(sourceProject.getHost()));
+        // Copy both basic and LDAP auth values
         hostUserField.setText(safe(sourceProject.getHostUser()));
         hostPasswordField.setText(safe(sourceProject.getHostPass()));
+        if (useLdapToggle != null) {
+            useLdapToggle.setSelected(sourceProject.isUseLdap());
+            if (sourceProject.isUseLdap()) {
+                ldapUserField.setText(safe(sourceProject.getLdapUser()));
+                targetUserField.setText(safe(sourceProject.getTargetUser()));
+                ldapPasswordField.setText(safe(sourceProject.getLdapPassword()));
+                applyAuthVisibility(true, false);
+            } else {
+                applyAuthVisibility(false, false);
+            }
+        }
         if (sourceProject.getHostPort() > 0) {
             portField.setText(String.valueOf(sourceProject.getHostPort()));
         } else {
@@ -765,6 +989,489 @@ public class ProjectDetailsController {
         
         // Notify build automation of product folder change
         notifyProductFolderPathChange();
+    }
+    
+    /**
+     * Imports Oracle DB configuration from SSH server asynchronously
+     */
+    private void importDbDataFromSSHAsync(ProjectEntity project) {
+        // Show progress dialog
+        ProgressDialog progressDialog = new ProgressDialog();
+        progressDialog.setTitle("Importing DB Configuration");
+        progressDialog.setHeaderText("Connecting to SSH server and retrieving DB information...");
+        progressDialog.setContentText("Please wait...");
+        progressDialog.show();
+        
+        // Create a background task for SSH operations
+        javafx.concurrent.Task<Void> sshImportTask = new javafx.concurrent.Task<Void>() {
+            @Override
+            protected Void call() throws Exception {
+                updateMessage("Connecting to SSH server...");
+                Thread.sleep(500); // Small delay to show loading
+                
+                // Execute SSH commands to get DB information
+                com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager ssh = UnifiedSSHService.createSSHSession(project);
+                ssh.initialize();
+                
+                updateMessage("Retrieving environment variables...");
+                Thread.sleep(300);
+                
+                // Get RDBMS_HOST from environment variable
+                String rdbmsHost = getEnvironmentVariable(ssh, "RDBMS_HOST");
+                
+                // Get Oracle user from environment variables
+                String oracleUser = getEnvironmentVariable(ssh, "ORACLE_READ_ONLY_USER");
+                if (oracleUser == null || oracleUser.trim().isEmpty()) {
+                    oracleUser = getEnvironmentVariable(ssh, "ORACLE_READ_WRITE_USER");
+                }
+                
+                // Get Oracle SID from environment variable
+                String oracleSid = getEnvironmentVariable(ssh, "ORACLE_SERVICE_NAME");
+                
+                updateMessage("Reading TNS names file...");
+                Thread.sleep(300);
+                
+                // Parse TNS names file to get DB host and port
+                String tnsContent = getTnsNamesContent(ssh);
+                TnsNamesInfo tnsInfo = parseTnsNames(tnsContent, rdbmsHost);
+                
+                updateMessage("Processing database configuration...");
+                Thread.sleep(300);
+                
+                // Make variables final for lambda usage
+                final String finalOracleUser = oracleUser;
+                final String finalOracleSid = oracleSid;
+                final String finalRdbmsHost = rdbmsHost;
+                final TnsNamesInfo finalTnsInfo = tnsInfo;
+                
+                // Update UI fields with retrieved information on JavaFX thread
+                Platform.runLater(() -> {
+                    try {
+                        // Set DB Host - prioritize TNS parsed host, fallback to RDBMS_HOST
+                        if (finalTnsInfo.host != null && !finalTnsInfo.host.trim().isEmpty()) {
+                            dbHostField.setText(finalTnsInfo.host);
+                            logger.info("Set DB Host from TNS: " + finalTnsInfo.host);
+                        } else if (finalRdbmsHost != null && !finalRdbmsHost.trim().isEmpty()) {
+                            dbHostField.setText(finalRdbmsHost);
+                            logger.info("Set DB Host from RDBMS_HOST: " + finalRdbmsHost);
+                        } else {
+                            logger.warning("No DB host found, leaving field empty");
+                        }
+                        
+                        // Set DB Port - from TNS or default
+                        if (finalTnsInfo.port > 0) {
+                            dbPortField.setText(String.valueOf(finalTnsInfo.port));
+                            logger.info("Set DB Port from TNS: " + finalTnsInfo.port);
+                        } else {
+                            dbPortField.setText("1521"); // Default Oracle port
+                            logger.info("Set DB Port to default: 1521");
+                        }
+                        
+                        // Set DB User - from environment variables
+                        if (finalOracleUser != null && !finalOracleUser.trim().isEmpty()) {
+                            dbUserField.setText(finalOracleUser);
+                            logger.info("Set DB User: " + finalOracleUser);
+                        } else {
+                            logger.warning("No Oracle user found, leaving field empty");
+                        }
+                        
+                        // Set DB SID - from environment variables (NOT from RDBMS_HOST)
+                        if (finalOracleSid != null && !finalOracleSid.trim().isEmpty()) {
+                            dbSidField.setText(finalOracleSid);
+                            logger.info("Set DB SID: " + finalOracleSid);
+                        } else {
+                            logger.warning("No Oracle SID found, leaving field empty");
+                        }
+                        
+                        // Clear password field for security
+                        dbPasswordField.clear();
+                        
+                        logger.info("Successfully imported DB configuration from SSH server");
+                        
+                    } catch (Exception e) {
+                        logger.severe("Error updating UI with imported DB data: " + e.getMessage());
+                    }
+                });
+                
+                ssh.close();
+                return null;
+            }
+        };
+        
+        // Handle task completion
+        sshImportTask.setOnSucceeded(event -> {
+            progressDialog.close();
+            enableProjectSwitching();
+            DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Import Successful", 
+                "Database configuration has been imported from SSH server.");
+        });
+        
+        // Handle task failure
+        sshImportTask.setOnFailed(event -> {
+            progressDialog.close();
+            enableProjectSwitching();
+            Throwable exception = sshImportTask.getException();
+            logger.severe("Error importing DB data from SSH: " + exception.getMessage());
+            DialogUtil.showAlert(Alert.AlertType.ERROR, "SSH Import Error", 
+                "Failed to import database configuration from SSH server:\n" + exception.getMessage());
+        });
+        
+        // Bind progress dialog content to task message
+        progressDialog.getContentLabel().textProperty().bind(sshImportTask.messageProperty());
+        
+        // Start the background task
+        Thread backgroundThread = new Thread(sshImportTask);
+        backgroundThread.setDaemon(true);
+        backgroundThread.start();
+    }
+    
+    /**
+     * Gets an environment variable value from SSH server
+     */
+    private String getEnvironmentVariable(com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager ssh, String varName) throws Exception {
+        try {
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult result = ssh.executeCommand("echo $" + varName, 30);
+            if (result.isSuccess() && result.getOutput() != null) {
+                String value = result.getOutput().trim();
+                return value.isEmpty() ? null : value;
+            }
+        } catch (Exception e) {
+            logger.warning("Failed to get environment variable " + varName + ": " + e.getMessage());
+        }
+        return null;
+    }
+    
+    /**
+     * Gets TNS names file content from SSH server
+     */
+    private String getTnsNamesContent(com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager ssh) throws Exception {
+        try {
+            // Try to get NMS_HOME first
+            String nmsHome = getEnvironmentVariable(ssh, "NMS_HOME");
+            if (nmsHome == null || nmsHome.trim().isEmpty()) {
+                logger.warning("NMS_HOME environment variable not found");
+                return null;
+            }
+            
+            String tnsPath = nmsHome + "/etc/tnsnames.ora";
+            logger.info("Reading TNS names file from: " + tnsPath);
+            
+            com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager.CommandResult result = ssh.executeCommand("cat " + tnsPath, 30);
+            
+            if (result.isSuccess() && result.getOutput() != null) {
+                String output = result.getOutput();
+                logger.info("Raw TNS names file content length: " + output.length());
+                logger.info("Raw TNS content preview: " + output.substring(0, Math.min(300, output.length())) + "...");
+                return output;
+            } else {
+                logger.warning("Failed to read TNS names file: " + tnsPath + ", Exit code: " + result.getExitCode());
+                return null;
+            }
+        } catch (Exception e) {
+            logger.warning("Error reading TNS names file: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Parses TNS names file to extract host and port information
+     */
+    private TnsNamesInfo parseTnsNames(String tnsContent, String rdbmsHost) {
+        TnsNamesInfo info = new TnsNamesInfo();
+        
+        if (tnsContent == null || tnsContent.trim().isEmpty()) {
+            logger.warning("TNS names content is empty");
+            return info;
+        }
+        
+        try {
+            logger.info("Parsing TNS names content for RDBMS_HOST: " + rdbmsHost);
+            logger.info("TNS content preview: " + tnsContent.substring(0, Math.min(200, tnsContent.length())) + "...");
+            
+            // Clean the content first - remove extra whitespace but preserve structure
+            String cleanedContent = cleanTnsContent(tnsContent);
+            logger.info("Cleaned TNS content: " + cleanedContent);
+            
+            // Find the service entry that matches RDBMS_HOST
+            String targetService = findMatchingService(cleanedContent, rdbmsHost);
+            if (targetService != null) {
+                logger.info("Found matching service: " + targetService);
+                extractHostAndPort(targetService, info);
+            } else {
+                logger.warning("No matching service found for RDBMS_HOST: " + rdbmsHost);
+                // Fallback: try to find any service with HOST and PORT
+                findAnyServiceWithHostPort(cleanedContent, info);
+            }
+            
+            logger.info("Final parsed result - Host: " + info.host + ", Port: " + info.port);
+            
+        } catch (Exception e) {
+            logger.severe("Error parsing TNS names file: " + e.getMessage());
+            e.printStackTrace();
+        }
+        
+        return info;
+    }
+    
+    /**
+     * Cleans TNS content by normalizing whitespace while preserving structure
+     */
+    private String cleanTnsContent(String content) {
+        if (content == null) return "";
+        
+        // Split into lines and clean each line
+        String[] lines = content.split("\n");
+        StringBuilder cleaned = new StringBuilder();
+        
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+                cleaned.append(trimmed).append("\n");
+            }
+        }
+        
+        return cleaned.toString();
+    }
+
+    private String findMatchingService(String content, String rdbmsHost) {
+        if (rdbmsHost == null || rdbmsHost.trim().isEmpty()) {
+            return null;
+        }
+
+        String targetHost = rdbmsHost.trim().toUpperCase();
+        logger.info("Looking for service matching RDBMS_HOST: " + targetHost);
+
+        // Remove comments and normalize spacing
+        content = content.replaceAll("#.*", ""); // remove comments
+        content = content.replaceAll("[\\r\\n\\t]+", " "); // flatten all newlines/tabs
+        content = content.replaceAll("\\s{2,}", " "); // collapse multiple spaces
+
+        // This regex roughly finds service names followed by balanced parentheses
+        List<String> serviceBlocks = extractBalancedServiceBlocks(content);
+
+        for (String block : serviceBlocks) {
+            String upperBlock = block.toUpperCase();
+            if (upperBlock.contains(targetHost)) {
+                logger.info("Found potential matching block containing host: " + targetHost);
+                int eq = block.indexOf('=');
+                if (eq != -1) {
+                    String desc = block.substring(eq + 1).trim();
+                    logger.info("Extracted description: " + desc.substring(0, Math.min(100, desc.length())) + "...");
+                    return desc;
+                }
+            }
+        }
+
+        logger.warning("No service found containing host: " + targetHost);
+        return null;
+    }
+
+    /**
+     * Extracts each TNS service definition by scanning for balanced parentheses.
+     * This ignores newlines and whitespace formatting.
+     */
+    private List<String> extractBalancedServiceBlocks(String content) {
+        List<String> blocks = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        int depth = 0;
+        boolean inService = false;
+
+        for (int i = 0; i < content.length(); i++) {
+            char ch = content.charAt(i);
+            if (!inService) {
+                // Look for potential start of service = (
+                if (Character.isLetter(ch)) {
+                    int eqIndex = content.indexOf('=', i);
+                    if (eqIndex != -1) {
+                        inService = true;
+                    }
+                }
+            }
+
+            if (inService) {
+                current.append(ch);
+                if (ch == '(') depth++;
+                if (ch == ')') depth--;
+                if (depth == 0 && ch == ')') {
+                    // One full service block captured
+                    blocks.add(current.toString().trim());
+                    current.setLength(0);
+                    inService = false;
+                }
+            }
+        }
+        return blocks;
+    }
+
+    private void extractHostAndPort(String serviceBlock, TnsNamesInfo info) {
+        if (serviceBlock == null || serviceBlock.trim().isEmpty()) return;
+
+        logger.info("Extracting HOST and PORT from block: " + serviceBlock);
+
+        // Normalize spaces
+        String clean = serviceBlock.replaceAll("\\s+", " ");
+
+        // HOST pattern: catches names, IPs, or domains inside or outside parentheses
+        Matcher hostMatcher = Pattern.compile("(?i)HOST\\s*=\\s*([A-Za-z0-9_.-]+)").matcher(clean);
+        if (hostMatcher.find()) {
+            info.host = hostMatcher.group(1);
+            logger.info("Found HOST: " + info.host);
+        } else {
+            logger.warning("HOST not found.");
+        }
+
+        // PORT pattern
+        Matcher portMatcher = Pattern.compile("(?i)PORT\\s*=\\s*(\\d+)").matcher(clean);
+        if (portMatcher.find()) {
+            try {
+                info.port = Integer.parseInt(portMatcher.group(1));
+                logger.info("Found PORT: " + info.port);
+            } catch (NumberFormatException e) {
+                logger.warning("Invalid PORT format: " + portMatcher.group(1));
+            }
+        } else {
+            logger.warning("PORT not found.");
+        }
+    }
+
+
+    /**
+     * Fallback method to find any service with HOST and PORT
+     */
+    private void findAnyServiceWithHostPort(String content, TnsNamesInfo info) {
+        logger.info("Fallback: Looking for any service with HOST and PORT");
+        
+        // Split content into service blocks
+        String[] services = content.split("(?=\\w+\\s*=)");
+        
+        for (String service : services) {
+            service = service.trim();
+            if (service.isEmpty()) continue;
+            
+            // Check if this service has both HOST and PORT
+            if (service.toUpperCase().contains("HOST") && service.toUpperCase().contains("PORT")) {
+                logger.info("Found service with HOST and PORT: " + service.substring(0, Math.min(100, service.length())) + "...");
+                extractHostAndPort(service, info);
+                if (info.host != null && info.port > 0) {
+                    break; // Found what we need
+                }
+            }
+        }
+    }
+    
+    
+    /**
+     * Data class to hold TNS names information
+     */
+    private static class TnsNamesInfo {
+        String host;
+        int port = 0;
+    }
+    
+    /**
+     * Shows enhanced loading screen with progress indication
+     */
+    private void showEnhancedLoadingScreen(String title) {
+        Platform.runLater(() -> {
+            if (overlayPane != null && loadingIndicator != null) {
+                overlayPane.setVisible(true);
+                loadingIndicator.setVisible(true);
+                loadingIndicator.setProgress(-1); // Indeterminate progress
+                logger.info("Showing enhanced loading screen: " + title);
+            }
+        });
+    }
+    
+    /**
+     * Hides enhanced loading screen
+     */
+    private void hideEnhancedLoadingScreen() {
+        Platform.runLater(() -> {
+            if (overlayPane != null && loadingIndicator != null) {
+                overlayPane.setVisible(false);
+                loadingIndicator.setVisible(false);
+                logger.info("Hiding enhanced loading screen");
+            }
+        });
+    }
+    
+    
+    /**
+     * Disables project switching during import operations
+     */
+    private void disableProjectSwitching() {
+        Platform.runLater(() -> {
+            if (mainController != null) {
+                // Disable project combo box and related controls
+                if (mainController.projectComboBox != null) {
+                    mainController.projectComboBox.setDisable(true);
+                }
+                if (mainController.addButton != null) {
+                    mainController.addButton.setDisable(true);
+                }
+                if (mainController.delButton != null) {
+                    mainController.delButton.setDisable(true);
+                }
+                if (mainController.editProjectButton != null) {
+                    mainController.editProjectButton.setDisable(true);
+                }
+                logger.info("Project switching disabled during SSH import");
+            }
+        });
+    }
+    
+    /**
+     * Enables project switching after import operations
+     */
+    private void enableProjectSwitching() {
+        Platform.runLater(() -> {
+            if (mainController != null) {
+                // Re-enable project combo box and related controls
+                if (mainController.projectComboBox != null) {
+                    mainController.projectComboBox.setDisable(false);
+                }
+                if (mainController.addButton != null) {
+                    mainController.addButton.setDisable(false);
+                }
+                if (mainController.delButton != null) {
+                    mainController.delButton.setDisable(false);
+                }
+                if (mainController.editProjectButton != null) {
+                    mainController.editProjectButton.setDisable(false);
+                }
+                logger.info("Project switching enabled after SSH import");
+            }
+        });
+    }
+    
+    /**
+     * Shows loading indicator with message (legacy method for compatibility)
+     */
+    private void showLoadingIndicator(String message) {
+        showEnhancedLoadingScreen(message);
+    }
+    
+    /**
+     * Hides loading indicator (legacy method for compatibility)
+     */
+    private void hideLoadingIndicator() {
+        hideEnhancedLoadingScreen();
+    }
+    
+    
+    /**
+     * Test method for TNS parsing - can be called for debugging
+     */
+    public void testTnsParsing() {
+        String testTnsContent = "NMSDB,NMSDBadmin,NMSDBdrms = (DESCRIPTION = (ADDRESS = (PROTOCOL = TCP) (HOST = ugbu-phx-674.snphxprshared1.gbucdsint02phx.oraclevcn.com) (PORT = 1521)) (CONNECT_DATA = (SERVER = DEDICATED) (SERVICE_NAME = NMSDB) ) )";
+        String rdbmsHost = "NMSDB";
+        
+        logger.info("Testing TNS parsing with content: " + testTnsContent);
+        logger.info("RDBMS_HOST: " + rdbmsHost);
+        
+        TnsNamesInfo result = parseTnsNames(testTnsContent, rdbmsHost);
+        
+        logger.info("Parsed result - Host: " + result.host + ", Port: " + result.port);
     }
     
     /**

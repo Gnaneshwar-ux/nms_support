@@ -28,8 +28,34 @@
                         </Button>
                     </HBox>
                     <Label styleClass="field-label" text="Host Address" /> <TextField fx:id="hostAddressField" />
-                    <Label styleClass="field-label" text="User" /> <TextField fx:id="hostUserField" />
-                    <Label styleClass="field-label" text="Password" /> <PasswordField fx:id="hostPasswordField" />
+
+                    <!-- LDAP toggle (standard checkbox) -->
+                    <CheckBox fx:id="useLdapToggle" text="Use LDAP Login" />
+
+                    <!-- Basic auth (default visible) -->
+                    <VBox fx:id="basicAuthBox" spacing="12">
+                        <Label styleClass="field-label" text="User" />
+                        <TextField fx:id="hostUserField" />
+                        <Label styleClass="field-label" text="Password" />
+                        <PasswordField fx:id="hostPasswordField" />
+                    </VBox>
+
+                    <!-- LDAP auth group (hidden by default) -->
+                    <VBox fx:id="ldapAuthBox" spacing="8" visible="false" managed="false">
+                        <HBox spacing="8">
+                            <VBox spacing="6" HBox.hgrow="ALWAYS">
+                                <Label styleClass="field-label" text="LDAP User" />
+                                <TextField fx:id="ldapUserField" />
+                            </VBox>
+                            <VBox spacing="6" HBox.hgrow="ALWAYS">
+                                <Label styleClass="field-label" text="Target User" />
+                                <TextField fx:id="targetUserField" />
+                            </VBox>
+                        </HBox>
+                        <Label styleClass="field-label" text="LDAP Password" />
+                        <PasswordField fx:id="ldapPasswordField" />
+                    </VBox>
+
                     <Label styleClass="field-label" text="Port" /> <TextField fx:id="portField" />
                     <Label styleClass="field-label" text="App URL" /> <TextField fx:id="appUrlField" />
                 </VBox>
@@ -42,11 +68,16 @@
                             <tooltip><Tooltip text="Import Oracle DB data from another project" /></tooltip>
                             <graphic><FontIcon iconLiteral="fa-download" iconSize="14" /></graphic>
                         </Button>
+                        <Button fx:id="dbSshImportBtn" styleClass="transparent-icon-btn" onAction="#importOracleDbDataFromSSH">
+                            <tooltip><Tooltip text="Import Oracle DB data from SSH server" /></tooltip>
+                            <graphic><FontIcon iconLiteral="fa-terminal" iconSize="14" /></graphic>
+                        </Button>
                         <Button fx:id="dbOpenBtn" styleClass="icon-btn" visible="false">
                             <tooltip><Tooltip text="Open in SQL Developer" /></tooltip>
                             <graphic><FontIcon iconLiteral="fa-database" iconSize="14" /></graphic>
                         </Button>
                     </HBox>
+                    
                     <Label styleClass="field-label" text="DB Host" /> <TextField fx:id="dbHostField" />
                     <Label styleClass="field-label" text="Port" /> <TextField fx:id="dbPortField" />
                     <Label styleClass="field-label" text="User" /> <TextField fx:id="dbUserField" />

@@ -2,69 +2,181 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.nms.support</groupId>
-  <artifactId>nms_support</artifactId>
+  <artifactId>nms_devtools</artifactId>
   <name>nms_support</name>
   <version>1.0-SNAPSHOT</version>
   <build>
     <plugins>
       <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>properties-maven-plugin</artifactId>
+        <version>1.2.1</version>
+        <executions>
+          <execution>
+            <phase>initialize</phase>
+            <goals>
+              <goal>read-project-properties</goal>
+            </goals>
+            <configuration>
+              <files>
+                <file>src/main/resources/application.properties</file>
+              </files>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.11.0</version>
+        <version>3.13.0</version>
         <configuration>
           <source>22</source>
           <target>22</target>
-          <verbose>true</verbose>
+          <compilerArgs>
+            <arg>-Xlint:all</arg>
+          </compilerArgs>
+          <fork>true</fork>
+          <executable>C:\Users\Gnaneshwar\.jdks\openjdk-22.0.1\bin\javac</executable>
         </configuration>
       </plugin>
       <plugin>
         <groupId>org.openjfx</groupId>
         <artifactId>javafx-maven-plugin</artifactId>
         <version>0.0.8</version>
+        <configuration>
+          <mainClass>${main.class}</mainClass>
+          <executable>C:\Users\Gnaneshwar\.jdks\openjdk-22.0.1\bin\java</executable>
+          <commandlineArgs>--add-modules javafx.controls,javafx.fxml</commandlineArgs>
+        </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.7.0</version>
         <executions>
           <execution>
-            <id>default-cli</id>
+            <id>copy-dependencies</id>
+            <phase>package</phase>
+            <goals>
+              <goal>copy-dependencies</goal>
+            </goals>
             <configuration>
-              <mainClass>com.nms.support.nms_support.NMSSupportApplication</mainClass>
-              <launcher>app</launcher>
-              <jlinkZipName>app</jlinkZipName>
-              <jlinkImageName>app</jlinkImageName>
-              <noManPages>true</noManPages>
-              <stripDebug>true</stripDebug>
-              <noHeaderFiles>true</noHeaderFiles>
+              <outputDirectory>${project.build.directory}/libs</outputDirectory>
+              <overWriteReleases>false</overWriteReleases>
+              <overWriteSnapshots>false</overWriteSnapshots>
+              <overWriteIfNewer>true</overWriteIfNewer>
+              <includeScope>compile</includeScope>
+              <includeScope>runtime</includeScope>
             </configuration>
           </execution>
         </executions>
       </plugin>
       <plugin>
-        <groupId>org.graalvm.buildtools</groupId>
-        <artifactId>native-maven-plugin</artifactId>
-        <version>0.10.3</version>
-        <extensions>true</extensions>
-        <executions>
-          <execution>
-            <id>build-native</id>
-            <phase>package</phase>
-            <goals>
-              <goal>compile-no-fork</goal>
-            </goals>
-          </execution>
-        </executions>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.2.0</version>
         <configuration>
-          <mainClass>com.nms.support.nms_support.NMSSupportApplication</mainClass>
-          <imageName>NMSSupportApp</imageName>
+          <archive>
+            <manifest>
+              <addClasspath>true</addClasspath>
+              <mainClass>${main.class}</mainClass>
+            </manifest>
+            <manifestEntries>
+              <Class-Path>.</Class-Path>
+            </manifestEntries>
+          </archive>
         </configuration>
       </plugin>
       <plugin>
         <artifactId>maven-shade-plugin</artifactId>
-        <version>3.2.1</version>
+        <version>3.5.1</version>
         <executions>
           <execution>
             <phase>package</phase>
             <goals>
               <goal>shade</goal>
             </goals>
+            <configuration>
+              <finalName>nms-support-main</finalName>
+              <transformers>
+                <transformer>
+                  <mainClass>${main.class}</mainClass>
+                </transformer>
+              </transformers>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
           </execution>
         </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.7.0</version>
+        <executions>
+          <execution>
+            <id>copy-dependencies</id>
+            <phase>package</phase>
+            <goals>
+              <goal>copy-dependencies</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/libs</outputDirectory>
+              <overWriteReleases>false</overWriteReleases>
+              <overWriteSnapshots>false</overWriteSnapshots>
+              <overWriteIfNewer>true</overWriteIfNewer>
+              <includeScope>compile</includeScope>
+              <includeScope>runtime</includeScope>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <execution>
+            <id>unpack-jd-libs</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+                <echo />
+                <unzip />
+                <unzip />
+                <echo />
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>1.6.0</version>
+        <executions>
+          <execution>
+            <id>Build Native Windows App</id>
+            <phase>install</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <workingDirectory>${project.basedir}</workingDirectory>
+          <executable>build_app_windows.bat</executable>
+          <environmentVariables>
+            <APP_VERSION>${app.version}</APP_VERSION>
+            <PROJECT_VERSION>${project.version}</PROJECT_VERSION>
+          </environmentVariables>
+        </configuration>
       </plugin>
     </plugins>
   </build>
@@ -105,13 +217,28 @@
         </exclusion>
       </exclusions>
     </dependency>
+    <dependency>
+      <groupId>org.jd</groupId>
+      <artifactId>jd-core</artifactId>
+      <version>1.1.3</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/libs/jd-core-1.1.3.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>org.jd</groupId>
+      <artifactId>jd-gui</artifactId>
+      <version>1.6.6</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/libs/jd-gui-1.6.6.jar</systemPath>
+    </dependency>
   </dependencies>
   <properties>
-    <maven.compiler.release>22</maven.compiler.release>
-    <maven.compiler.target>22</maven.compiler.target>
+    <main.class>com.nms.support.nms_support.FakeMain</main.class>
+    <java.version>22</java.version>
     <maven.compiler.source>22</maven.compiler.source>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.target>22</maven.compiler.target>
+    <javafx.version>22.0.1</javafx.version>
     <junit.version>5.10.0</junit.version>
-    <native.maven.plugin.version>23.0.1</native.maven.plugin.version>
   </properties>
 </project>

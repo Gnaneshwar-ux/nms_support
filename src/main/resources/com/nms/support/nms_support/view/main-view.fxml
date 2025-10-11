@@ -78,6 +78,10 @@
             <Tab fx:id="dataStoreTab" text="Datastore Explorer" styleClass="main-tab compact-tab">
 
             </Tab>
+
+            <Tab fx:id="jarDecompilerTab" text="Jar Decompiler" styleClass="main-tab compact-tab">
+
+            </Tab>
         </TabPane>
     </VBox>
 </StackPane>

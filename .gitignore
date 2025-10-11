@@ -36,3 +36,11 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### Build Output ###
+out/
+.oca/
+test_output/
+
+### Maven auto-downloaded dependencies (lib/ is auto-downloaded, libs/ is manual) ###
+lib/

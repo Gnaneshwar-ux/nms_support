@@ -21,6 +21,11 @@ public class ProjectEntity {
     private String hostUser;
     private String hostPass;
     private int hostPort;
+    // LDAP auth
+    private boolean useLdap;
+    private String ldapUser;
+    private String targetUser;
+    private String ldapPassword;
     private String dataStoreUser;
     private String nmsAppURL;
     private String nmsEnvVar;
@@ -81,22 +86,22 @@ public class ProjectEntity {
     }
 
     public String getJconfigPath() {
-        return jconfigPath;
+        return ProjectPathUtil.normalizeForWindows(jconfigPath);
     }
 
     public void setJconfigPath(String jconfigPath) {
-        this.jconfigPath = jconfigPath;
+        this.jconfigPath = ProjectPathUtil.normalizeForWindows(jconfigPath);
     }
     
     /**
      * Gets the project folder path for display purposes.
      * This method converts the stored jconfig path to the project folder path.
      * 
-     * @return The project folder path (without /jconfig suffix)
+     * @return The project folder path (without /jconfig suffix) with Windows-compatible separators
      */
     @JsonIgnore
     public String getProjectFolderPath() {
-        return ProjectPathUtil.getProjectFolderPath(this.jconfigPath);
+        return ProjectPathUtil.normalizeForWindows(ProjectPathUtil.getProjectFolderPath(this.jconfigPath));
     }
     
     /**
@@ -113,22 +118,22 @@ public class ProjectEntity {
      * Gets the jconfig path for build operations.
      * This method ensures build operations always use the correct jconfig path.
      * 
-     * @return The jconfig path for build operations
+     * @return The jconfig path for build operations with Windows-compatible separators
      */
     @JsonIgnore
     public String getJconfigPathForBuild() {
-        return ProjectPathUtil.getBuildPath(this.jconfigPath);
+        return ProjectPathUtil.normalizeForWindows(ProjectPathUtil.getBuildPath(this.jconfigPath));
     }
     
     /**
      * Gets the project folder path for checkout operations.
      * This method ensures checkout operations use the project folder, not jconfig.
      * 
-     * @return The project folder path for checkout operations
+     * @return The project folder path for checkout operations with Windows-compatible separators
      */
     @JsonIgnore
     public String getProjectFolderPathForCheckout() {
-        return ProjectPathUtil.getCheckoutPath(this.jconfigPath);
+        return ProjectPathUtil.normalizeForWindows(ProjectPathUtil.getCheckoutPath(this.jconfigPath));
     }
     
     /**
@@ -141,11 +146,11 @@ public class ProjectEntity {
     }
 
     public String getExePath() {
-        return exePath;
+        return ProjectPathUtil.normalizeForWindows(exePath);
     }
 
     public void setExePath(String exePath) {
-        this.exePath = exePath;
+        this.exePath = ProjectPathUtil.normalizeForWindows(exePath);
     }
 
     public String getUsername() {
@@ -214,6 +219,39 @@ public class ProjectEntity {
 
     public void setHostPass(String hostPass) {
         this.hostPass = hostPass;
+    }
+
+    // ===== LDAP getters/setters =====
+    public boolean isUseLdap() {
+        return useLdap;
+    }
+
+    public void setUseLdap(boolean useLdap) {
+        this.useLdap = useLdap;
+    }
+
+    public String getLdapUser() {
+        return ldapUser;
+    }
+
+    public void setLdapUser(String ldapUser) {
+        this.ldapUser = ldapUser;
+    }
+
+    public String getTargetUser() {
+        return targetUser;
+    }
+
+    public void setTargetUser(String targetUser) {
+        this.targetUser = targetUser;
+    }
+
+    public String getLdapPassword() {
+        return ldapPassword;
+    }
+
+    public void setLdapPassword(String ldapPassword) {
+        this.ldapPassword = ldapPassword;
     }
 
     public int getHostPort() {

@@ -48,20 +48,60 @@ public class SetupModeDialog {
     }
     
     // Predefined setup modes
+    public static final SetupMode PATCH_UPGRADE = new SetupMode(
+        "PATCH_UPGRADE", 
+        "Patch Upgrade (Product + Project Update)", 
+        "Install product with project validation and build files update",
+        "fa-cube",
+        true
+    );
+    
+    public static final SetupMode PRODUCT_ONLY = new SetupMode(
+        "PRODUCT_ONLY", 
+        "Product Only (No Project Validation)", 
+        "Install only the product, skip project validation and build files",
+        "fa-box",
+        false
+    );
+    
     public static final SetupMode FULL_CHECKOUT = new SetupMode(
         "FULL_CHECKOUT", 
-        "Full checkout + product", 
+        "Project(SVN Checkout) + product", 
         "Complete setup including SVN checkout and product installation",
         "fa-download",
         false
     );
     
-    public static final SetupMode PRODUCT_ONLY = new SetupMode(
-        "PRODUCT_ONLY", 
-        "Product only", 
-        "Install only the product without SVN checkout",
-        "fa-cube",
-        true
+    public static final SetupMode PROJECT_AND_PRODUCT_FROM_SERVER = new SetupMode(
+        "PROJECT_AND_PRODUCT_FROM_SERVER", 
+        "Project + Product from server", 
+        "Fetch project and product from server",
+        "fa-server",
+        false
+    );
+    
+    public static final SetupMode PROJECT_ONLY_SVN = new SetupMode(
+        "PROJECT_ONLY_SVN", 
+        "Project only from SVN", 
+        "Checkout project from SVN only",
+        "fa-code-branch",
+        false
+    );
+    
+    public static final SetupMode PROJECT_ONLY_SERVER = new SetupMode(
+        "PROJECT_ONLY_SERVER", 
+        "Project only from server", 
+        "Download project from server only",
+        "fa-server",
+        false
+    );
+    
+    public static final SetupMode HAS_JAVA_MODE = new SetupMode(
+        "HAS_JAVA_MODE", 
+        "Has Java Mode (Resources + Exe Creation)", 
+        "Java already extracted - load resources, create executables, and update build files",
+        "fa-coffee",
+        false
     );
     
     public static final SetupMode CUSTOM = new SetupMode(
@@ -87,7 +127,15 @@ public class SetupModeDialog {
     private Button selectedButton = null;
     
     public SetupModeDialog() {
-        this("Local Setup / Upgrade", "Choose your setup mode", List.of(FULL_CHECKOUT, PRODUCT_ONLY));
+        this("Local Setup / Upgrade", "Choose your setup mode", List.of(
+            PATCH_UPGRADE,
+            PRODUCT_ONLY,
+            FULL_CHECKOUT,
+            PROJECT_AND_PRODUCT_FROM_SERVER,
+            PROJECT_ONLY_SVN,
+            PROJECT_ONLY_SERVER,
+            HAS_JAVA_MODE
+        ));
     }
     
     public SetupModeDialog(String title, String subtitle, List<SetupMode> modes) {
@@ -136,19 +184,19 @@ public class SetupModeDialog {
         mainContainer.setAlignment(Pos.CENTER);
         mainContainer.setStyle("-fx-background-color: #FFFFFF; -fx-background-radius: 16;");
         mainContainer.setEffect(new DropShadow(20, Color.rgb(0, 0, 0, 0.15)));
-        mainContainer.setMaxSize(500, 400);
-        mainContainer.setMinSize(500, 400);
+        mainContainer.setMaxSize(600, 500);
+        mainContainer.setMinSize(600, 500);
         
         // Header
         VBox header = createHeader();
         
-        // Content
-        VBox content = createContent();
+        // Content with scrollbar
+        ScrollPane scrollPane = createScrollableContent();
         
         // Footer
         HBox footer = createFooter(dialogStage);
         
-        mainContainer.getChildren().addAll(header, content, footer);
+        mainContainer.getChildren().addAll(header, scrollPane, footer);
         
         return mainContainer;
     }
@@ -173,6 +221,25 @@ public class SetupModeDialog {
         
         header.getChildren().addAll(titleLabel, subtitleLabel);
         return header;
+    }
+    
+    private ScrollPane createScrollableContent() {
+        VBox content = createContent();
+        
+        ScrollPane scrollPane = new ScrollPane(content);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setFitToHeight(true);
+        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scrollPane.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        
+        // Custom scrollbar styling - inline for now
+        scrollPane.setStyle("-fx-background-color: transparent; -fx-background: transparent; " +
+            "-fx-scrollbar-color: #cbd5e1; " +
+            "-fx-scrollbar-thumb-color: #94a3b8; " +
+            "-fx-scrollbar-thumb-hover-color: #64748b;");
+        
+        return scrollPane;
     }
     
     private VBox createContent() {

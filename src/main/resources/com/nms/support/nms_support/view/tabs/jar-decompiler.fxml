@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.image.*?>
+<?import org.fxmisc.richtext.*?>
+<?import org.kordamp.ikonli.javafx.*?>
+<AnchorPane fx:id="root" stylesheets="@../../styles/light/tabs/jar-decompiler.css" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.nms.support.nms_support.controller.EnhancedJarDecompilerController">
+    <!-- Wrap everything in a StackPane to allow overlay -->
+    <StackPane AnchorPane.bottomAnchor="0" AnchorPane.leftAnchor="0" AnchorPane.rightAnchor="0" AnchorPane.topAnchor="0">
+        
+        <!-- Main Content -->
+        <VBox fx:id="mainContent" spacing="0" styleClass="main-container">
+        
+        <!-- Top Toolbar -->
+        <HBox spacing="8" styleClass="toolbar" HBox.hgrow="ALWAYS">
+            <Label styleClass="toolbar-label" text="JAR Path:" />
+            <TextField fx:id="jarPathField" prefWidth="400" maxWidth="400" editable="true" promptText="Enter or select directory containing JAR files" styleClass="toolbar-textfield" />
+            <Button fx:id="browseButton" styleClass="icon-button" prefWidth="32" minWidth="32" maxWidth="32" prefHeight="32" minHeight="32" maxHeight="32">
+                <graphic>
+                    <FontIcon iconLiteral="fa-folder-open" iconSize="16" />
+                </graphic>
+                <tooltip>
+                    <Tooltip text="Browse for directory containing JAR files" />
+                </tooltip>
+            </Button>
+            <Button fx:id="decompileButton" styleClass="icon-button primary" prefWidth="32" minWidth="32" maxWidth="32" prefHeight="32" minHeight="32" maxHeight="32">
+                <graphic>
+                    <FontIcon iconLiteral="fa-play" iconSize="16" />
+                </graphic>
+                <tooltip>
+                    <Tooltip text="Decompile selected JAR files" />
+                </tooltip>
+            </Button>
+            <Button fx:id="openVsButton" styleClass="icon-button" prefWidth="32" minWidth="32" maxWidth="32" prefHeight="32" minHeight="32" maxHeight="32">
+                <graphic>
+                    <FontIcon iconLiteral="fa-code" iconSize="16" />
+                </graphic>
+                <tooltip>
+                    <Tooltip text="Open extracted folder in VS Code" />
+                </tooltip>
+            </Button>
+            <Region HBox.hgrow="ALWAYS" />
+            <Label fx:id="decompilationInfoLabel" styleClass="decompilation-info" text="" />
+        </HBox>
+        
+        <!-- Main Content Area -->
+        <SplitPane orientation="HORIZONTAL" dividerPositions="0.30" VBox.vgrow="ALWAYS" styleClass="main-split-pane">
+            
+            <!-- Left Panel - JAR and Class Explorer -->
+            <SplitPane orientation="VERTICAL" dividerPositions="0.5" styleClass="left-panel">
+                
+                <!-- JAR Files Section -->
+                <VBox spacing="4" styleClass="section-container">
+                    <HBox alignment="CENTER_LEFT" spacing="8" styleClass="section-header">
+                        <FontIcon iconLiteral="fa-archive" iconSize="12" styleClass="section-icon" />
+                        <Label styleClass="section-title" text="JAR Files" />
+                        <Region HBox.hgrow="ALWAYS" />
+                        <Label fx:id="jarCountLabel" styleClass="count-label" text="(0)" />
+                    </HBox>
+                    <TextField fx:id="jarSearchField" promptText="Search JARs... (use * for wildcards)" styleClass="search-field" />
+                    <Label text="Tip: Use *Service* to find all service JARs" styleClass="help-text" />
+                    <ListView fx:id="jarListView" VBox.vgrow="ALWAYS" styleClass="jar-list-view" />
+                </VBox>
+                
+                <!-- Classes Section -->
+                <VBox spacing="4" styleClass="section-container">
+                    <HBox alignment="CENTER_LEFT" spacing="8" styleClass="section-header">
+                        <FontIcon iconLiteral="fa-code" iconSize="12" styleClass="section-icon" />
+                        <Label styleClass="section-title" text="Classes" />
+                        <Region HBox.hgrow="ALWAYS" />
+                        <Label fx:id="classCountLabel" styleClass="count-label" text="(0)" />
+                    </HBox>
+                    <TextField fx:id="classSearchField" promptText="Search classes... (use * for wildcards)" styleClass="search-field" />
+                    <Label text="Tip: Use Test* to find all test classes" styleClass="help-text" />
+                    <ListView fx:id="classListView" VBox.vgrow="ALWAYS" styleClass="class-list-view" />
+                </VBox>
+                
+            </SplitPane>
+            
+            <!-- Right Panel - Code Viewer -->
+            <VBox spacing="0" styleClass="right-panel">
+                <HBox alignment="CENTER_LEFT" spacing="8" styleClass="code-header">
+                    <FontIcon iconLiteral="fa-file-code-o" iconSize="12" styleClass="section-icon" />
+                    <Label fx:id="currentClassLabel" styleClass="code-title" text="Select a class to view decompiled code" />
+                    <Region HBox.hgrow="ALWAYS" />
+                    <Button fx:id="copyCodeButton" styleClass="icon-button" visible="false">
+                        <graphic>
+                            <FontIcon iconLiteral="fa-copy" iconSize="12" />
+                        </graphic>
+                        <tooltip>
+                            <Tooltip text="Copy code to clipboard" />
+                        </tooltip>
+                    </Button>
+                </HBox>
+                <ScrollPane fx:id="codeScrollPane" VBox.vgrow="ALWAYS" styleClass="code-scroll-pane" fitToWidth="true" fitToHeight="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED">
+                    <CodeArea fx:id="codeArea" styleClass="code-area" />
+                </ScrollPane>
+            </VBox>
+            
+        </SplitPane>
+        
+        <!-- Status Bar -->
+        <HBox alignment="CENTER_LEFT" spacing="12" styleClass="status-bar" VBox.vgrow="NEVER">
+            <HBox alignment="CENTER_LEFT" spacing="8">
+                <FontIcon fx:id="statusIcon" styleClass="status-icon" iconLiteral="fa-info-circle" iconSize="14" />
+                <Label fx:id="statusLabel" styleClass="status-text" text="Ready" />
+                <ProgressBar fx:id="progressBar" prefWidth="200" minWidth="200" maxWidth="200" visible="false" styleClass="status-progress" />
+                <Label fx:id="progressLabel" styleClass="progress-text" text="" visible="false" />
+            </HBox>
+        </HBox>
+        
+        </VBox>
+        
+        <!-- Loading Overlay -->
+        <StackPane fx:id="loadingOverlay" visible="false" styleClass="loading-overlay">
+            <VBox alignment="CENTER" spacing="16" styleClass="loading-container">
+                <ProgressIndicator prefWidth="64" prefHeight="64" styleClass="loading-spinner" />
+                <Label text="Loading project data..." styleClass="loading-text" />
+            </VBox>
+        </StackPane>
+        
+    </StackPane>
+</AnchorPane>

@@ -118,4 +118,8 @@ public class ProgressDialog {
             Platform.runLater(() -> dialog.close());
         }
     }
+    
+    public Label getContentLabel() {
+        return contentLabel;
+    }
 }

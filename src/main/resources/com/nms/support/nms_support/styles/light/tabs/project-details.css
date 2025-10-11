@@ -204,3 +204,6 @@ ScrollPane::content, ScrollPane::viewport {
     -fx-effect: none !important;
     -fx-outline: none !important;
 }
+
+/* Smooth fade transitions are applied via controller using FadeTransition */
+
