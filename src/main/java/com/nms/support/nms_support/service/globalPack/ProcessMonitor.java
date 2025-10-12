@@ -545,6 +545,10 @@ public class ProcessMonitor {
     private boolean wasAtBottom = true;
     private double lastScrollPosition = 0.0;
     
+    // ProcessMonitor registration ID for tracking in ProcessMonitorManager
+    private final String monitorId;
+    private boolean registeredWithManager = false;
+    
     public ProcessMonitor(String title) {
         this(title, null);
     }
@@ -552,6 +556,7 @@ public class ProcessMonitor {
     public ProcessMonitor(String title, String projectName) {
         this.title = title;
         this.projectName = projectName;
+        this.monitorId = "process_monitor_" + System.currentTimeMillis();
         
         // Create window stage (not modal dialog)
         this.dialogStage = new Stage();
@@ -611,6 +616,9 @@ public class ProcessMonitor {
             if (isRunning.get()) {
                 e.consume(); // Prevent default close behavior during execution
                 dialogStage.setIconified(true); // Minimize the window
+            } else {
+                // Unregister from manager when window closes (safety check, should already be done)
+                unregisterFromManager();
             }
             // Allow normal closing when process is completed
         });
@@ -875,6 +883,18 @@ public class ProcessMonitor {
             isCompleted.set(true);
             isRunning.set(false);
             smartScrollToBottom();
+            
+            // Unregister from ProcessMonitorManager after UI is updated
+            // Use a small delay to ensure all setup operations are truly complete
+            new Thread(() -> {
+                try {
+                    Thread.sleep(1000); // Wait 1 second to ensure setup is fully complete
+                    unregisterFromManager();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    unregisterFromManager(); // Unregister immediately if interrupted
+                }
+            }).start();
         });
     }
     
@@ -909,6 +929,18 @@ public class ProcessMonitor {
             hasFailed.set(true);
             isRunning.set(false);
             smartScrollToBottom();
+            
+            // Unregister from ProcessMonitorManager after UI is updated
+            // Use a small delay to ensure all setup operations are truly complete
+            new Thread(() -> {
+                try {
+                    Thread.sleep(1000); // Wait 1 second to ensure setup is fully complete
+                    unregisterFromManager();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    unregisterFromManager(); // Unregister immediately if interrupted
+                }
+            }).start();
         });
     }
     
@@ -930,6 +962,9 @@ public class ProcessMonitor {
      * Show the process monitor window (non-blocking)
      */
     public void show(Stage parentStage) {
+        // Register with ProcessMonitorManager to track this setup operation
+        registerWithManager();
+        
         // Don't set parent to ensure standalone behavior
         dialogStage.show();
         dialogStage.requestFocus(); // Bring window to front
@@ -939,8 +974,51 @@ public class ProcessMonitor {
      * Show the process monitor window without parent (standalone)
      */
     public void show() {
+        // Register with ProcessMonitorManager to track this setup operation
+        registerWithManager();
+        
         dialogStage.show();
         dialogStage.requestFocus(); // Bring window to front
+    }
+    
+    /**
+     * Register this ProcessMonitor with ProcessMonitorManager
+     * This ensures the cleanup button stays hidden during setup operations
+     */
+    private void registerWithManager() {
+        if (!registeredWithManager) {
+            // Use title as purpose to identify this as a setup operation
+            // The title typically contains the setup mode information
+            String purpose = title.toLowerCase().contains("setup") ? "full_setup_process" : "process_operation";
+            ProcessMonitorManager.getInstance().registerSession(monitorId, this, true, purpose);
+            registeredWithManager = true;
+            logger.info("ProcessMonitor registered with manager: " + monitorId + " (purpose: " + purpose + ")");
+        }
+    }
+    
+    /**
+     * Unregister this ProcessMonitor from ProcessMonitorManager
+     */
+    private void unregisterFromManager() {
+        if (registeredWithManager) {
+            ProcessMonitorManager.getInstance().unregisterSession(monitorId);
+            registeredWithManager = false;
+            logger.info("ProcessMonitor unregistered from manager: " + monitorId);
+        }
+    }
+    
+    /**
+     * Check if this ProcessMonitor is still running (not completed or failed)
+     */
+    public boolean isStillRunning() {
+        return isRunning.get() && !isCompleted.get() && !hasFailed.get();
+    }
+    
+    /**
+     * Get the monitor ID for external tracking
+     */
+    public String getMonitorId() {
+        return monitorId;
     }
     
     /**

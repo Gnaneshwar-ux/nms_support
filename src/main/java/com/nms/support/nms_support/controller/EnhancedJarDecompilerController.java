@@ -1284,17 +1284,33 @@ public class EnhancedJarDecompilerController implements Initializable {
             if (selectedClass != null && !selectedClass.isEmpty()) {
                 // Open VS Code with the selected class file
                 JarDecompilerService.openInVSCode(extractedPath, selectedClass);
-                updateStatus("Opened VS Code with class: " + selectedClass, "fa-code");
+                // Only update status if decompilation is not running
+                if (!isDecompilationRunning()) {
+                    updateStatus("Opened VS Code with class: " + selectedClass, "fa-code");
+                }
             } else {
                 // No class selected, open directory
                 JarDecompilerService.openInVSCode(extractedPath);
-                updateStatus("Opened VS Code with extracted files", "fa-code");
+                // Only update status if decompilation is not running
+                if (!isDecompilationRunning()) {
+                    updateStatus("Opened VS Code with extracted files", "fa-code");
+                }
             }
         } catch (Exception e) {
             logger.severe("Error opening VS Code: " + e.getMessage());
             DialogUtil.showAlert(Alert.AlertType.ERROR, "Error", "Failed to open VS Code: " + e.getMessage());
-            updateStatus("Error opening VS Code", "fa-exclamation-triangle");
+            // Only update status if decompilation is not running
+            if (!isDecompilationRunning()) {
+                updateStatus("Error opening VS Code", "fa-exclamation-triangle");
+            }
         }
+    }
+    
+    /**
+     * Check if decompilation is currently running
+     */
+    private boolean isDecompilationRunning() {
+        return decompilerService != null && decompilerService.isRunning();
     }
     
     /**
@@ -1321,8 +1337,26 @@ public class EnhancedJarDecompilerController implements Initializable {
                 progressBar.setVisible(true);
                 progressLabel.setVisible(true);
                 decompileButton.setDisable(true);
-                updateStatus("Decompiling JARs...", "fa-spinner");
+                updateStatus("Starting decompilation...", "fa-spinner");
             });
+        });
+        
+        // Listen to message property to update status during decompilation
+        decompilerService.messageProperty().addListener((observable, oldValue, newValue) -> {
+            if (newValue != null && !newValue.isEmpty() && decompilerService.isRunning()) {
+                Platform.runLater(() -> {
+                    updateStatus(newValue, "fa-spinner");
+                });
+            }
+        });
+        
+        // Listen to current message property for dynamic class progress updates
+        decompilerService.currentMessageProperty().addListener((observable, oldValue, newValue) -> {
+            if (newValue != null && !newValue.isEmpty() && decompilerService.isRunning()) {
+                Platform.runLater(() -> {
+                    updateStatus(newValue, "fa-spinner");
+                });
+            }
         });
         
         decompilerService.setOnSucceeded(event -> {
@@ -1365,8 +1399,12 @@ public class EnhancedJarDecompilerController implements Initializable {
         
         decompilerService.progressProperty().addListener((observable, oldValue, newValue) -> {
             Platform.runLater(() -> {
-                progressBar.setProgress(newValue.doubleValue());
-                progressLabel.setText(String.format("%.0f%%", newValue.doubleValue() * 100));
+                double progress = newValue.doubleValue();
+                // Ensure progress is within valid bounds (0.0 to 1.0)
+                progress = Math.max(0.0, Math.min(1.0, progress));
+                
+                progressBar.setProgress(progress);
+                // Progress percentage label removed - progress bar is sufficient visual indicator
             });
         });
     }

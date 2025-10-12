@@ -117,17 +117,24 @@ public class ProcessMonitorManager {
      * This excludes zip_cleanup and other non-setup operations.
      */
     public boolean hasInProgressSetupOperations() {
+        LoggerUtil.getLogger().info("Checking for in-progress setup operations. Active sessions: " + operationStates.size());
+        
+        boolean foundSetupOperation = false;
         for (Map.Entry<String, Boolean> entry : operationStates.entrySet()) {
             if (entry.getValue()) { // If operation is in progress
                 String sessionId = entry.getKey();
                 String purpose = sessionPurposes.get(sessionId);
+                LoggerUtil.getLogger().info("Active session: " + sessionId + " (purpose: " + purpose + ")");
+                
                 if (purpose != null && isSetupPurpose(purpose)) {
                     LoggerUtil.getLogger().info("Found in-progress setup operation: " + sessionId + " (purpose: " + purpose + ")");
-                    return true;
+                    foundSetupOperation = true;
                 }
             }
         }
-        return false;
+        
+        LoggerUtil.getLogger().info("Setup operations in progress: " + foundSetupOperation);
+        return foundSetupOperation;
     }
     
     /**
@@ -143,7 +150,32 @@ public class ProcessMonitorManager {
                lowerPurpose.contains("full_checkout") ||
                lowerPurpose.contains("patch_upgrade") ||
                lowerPurpose.contains("has_java_mode") ||
-               lowerPurpose.contains("project_and_product");
+               lowerPurpose.contains("project_and_product") ||
+               lowerPurpose.contains("full_setup_process") ||
+               lowerPurpose.contains("setup");
+    }
+    
+    /**
+     * Get detailed information about all active sessions for debugging
+     */
+    public String getActiveSessionsInfo() {
+        StringBuilder info = new StringBuilder();
+        info.append("Active Sessions (").append(operationStates.size()).append("):\n");
+        
+        for (Map.Entry<String, Boolean> entry : operationStates.entrySet()) {
+            String sessionId = entry.getKey();
+            boolean inProgress = entry.getValue();
+            String purpose = sessionPurposes.get(sessionId);
+            Object session = activeSessions.get(sessionId);
+            
+            info.append("  - Session: ").append(sessionId)
+                .append(" | InProgress: ").append(inProgress)
+                .append(" | Purpose: ").append(purpose)
+                .append(" | Type: ").append(session != null ? session.getClass().getSimpleName() : "null")
+                .append("\n");
+        }
+        
+        return info.toString();
     }
     
     

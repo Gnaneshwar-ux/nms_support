@@ -2,6 +2,9 @@ package com.nms.support.nms_support.service.globalPack;
 
 import javafx.concurrent.Service;
 import javafx.concurrent.Task;
+import javafx.beans.property.StringProperty;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.application.Platform;
 import org.jd.core.v1.api.loader.Loader;
 import org.jd.core.v1.api.loader.LoaderException;
 import org.jd.core.v1.api.printer.Printer;
@@ -34,6 +37,11 @@ public class JarDecompilerService extends Service<Void> {
     // Progress tracking
     private int totalJars;
     private int processedJars;
+    private int totalClasses;
+    private int completedClasses;
+    
+    // Message property for dynamic updates
+    private final StringProperty currentMessage = new SimpleStringProperty();
     
     public JarDecompilerService() {
         // Initialize with default values
@@ -48,6 +56,8 @@ public class JarDecompilerService extends Service<Void> {
         this.selectedJars = selectedJars != null ? new ArrayList<>(selectedJars) : new ArrayList<>();
         this.totalJars = selectedJars.size();
         this.processedJars = 0;
+        this.totalClasses = 0;
+        this.completedClasses = 0;
     }
     
     /**
@@ -63,6 +73,13 @@ public class JarDecompilerService extends Service<Void> {
     public double getProgressPercentage() {
         if (totalJars == 0) return 0.0;
         return (double) processedJars / totalJars;
+    }
+    
+    /**
+     * Get the current message property for dynamic updates
+     */
+    public StringProperty currentMessageProperty() {
+        return currentMessage;
     }
     
     @Override
@@ -86,10 +103,36 @@ public class JarDecompilerService extends Service<Void> {
                 logger.info("JAR path: " + jarPath);
                 logger.info("Selected JARs: " + selectedJars);
                 
+
                 // Create extraction directory
                 createExtractionDirectory();
                 
-                // Decompile each selected JAR
+                // Initialize progress to 0%
+                updateProgress(0, totalJars > 0 ? totalJars : 1);
+                
+                // First pass: Count total classes in all selected JARs
+                updateMessage("Scanning JAR files...");
+                Platform.runLater(() -> currentMessage.set("Scanning JAR files..."));
+                
+                for (String jarName : selectedJars) {
+                    String jarFilePath = Paths.get(jarPath, jarName).toString();
+                    try (JarFile jarFile = new JarFile(jarFilePath)) {
+                        Enumeration<JarEntry> entries = jarFile.entries();
+                        while (entries.hasMoreElements()) {
+                            JarEntry entry = entries.nextElement();
+                            if (entry.getName().endsWith(".class") && !entry.isDirectory()) {
+                                totalClasses++;
+                            }
+                        }
+                    } catch (Exception e) {
+                        logger.warning("Error counting classes in JAR " + jarName + ": " + e.getMessage());
+                    }
+                }
+                logger.info("Total classes to decompile: " + totalClasses);
+                updateMessage("Found " + totalClasses + " classes in " + totalJars + " JARs");
+                Platform.runLater(() -> currentMessage.set("Found " + totalClasses + " classes in " + totalJars + " JARs"));
+                
+                // Second pass: Decompile each selected JAR
                 for (String jarName : selectedJars) {
                     if (isCancelled()) {
                         logger.info("Decompilation cancelled by user");
@@ -97,10 +140,12 @@ public class JarDecompilerService extends Service<Void> {
                     }
                     
                     try {
-                        decompileJar(jarName);
+                        decompileJar(jarName, this);  // Pass Task reference
                         processedJars++;
-                        updateProgress(processedJars, totalJars);
-                        updateMessage("Processed " + processedJars + " of " + totalJars + " JARs");
+                        // Only update progress if totalJars is greater than 0
+                        if (totalJars > 0) {
+                            updateProgress(processedJars, totalJars);
+                        }
                     } catch (Exception e) {
                         logger.severe("Error decompiling JAR " + jarName + ": " + e.getMessage());
                         // Continue with other JARs even if one fails
@@ -108,8 +153,12 @@ public class JarDecompilerService extends Service<Void> {
                 }
                 
                 logger.info("JAR decompilation completed. Files extracted to: " + extractedPath);
-                updateMessage("Decompilation completed successfully");
+                updateMessage("Decompilation completed: " + completedClasses + "/" + totalClasses + " classes");
+                Platform.runLater(() -> currentMessage.set("Decompilation completed: " + completedClasses + "/" + totalClasses + " classes"));
                 
+                // Set progress to 100% completion
+                updateProgress(totalJars, totalJars);
+
                 return null;
             }
         };
@@ -117,24 +166,76 @@ public class JarDecompilerService extends Service<Void> {
     
     /**
      * Create the extraction directory structure
+     * Cleans existing decompiled files before creating new ones
      */
     private void createExtractionDirectory() throws IOException {
         String userHome = System.getProperty("user.home");
         extractedPath = Paths.get(userHome, "Documents", "nms_support_data", "extracted", projectName).toString();
         
         Path extractionDir = Paths.get(extractedPath);
-        if (!Files.exists(extractionDir)) {
-            Files.createDirectories(extractionDir);
-            logger.info("Created extraction directory: " + extractedPath);
-        } else {
-            logger.info("Using existing extraction directory: " + extractedPath);
+        if (Files.exists(extractionDir)) {
+            logger.info("Cleaning existing extraction directory: " + extractedPath);
+            // Delete all existing decompiled files before decompiling again
+            deleteDirectoryContents(extractionDir.toFile());
+            logger.info("Deleted all existing decompiled files from: " + extractedPath);
+        }
+        
+        // Create or recreate the extraction directory
+        Files.createDirectories(extractionDir);
+        logger.info("Created extraction directory: " + extractedPath);
+    }
+    
+    /**
+     * Delete all contents of a directory recursively (but keep the directory itself)
+     */
+    private void deleteDirectoryContents(File directory) throws IOException {
+        if (!directory.exists() || !directory.isDirectory()) {
+            return;
+        }
+        
+        File[] files = directory.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isDirectory()) {
+                    // Recursively delete subdirectory and its contents
+                    deleteDirectoryRecursive(file);
+                } else {
+                    // Delete file
+                    if (!file.delete()) {
+                        logger.warning("Failed to delete file: " + file.getAbsolutePath());
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Delete a directory and all its contents recursively
+     */
+    private void deleteDirectoryRecursive(File directory) throws IOException {
+        if (!directory.exists()) {
+            return;
+        }
+        
+        if (directory.isDirectory()) {
+            File[] files = directory.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    deleteDirectoryRecursive(file);
+                }
+            }
+        }
+        
+        if (!directory.delete()) {
+            logger.warning("Failed to delete directory: " + directory.getAbsolutePath());
         }
     }
     
     /**
      * Decompile a single JAR file
+     * Using generic Task type to allow updateTaskMessage() calls
      */
-    private void decompileJar(String jarName) throws Exception {
+    private void decompileJar(String jarName, Task<?> task) throws Exception {
         String jarFilePath = Paths.get(jarPath, jarName).toString();
         File jarFile = new File(jarFilePath);
         
@@ -149,15 +250,16 @@ public class JarDecompilerService extends Service<Void> {
         Files.createDirectories(Paths.get(jarOutputDir));
         
         // Use JD-Core decompiler for accurate decompilation
-        decompileWithJDCore(jarFilePath, jarOutputDir);
+        decompileWithJDCore(jarFilePath, jarOutputDir, task);
         
         logger.info("Successfully decompiled JAR: " + jarName);
     }
     
     /**
      * Decompile JAR using JD-Core decompiler
+     * Using generic Task type to allow updateTaskMessage() calls
      */
-    private void decompileWithJDCore(String jarFilePath, String jarOutputDir) {
+    private void decompileWithJDCore(String jarFilePath, String jarOutputDir, Task<?> task) {
         try {
             logger.info("Starting JD-Core decompilation for: " + jarFilePath);
             
@@ -207,8 +309,19 @@ public class JarDecompilerService extends Service<Void> {
                         Files.write(outFile, decompiledSource.getBytes());
                         
                         processedCount++;
+                        completedClasses++;
+                        
+                        // Update message every 10 classes or every 10% of total, whichever is less frequent
+                        int updateInterval = Math.max(10, totalClasses / 100);
+                        if (completedClasses % updateInterval == 0 || completedClasses == totalClasses) {
+                            // Update the message property directly
+                            Platform.runLater(() -> {
+                                currentMessage.set("Decompiling: " + completedClasses + "/" + totalClasses + " classes");
+                            });
+                        }
+                        
                         if (processedCount % 50 == 0) {
-                            logger.info("Processed " + processedCount + "/" + classEntries.size() + " classes");
+                            logger.info("Processed " + processedCount + "/" + classEntries.size() + " classes in current JAR (Total: " + completedClasses + "/" + totalClasses + ")");
                         }
                         
                     } catch (Exception e) {
