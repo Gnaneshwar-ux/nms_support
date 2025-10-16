@@ -16,6 +16,7 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumn;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
@@ -115,6 +116,8 @@ public class RestartToolsCommand extends JBotCommand {
     private DefaultTableModel originalTableModel;
     private DefaultTableModel tableModel;
     private JTable toolTable;
+    private StringBuilder buildOutput = new StringBuilder();
+    private boolean hasFailures = false;
 
     public void createAndShowUI() {
         // Create a JFrame instead of JDialog for Windows preview integration
@@ -399,6 +402,7 @@ public class RestartToolsCommand extends JBotCommand {
             buttonPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
 
             JButton initButton = createStylishButton("Restart Selected Tools");
+            JButton openLogButton = createStylishButton("Open Log");
             JButton cancelButton = createStylishButton("Cancel");
 
             initButton.addActionListener(new ActionListener() {
@@ -413,9 +417,10 @@ public class RestartToolsCommand extends JBotCommand {
                     new SwingWorker<Void, String>() {
                         @Override
                         protected Void doInBackground() throws Exception {
+                            hasFailures = false; // Reset failure flag
+                            
                             if (checkBuild.isSelected() && !executeAnt(antPath, statusLabel)) {
-                                JOptionPane.showMessageDialog(frame, "Ant config command failed. See log for details.", "Failed", JOptionPane.INFORMATION_MESSAGE);
-                                frame.dispose();
+                                publish("Build failed. Check build log for details.");
                                 return null;
                             }
 
@@ -427,16 +432,13 @@ public class RestartToolsCommand extends JBotCommand {
                                     if (tool != null) {
                                         publish("Restarting tool: " + selectedToolName + "...");
                                         if (!validation(tool, selectedToolName)) {
-                                            JOptionPane.showMessageDialog(frame,
-                                                    "Tool : " + selectedToolName + "\n" + valRes, "Validation Failed",
-                                                    JOptionPane.INFORMATION_MESSAGE);
-                                            System.out.println("Tool : " + selectedToolName + "\n" + valRes);
+                                            publish("Validation failed for: " + selectedToolName + " - " + valRes);
+                                            hasFailures = true;
                                             continue;
                                         }
                                         if (!handleTool(tool, selectedToolName, dsNames.getText())) {
-                                            JOptionPane.showMessageDialog(frame,
-                                                    "Tool : " + selectedToolName + "\n" + "check logs", "Initialization Failed",
-                                                    JOptionPane.INFORMATION_MESSAGE);
+                                            publish("Restart failed for: " + selectedToolName + " - check logs");
+                                            hasFailures = true;
                                         }
                                     }
                                 }
@@ -460,17 +462,24 @@ public class RestartToolsCommand extends JBotCommand {
 
                         @Override
                         protected void done() {
-                            statusLabel.setText("All selected tools have been started.");
                             progressBar.setIndeterminate(false);
                             progressBar.setValue(100);
-                            JOptionPane.showMessageDialog(frame, "Restart Tools Process Completed.", "Success",
-                                    JOptionPane.INFORMATION_MESSAGE);
-                            frame.dispose();
+                            
+                            if (hasFailures) {
+                                statusLabel.setText("Restart completed with failures. See details.");
+                                showBuildFailureDialog(frame, buildOutput.toString());
+                            } else {
+                                statusLabel.setText("All selected tools have been started successfully.");
+                                JOptionPane.showMessageDialog(frame, "Restart Tools Process Completed Successfully.", "Success",
+                                        JOptionPane.INFORMATION_MESSAGE);
+                                frame.dispose(); // Only close on success
+                            }
                         }
 
                         // Modified executeAnt to move publish calls here
                         private boolean executeAnt(String jconfigPath, JLabel statusLabel) {
                             try {
+                                buildOutput = new StringBuilder(); // Clear previous build output
                                 publish("'ant init create_config' running...");
                                 createOrUpdateCacheFile(jconfigPath);
                                 ProcessBuilder processBuilder = new ProcessBuilder("cmd.exe", "/c", "cd /d " + jconfigPath + " && " + "ant init create_config");
@@ -481,18 +490,31 @@ public class RestartToolsCommand extends JBotCommand {
                                 String line;
                                 while ((line = reader.readLine()) != null) {
                                     System.out.println(line);
+                                    buildOutput.append(line).append("\n");
                                     // Moved publish call here since it's inside SwingWorker now
                                     //publish("Running Ant command: " + line);
                                 }
                                 int resp = process.waitFor();
                                 System.out.println(resp);
+                                if (resp != 0) {
+                                    hasFailures = true;
+                                }
                                 return 0 == resp;
                             } catch (IOException | InterruptedException e) {
                                 System.out.println("Error executing Ant command: " + e.getMessage());
+                                buildOutput.append("Error executing Ant command: ").append(e.getMessage()).append("\n");
+                                hasFailures = true;
                                 return false;
                             }
                         }
                     }.execute(); // Start the background task
+                }
+            });
+
+            openLogButton.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    openApplicationLog();
                 }
             });
 
@@ -504,6 +526,7 @@ public class RestartToolsCommand extends JBotCommand {
             });
 
             buttonPanel.add(initButton);
+            buttonPanel.add(openLogButton);
             buttonPanel.add(cancelButton);
             panel.add(buttonPanel, BorderLayout.SOUTH);
 
@@ -1495,6 +1518,156 @@ public class RestartToolsCommand extends JBotCommand {
             System.out.println("Error reloading tools: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    /**
+     * Opens the application log file intelligently using available editors.
+     * Uses the NMS framework's JWSLauncher.getLogFile() to get the current log file.
+     * Searches for VS Code, Notepad++, or falls back to Notepad.
+     */
+    private void openApplicationLog() {
+        try {
+            // Use the NMS framework's method to get the current log file
+            File logFile = com.splwg.oms.fcp.JWSLauncher.getLogFile();
+            
+            if (logFile == null || !logFile.exists()) {
+                JOptionPane.showMessageDialog(null, 
+                    "Could not find application log file.\nExpected location:\n" + 
+                    (logFile != null ? logFile.getAbsolutePath() : "Unknown"), 
+                    "Log File Not Found", 
+                    JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            
+            System.out.println("Opening log file: " + logFile.getAbsolutePath());
+            
+            // Try to find and use an editor
+            String editor = findAvailableEditor();
+            
+            if (editor != null) {
+                ProcessBuilder pb = new ProcessBuilder(editor, logFile.getAbsolutePath());
+                pb.start();
+                System.out.println("Opened log file with: " + editor);
+            } else {
+                // Fallback to default system editor
+                if (Desktop.isDesktopSupported()) {
+                    Desktop.getDesktop().open(logFile);
+                    System.out.println("Opened log file with default editor");
+                } else {
+                    JOptionPane.showMessageDialog(null, 
+                        "Could not find any text editor.\nLog file location:\n" + logFile.getAbsolutePath(), 
+                        "No Editor Found", 
+                        JOptionPane.INFORMATION_MESSAGE);
+                }
+            }
+            
+        } catch (Exception e) {
+            System.out.println("Error opening log file: " + e.getMessage());
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(null, 
+                "Error opening log file: " + e.getMessage(), 
+                "Error", 
+                JOptionPane.ERROR_MESSAGE);
+        }
+    }
+    
+    /**
+     * Intelligently finds an available text editor without relying on environment variables.
+     * Checks common installation paths for VS Code, Notepad++, and falls back to Notepad.
+     */
+    private String findAvailableEditor() {
+        // Common editor paths to check
+        String[][] editors = {
+            // VS Code
+            {
+                System.getenv("LOCALAPPDATA") + "\\Programs\\Microsoft VS Code\\Code.exe",
+                "C:\\Program Files\\Microsoft VS Code\\Code.exe",
+                "C:\\Program Files (x86)\\Microsoft VS Code\\Code.exe"
+            },
+            // Notepad++
+            {
+                "C:\\Program Files\\Notepad++\\notepad++.exe",
+                "C:\\Program Files (x86)\\Notepad++\\notepad++.exe",
+                System.getenv("ProgramFiles") + "\\Notepad++\\notepad++.exe",
+                System.getenv("ProgramFiles(x86)") + "\\Notepad++\\notepad++.exe"
+            },
+            // Notepad (always available on Windows)
+            {
+                "notepad.exe"
+            }
+        };
+        
+        // Check each editor
+        for (String[] editorPaths : editors) {
+            for (String path : editorPaths) {
+                if (path != null) {
+                    File editorFile = new File(path);
+                    if (editorFile.exists()) {
+                        return path;
+                    }
+                }
+            }
+        }
+        
+        // If nothing found, try notepad from system path
+        return "notepad.exe";
+    }
+    
+    /**
+     * Shows a dialog when build fails with options to view build log and open application log.
+     */
+    private void showBuildFailureDialog(JFrame parentFrame, String buildLog) {
+        JDialog dialog = new JDialog(parentFrame, "Build/Restart Failed", true);
+        dialog.setSize(700, 500);
+        dialog.setLayout(new BorderLayout(10, 10));
+        
+        // Header panel
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 5, 10));
+        JLabel headerLabel = new JLabel("Build or restart process encountered errors:");
+        headerLabel.setFont(new Font("Arial", Font.BOLD, 14));
+        headerLabel.setForeground(new Color(255, 100, 80));
+        headerPanel.add(headerLabel, BorderLayout.NORTH);
+        
+        dialog.add(headerPanel, BorderLayout.NORTH);
+        
+        // Build log text area
+        JTextArea buildLogArea = new JTextArea(buildLog);
+        buildLogArea.setEditable(false);
+        buildLogArea.setFont(new Font("Consolas", Font.PLAIN, 12));
+        buildLogArea.setCaretPosition(0);
+        
+        JScrollPane scrollPane = new JScrollPane(buildLogArea);
+        scrollPane.setBorder(BorderFactory.createTitledBorder("Build Output"));
+        dialog.add(scrollPane, BorderLayout.CENTER);
+        
+        // Button panel
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 10));
+        
+        JButton openLogBtn = createStylishButton("Open Application Log");
+        openLogBtn.addActionListener(e -> {
+            openApplicationLog();
+        });
+        
+        JButton copyLogBtn = createStylishButton("Copy Build Log");
+        copyLogBtn.addActionListener(e -> {
+            java.awt.datatransfer.StringSelection selection = 
+                new java.awt.datatransfer.StringSelection(buildLog);
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, selection);
+            JOptionPane.showMessageDialog(dialog, "Build log copied to clipboard!", "Copied", JOptionPane.INFORMATION_MESSAGE);
+        });
+        
+        JButton closeBtn = createStylishButton("Close");
+        closeBtn.addActionListener(e -> dialog.dispose());
+        
+        buttonPanel.add(openLogBtn);
+        buttonPanel.add(copyLogBtn);
+        buttonPanel.add(closeBtn);
+        
+        dialog.add(buttonPanel, BorderLayout.SOUTH);
+        
+        dialog.setLocationRelativeTo(parentFrame);
+        dialog.setVisible(true);
     }
 
     public void execute() {

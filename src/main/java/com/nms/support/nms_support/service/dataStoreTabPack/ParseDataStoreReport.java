@@ -28,7 +28,11 @@ public class ParseDataStoreReport {
         // Iterate over the lines and parse the data
         for (String line : lines) {
             // Split each line by comma
-            if(line.isEmpty()) continue;
+            if(line.isEmpty()) {
+                prevTool="Global";
+                prevDataStore = "Flag";
+                continue;
+            }
             String[] parts = line.split(",");
 
             // Trim each part to remove leading/trailing spaces
@@ -45,7 +49,7 @@ public class ParseDataStoreReport {
             if (parts.length >= 2 && parts[1].isEmpty()) {
                 parts[1] = prevDataStore;
             } else {
-                prevDataStore = parts.length > 1 ? parts[1] : ""; // Handle the case where datastore is missing
+                prevDataStore = parts.length > 1 ? parts[1] : "Flag"; // Handle the case where datastore is missing
             }
 
             // Skip adding the description column to the dataList

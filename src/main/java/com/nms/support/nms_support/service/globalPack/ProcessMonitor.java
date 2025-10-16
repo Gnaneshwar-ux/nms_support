@@ -857,6 +857,9 @@ public class ProcessMonitor {
      * This will mark all remaining steps as complete and show OK button
      */
     public void markProcessCompleted(String completionMessage) {
+        // Unregister from ProcessMonitorManager first (outside Platform.runLater for immediate effect)
+        unregisterFromManager();
+        
         Platform.runLater(() -> {
             // Mark all waiting/running steps as completed
             for (ProcessStep step : steps.values()) {
@@ -883,18 +886,6 @@ public class ProcessMonitor {
             isCompleted.set(true);
             isRunning.set(false);
             smartScrollToBottom();
-            
-            // Unregister from ProcessMonitorManager after UI is updated
-            // Use a small delay to ensure all setup operations are truly complete
-            new Thread(() -> {
-                try {
-                    Thread.sleep(1000); // Wait 1 second to ensure setup is fully complete
-                    unregisterFromManager();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    unregisterFromManager(); // Unregister immediately if interrupted
-                }
-            }).start();
         });
     }
     
@@ -903,6 +894,9 @@ public class ProcessMonitor {
      * This will mark all remaining steps as failed and show OK button
      */
     public void markProcessFailed(String failureReason) {
+        // Unregister from ProcessMonitorManager first (outside Platform.runLater for immediate effect)
+        unregisterFromManager();
+        
         Platform.runLater(() -> {
             // Mark all waiting/running steps as failed
             for (ProcessStep step : steps.values()) {
@@ -929,18 +923,6 @@ public class ProcessMonitor {
             hasFailed.set(true);
             isRunning.set(false);
             smartScrollToBottom();
-            
-            // Unregister from ProcessMonitorManager after UI is updated
-            // Use a small delay to ensure all setup operations are truly complete
-            new Thread(() -> {
-                try {
-                    Thread.sleep(1000); // Wait 1 second to ensure setup is fully complete
-                    unregisterFromManager();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    unregisterFromManager(); // Unregister immediately if interrupted
-                }
-            }).start();
         });
     }
     
@@ -1005,20 +987,6 @@ public class ProcessMonitor {
             registeredWithManager = false;
             logger.info("ProcessMonitor unregistered from manager: " + monitorId);
         }
-    }
-    
-    /**
-     * Check if this ProcessMonitor is still running (not completed or failed)
-     */
-    public boolean isStillRunning() {
-        return isRunning.get() && !isCompleted.get() && !hasFailed.get();
-    }
-    
-    /**
-     * Get the monitor ID for external tracking
-     */
-    public String getMonitorId() {
-        return monitorId;
     }
     
     /**
