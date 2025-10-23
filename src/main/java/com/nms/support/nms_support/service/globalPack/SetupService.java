@@ -70,6 +70,7 @@ public class SetupService {
         SFTP_CONNECTION_FAILED,
         VPN_CONNECTION_FAILED,
         NETWORK_CONNECTION_FAILED,
+        SVN_CONNECTIVITY_FAILED,
         EXCEPTION, NOT_ALLOWED, INVALID_PATHS,
         MISSING_SERVER_DETAILS,
         SERVER_CONNECTION_FAILED,
@@ -985,12 +986,29 @@ public class SetupService {
         }
         processMonitor.updateState(validation, 22);
 
+        // SVN connectivity validation
+        ValidationResult svnConnectivityResult = validateSVNConnectivity();
+        if (svnConnectivityResult != ValidationResult.SUCCESS) {
+            return svnConnectivityResult;
+        }
+        processMonitor.updateState(validation, 25);
+
         // App URL validation
         if (project.getNmsAppURL() == null || project.getNmsAppURL().trim().isEmpty()) {
             logger.severe("App URL is not configured");
             return ValidationResult.MISSING_APP_URL;
         }
-        processMonitor.updateState(validation, 25);
+        processMonitor.updateState(validation, 30);
+
+        // Check for existing project folder and ask for confirmation
+        ValidationResult projectFolderConfirmation = checkFolderCleanupConfirmation(
+            project.getProjectFolderPathForCheckout(), 
+            "SVN Checkout"
+        );
+        if (projectFolderConfirmation != ValidationResult.SUCCESS) {
+            return projectFolderConfirmation;
+        }
+        processMonitor.updateState(validation, 30);
 
         return ValidationResult.SUCCESS;
     }
@@ -1028,38 +1046,12 @@ public class SetupService {
         processMonitor.updateState(validation, 25);
 
         // Check for existing project folder and ask for confirmation
-        File projectFolder = new File(project.getProjectFolderPath());
-        if (projectFolder.exists() && projectFolder.isDirectory() &&
-                projectFolder.listFiles() != null && projectFolder.listFiles().length > 0) {
-
-            final boolean[] proceed = {false};
-            CountDownLatch latch = new CountDownLatch(1);
-
-            Platform.runLater(() -> {
-                Optional<ButtonType> result = DialogUtil.showConfirmationDialog(
-                        "Server Project Download",
-                        "The project folder chosen is not empty. Do you want to proceed with clean download?\nWarning: This will delete entire local project folder, unsaved changes will be lost.",
-                        "Ok to delete project directory."
-                );
-
-                if (result.isPresent() && result.get() == ButtonType.OK) {
-                    proceed[0] = true;
-                }
-                latch.countDown();
-            });
-
-            // Wait for the user to respond
-            try {
-                latch.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warning("Thread interrupted while waiting for user response");
-                return ValidationResult.EXCEPTION;
-            }
-
-            if (!proceed[0]) {
-                return ValidationResult.NOT_ALLOWED;
-            }
+        ValidationResult projectFolderConfirmation = checkFolderCleanupConfirmation(
+            project.getProjectFolderPath(), 
+            "Server Project Download"
+        );
+        if (projectFolderConfirmation != ValidationResult.SUCCESS) {
+            return projectFolderConfirmation;
         }
         processMonitor.updateState(validation, 30);
 
@@ -1096,6 +1088,23 @@ public class SetupService {
         }
         processMonitor.updateState(validation, 20);
 
+        // SVN connectivity validation
+        ValidationResult svnConnectivityResult = validateSVNConnectivity();
+        if (svnConnectivityResult != ValidationResult.SUCCESS) {
+            return svnConnectivityResult;
+        }
+        processMonitor.updateState(validation, 25);
+
+        // Check for existing project folder and ask for confirmation
+        ValidationResult projectFolderConfirmation = checkFolderCleanupConfirmation(
+            project.getProjectFolderPathForCheckout(), 
+            "SVN Checkout"
+        );
+        if (projectFolderConfirmation != ValidationResult.SUCCESS) {
+            return projectFolderConfirmation;
+        }
+        processMonitor.updateState(validation, 30);
+
         return ValidationResult.SUCCESS;
     }
     
@@ -1118,38 +1127,12 @@ public class SetupService {
         processMonitor.updateState(validation, 15);
 
         // Check for existing project folder and ask for confirmation
-        File projectFolder = new File(project.getProjectFolderPath());
-        if (projectFolder.exists() && projectFolder.isDirectory() &&
-                projectFolder.listFiles() != null && projectFolder.listFiles().length > 0) {
-
-            final boolean[] proceed = {false};
-            CountDownLatch latch = new CountDownLatch(1);
-
-            Platform.runLater(() -> {
-                Optional<ButtonType> result = DialogUtil.showConfirmationDialog(
-                        "Server Project Download",
-                        "The project folder chosen is not empty. Do you want to proceed with clean download?\nWarning: This will delete entire local project folder, unsaved changes will be lost.",
-                        "Ok to delete project directory."
-                );
-
-                if (result.isPresent() && result.get() == ButtonType.OK) {
-                    proceed[0] = true;
-                }
-                latch.countDown();
-            });
-
-            // Wait for the user to respond
-            try {
-                latch.await();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warning("Thread interrupted while waiting for user response");
-                return ValidationResult.EXCEPTION;
-            }
-
-            if (!proceed[0]) {
-                return ValidationResult.NOT_ALLOWED;
-            }
+        ValidationResult projectFolderConfirmation = checkFolderCleanupConfirmation(
+            project.getProjectFolderPath(), 
+            "Server Project Download"
+        );
+        if (projectFolderConfirmation != ValidationResult.SUCCESS) {
+            return projectFolderConfirmation;
         }
         processMonitor.updateState(validation, 20);
 
@@ -3145,6 +3128,61 @@ public class SetupService {
     }
     
     /**
+     * Standardized method to check if a folder is not empty and ask for user confirmation to proceed with cleanup
+     * @param folderPath The path to the folder to check
+     * @param operationName The name of the operation (e.g., "SVN Checkout", "Project Download", "Product Installation")
+     * @return ValidationResult indicating success, user cancellation, or not allowed
+     */
+    private ValidationResult checkFolderCleanupConfirmation(String folderPath, String operationName) {
+        if (folderPath == null || folderPath.trim().isEmpty()) {
+            return ValidationResult.SUCCESS; // No folder to check
+        }
+        
+        File folder = new File(folderPath);
+        if (!folder.exists() || !folder.isDirectory()) {
+            return ValidationResult.SUCCESS; // Folder doesn't exist, no cleanup needed
+        }
+        
+        // Check if folder is not empty
+        File[] files = folder.listFiles();
+        if (files == null || files.length == 0) {
+            return ValidationResult.SUCCESS; // Folder is empty, no cleanup needed
+        }
+        
+        // Folder is not empty, ask for confirmation
+        final boolean[] proceed = {false};
+        CountDownLatch latch = new CountDownLatch(1);
+        
+        Platform.runLater(() -> {
+            Optional<ButtonType> result = DialogUtil.showConfirmationDialog(
+                    operationName,
+                    "The " + (folderPath.contains("project") ? "project" : "product") + " folder chosen is not empty. Do you want to proceed with clean " + operationName.toLowerCase() + "?\nWarning: This will delete entire local " + (folderPath.contains("project") ? "project" : "product") + " folder, unsaved changes will be lost.",
+                    "Ok to delete " + (folderPath.contains("project") ? "project" : "product") + " directory."
+            );
+            
+            if (result.isPresent() && result.get() == ButtonType.OK) {
+                proceed[0] = true;
+            }
+            latch.countDown();
+        });
+        
+        // Wait for the user to respond
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warning("Thread interrupted while waiting for user response");
+            return ValidationResult.EXCEPTION;
+        }
+        
+        if (!proceed[0]) {
+            return ValidationResult.NOT_ALLOWED;
+        }
+        
+        return ValidationResult.SUCCESS;
+    }
+
+    /**
      * Validate HAS_JAVA_MODE setup requirements
      */
     private ValidationResult validateHasJavaMode() {
@@ -3412,6 +3450,97 @@ public class SetupService {
         
         // Write back to file
         Files.write(propertiesFile.toPath(), content.getBytes());
+    }
+
+    /**
+     * Validate SVN repository connectivity
+     * Tests if the SVN host is reachable
+     */
+    private ValidationResult validateSVNConnectivity() {
+        try {
+            processMonitor.updateState(validation, 5);
+            processMonitor.logMessage(validation, "Testing SVN host connectivity...");
+            
+            // Extract host from SVN URL
+            String svnUrl = project.getSvnRepo();
+            if (svnUrl == null || svnUrl.trim().isEmpty()) {
+                processMonitor.logMessage(validation, "SVN URL is empty");
+                return ValidationResult.MISSING_SVN_URL;
+            }
+            
+            // Parse the URL to extract host and port
+            String host;
+            int port = 80; // Default port
+            
+            try {
+                if (svnUrl.startsWith("http://")) {
+                    svnUrl = svnUrl.substring(7);
+                    port = 80;
+                } else if (svnUrl.startsWith("https://")) {
+                    svnUrl = svnUrl.substring(8);
+                    port = 443;
+                } else if (svnUrl.startsWith("svn://")) {
+                    svnUrl = svnUrl.substring(6);
+                    port = 3690;
+                }
+                
+                // Extract host and port
+                if (svnUrl.contains("/")) {
+                    host = svnUrl.substring(0, svnUrl.indexOf("/"));
+                } else {
+                    host = svnUrl;
+                }
+                
+                if (host.contains(":")) {
+                    String[] parts = host.split(":");
+                    host = parts[0];
+                    try {
+                        port = Integer.parseInt(parts[1]);
+                    } catch (NumberFormatException e) {
+                        // Use default port if parsing fails
+                    }
+                }
+                
+            } catch (Exception e) {
+                logger.warning("Failed to parse SVN URL: " + svnUrl);
+                processMonitor.logMessage(validation, "Failed to parse SVN URL");
+                return ValidationResult.SVN_CONNECTIVITY_FAILED;
+            }
+            
+            processMonitor.updateState(validation, 10);
+            processMonitor.logMessage(validation, "Testing connectivity to " + host + ":" + port);
+            
+            // Test host connectivity with timeout
+            boolean isReachable = testHostConnectivity(host, port, 5000); // 5 second timeout
+            
+            if (isReachable) {
+                processMonitor.updateState(validation, 15);
+                processMonitor.logMessage(validation, "SVN host connectivity test successful");
+                return ValidationResult.SUCCESS;
+            } else {
+                processMonitor.logMessage(validation, "SVN host is not reachable - check network/VPN connection");
+                return ValidationResult.SVN_CONNECTIVITY_FAILED;
+            }
+            
+        } catch (Exception e) {
+            logger.severe("Unexpected error during SVN connectivity test: " + e.getMessage());
+            processMonitor.logMessage(validation, "SVN connectivity test failed with unexpected error");
+            return ValidationResult.SVN_CONNECTIVITY_FAILED;
+        }
+    }
+    
+    /**
+     * Test if a host is reachable on a specific port
+     */
+    private boolean testHostConnectivity(String host, int port, int timeoutMs) {
+        try {
+            java.net.Socket socket = new java.net.Socket();
+            socket.connect(new java.net.InetSocketAddress(host, port), timeoutMs);
+            socket.close();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
 }

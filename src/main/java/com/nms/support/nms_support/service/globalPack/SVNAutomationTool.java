@@ -347,11 +347,30 @@ public class SVNAutomationTool {
             }
         }
 
+        // Safely handle SVN processes that might be locking files
+        if (callback != null) {
+            callback.onProgress(15, "Checking for file locks...");
+        }
+        handleFileLocks(folder, callback);
+
+        // Special handling for SVN database files
+        if (svnMetadata.exists()) {
+            if (callback != null) {
+                callback.onProgress(20, "Handling SVN database files...");
+            }
+            handleSVNDatabaseFiles(svnMetadata, callback);
+        }
+
         // Delete files with progress updates
-        deletedFiles = deleteFilesWithProgress(folder, callback, totalFiles, deletedFiles);
-        
-        if (callback != null && !callback.isCancelled()) {
-            callback.onComplete("Successfully deleted " + deletedFiles + " files/folders");
+        try {
+            deletedFiles = deleteFilesWithProgress(folder, callback, totalFiles, deletedFiles);
+            
+            if (callback != null && !callback.isCancelled()) {
+                callback.onComplete("Successfully deleted " + deletedFiles + " files/folders");
+            }
+        } catch (RuntimeException e) {
+            // Re-throw as IOException to maintain the method signature
+            throw new IOException("Folder deletion failed: " + e.getMessage(), e);
         }
     }
 
@@ -373,35 +392,17 @@ public class SVNAutomationTool {
             file.setWritable(true);
 
             if (!file.delete()) {
-                // Try deleting again with a more efficient retry approach
-                int retryCount = 0;
-                boolean deleted = false;
+                // Enhanced retry mechanism for locked files
+                boolean deleted = deleteFileWithRetry(file, callback);
                 
-                while (retryCount < 3 && !deleted) {
-                    // Check for cancellation between retries
-                    if (callback != null && callback.isCancelled()) {
-                        callback.onError("Operation cancelled by user");
-                        return deletedFiles;
-                    }
-                    
-                    // Use a more efficient approach instead of Thread.sleep
-                    try {
-                        // Force garbage collection to release file handles
-                        System.gc();
-                        deleted = file.delete();
-                        retryCount++;
-                    } catch (Exception e) {
-                        retryCount++;
-                    }
-                }
-
                 if (!deleted) {
-                    String errorMsg = "Failed to delete file after retries: " + file.getAbsolutePath();
-                    LoggerUtil.getLogger().info(errorMsg);
+                    // Fail the entire process if any file cannot be deleted
+                    String errorMsg = "Failed to delete file after all retries: " + file.getAbsolutePath();
+                    LoggerUtil.getLogger().severe(errorMsg);
                     if (callback != null) {
-                        callback.onError(errorMsg);
-                        return deletedFiles;
+                        callback.onError("Deletion failed: " + file.getName() + " could not be deleted. Please delete folder manually: " + folder.getAbsolutePath());
                     }
+                    throw new RuntimeException("File deletion failed: " + file.getAbsolutePath());
                 }
             }
 
@@ -487,6 +488,412 @@ public class SVNAutomationTool {
         }
         if (!dir.delete()) {
             LoggerUtil.getLogger().warning("Could not delete: " + dir.getAbsolutePath());
+        }
+    }
+
+    /**
+     * Enhanced file deletion with multiple retry strategies for locked files
+     */
+    private static boolean deleteFileWithRetry(File file, ProgressCallback callback) {
+        int maxRetries = 5;
+        int retryCount = 0;
+        boolean deleted = false;
+        
+        while (retryCount < maxRetries && !deleted) {
+            // Check for cancellation between retries
+            if (callback != null && callback.isCancelled()) {
+                return false;
+            }
+            
+            try {
+                // Strategy 1: Force garbage collection and try again
+                System.gc();
+                Thread.sleep(100 * (retryCount + 1)); // Exponential backoff
+                deleted = file.delete();
+                
+                if (!deleted) {
+                    // Strategy 2: Try using NIO.2 API for better Windows compatibility
+                    try {
+                        java.nio.file.Files.delete(file.toPath());
+                        deleted = true;
+                    } catch (Exception e) {
+                        // Strategy 3: Try to unlock file on Windows
+                        if (System.getProperty("os.name").toLowerCase().contains("windows")) {
+                            try {
+                                unlockFileOnWindows(file);
+                                Thread.sleep(200);
+                                deleted = file.delete();
+                            } catch (Exception unlockEx) {
+                                LoggerUtil.getLogger().fine("File unlock attempt failed: " + unlockEx.getMessage());
+                            }
+                        }
+                    }
+                }
+                
+                retryCount++;
+            } catch (Exception e) {
+                retryCount++;
+                LoggerUtil.getLogger().fine("Retry " + retryCount + " failed for " + file.getName() + ": " + e.getMessage());
+            }
+        }
+        
+        return deleted;
+    }
+
+    /**
+     * Handle file locks safely without killing processes system-wide
+     * This method tries multiple approaches to release file locks without affecting other projects
+     */
+    private static void handleFileLocks(File folder, ProgressCallback callback) {
+        try {
+            // First, try to detect if there are any processes using this specific folder
+            if (callback != null) {
+                callback.onProgress(16, "Detecting file locks...");
+            }
+            
+            boolean hasLocks = detectFileLocks(folder);
+            
+            if (hasLocks) {
+                if (callback != null) {
+                    callback.onProgress(17, "File locks detected, attempting safe release...");
+                }
+                
+                // Try safe methods first (no process killing)
+                if (releaseFileLocksSafely(folder)) {
+                    LoggerUtil.getLogger().info("File locks released safely");
+                } else {
+                    // Only as last resort, try targeted process termination
+                    if (callback != null) {
+                        callback.onProgress(18, "Safe release failed, checking for specific processes...");
+                    }
+                    killSVNProcesses(folder);
+                }
+            } else {
+                LoggerUtil.getLogger().info("No file locks detected for folder: " + folder.getAbsolutePath());
+            }
+            
+        } catch (Exception e) {
+            LoggerUtil.getLogger().warning("Error handling file locks: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Detect if there are file locks on the target folder
+     */
+    private static boolean detectFileLocks(File folder) {
+        try {
+            // Try to create a test file to see if we can write to the directory
+            File testFile = new File(folder, ".lock_test_" + System.currentTimeMillis());
+            boolean canWrite = testFile.createNewFile();
+            if (canWrite) {
+                testFile.delete();
+                return false; // No locks detected
+            }
+            return true; // Locks detected
+        } catch (Exception e) {
+            return true; // Assume locks if we can't test
+        }
+    }
+
+    /**
+     * Try to release file locks without killing processes
+     */
+    private static boolean releaseFileLocksSafely(File folder) {
+        try {
+            // Method 1: Force garbage collection to release Java file handles
+            System.gc();
+            // Note: runFinalization() is deprecated since Java 18, using alternative approach
+            System.gc();
+            
+            // Method 2: Wait a bit for any pending operations to complete
+            Thread.sleep(2000);
+            
+            // Method 3: Try to make the folder writable
+            folder.setWritable(true);
+            
+            // Test if locks are released
+            return !detectFileLocks(folder);
+            
+        } catch (Exception e) {
+            LoggerUtil.getLogger().warning("Safe file lock release failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Safely terminate SVN processes that might be locking files in the specific folder
+     * This method only targets processes working on the specific project folder, not all SVN processes
+     */
+    private static void killSVNProcesses(File folder) {
+        try {
+            String folderPath = folder.getAbsolutePath();
+            LoggerUtil.getLogger().info("Checking for SVN processes using folder: " + folderPath);
+            
+            String os = System.getProperty("os.name").toLowerCase();
+            
+            if (os.contains("windows")) {
+                killSVNProcessesWindows(folderPath);
+            } else {
+                killSVNProcessesUnix(folderPath);
+            }
+            
+            // Additional wait to ensure processes are fully terminated
+            Thread.sleep(1000);
+            
+        } catch (Exception e) {
+            LoggerUtil.getLogger().warning("Failed to check/kill SVN processes: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Windows-specific SVN process termination for specific folder
+     */
+    private static void killSVNProcessesWindows(String folderPath) {
+        try {
+            // Use wmic to find processes with command line containing our folder path
+            ProcessBuilder pb = new ProcessBuilder(
+                "wmic", "process", "where", 
+                "commandline like '%" + folderPath.replace("\\", "\\\\") + "%'", 
+                "get", "processid,commandline"
+            );
+            
+            Process process = pb.start();
+            StringBuilder output = new StringBuilder();
+            
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append("\n");
+                }
+            }
+            
+            int exitCode = process.waitFor();
+            
+            if (exitCode == 0 && output.length() > 0) {
+                // Parse output to find SVN processes
+                String[] lines = output.toString().split("\n");
+                for (String line : lines) {
+                    if (line.contains("svn") && line.contains("processid")) {
+                        // Extract process ID and kill it
+                        String[] parts = line.trim().split("\\s+");
+                        if (parts.length >= 2) {
+                            try {
+                                String pid = parts[parts.length - 1];
+                                if (pid.matches("\\d+")) {
+                                    LoggerUtil.getLogger().info("Terminating SVN process PID: " + pid + " for folder: " + folderPath);
+                                    ProcessBuilder killPb = new ProcessBuilder("taskkill", "/F", "/PID", pid);
+                                    killPb.start().waitFor();
+                                }
+                            } catch (Exception e) {
+                                LoggerUtil.getLogger().fine("Failed to kill process: " + e.getMessage());
+                            }
+                        }
+                    }
+                }
+            } else {
+                LoggerUtil.getLogger().fine("No SVN processes found using folder: " + folderPath);
+            }
+            
+        } catch (Exception e) {
+            LoggerUtil.getLogger().warning("Failed to check SVN processes on Windows: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Unix-specific SVN process termination for specific folder
+     */
+    private static void killSVNProcessesUnix(String folderPath) {
+        try {
+            // Use ps and grep to find SVN processes using the specific folder
+            ProcessBuilder pb = new ProcessBuilder(
+                "ps", "aux"
+            );
+            
+            Process process = pb.start();
+            StringBuilder output = new StringBuilder();
+            
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.contains("svn") && line.contains(folderPath)) {
+                        output.append(line).append("\n");
+                    }
+                }
+            }
+            
+            int exitCode = process.waitFor();
+            
+            if (exitCode == 0 && output.length() > 0) {
+                String[] lines = output.toString().split("\n");
+                for (String line : lines) {
+                    if (line.trim().length() > 0) {
+                        String[] parts = line.trim().split("\\s+");
+                        if (parts.length >= 2) {
+                            try {
+                                String pid = parts[1];
+                                if (pid.matches("\\d+")) {
+                                    LoggerUtil.getLogger().info("Terminating SVN process PID: " + pid + " for folder: " + folderPath);
+                                    ProcessBuilder killPb = new ProcessBuilder("kill", "-9", pid);
+                                    killPb.start().waitFor();
+                                }
+                            } catch (Exception e) {
+                                LoggerUtil.getLogger().fine("Failed to kill process: " + e.getMessage());
+                            }
+                        }
+                    }
+                }
+            } else {
+                LoggerUtil.getLogger().fine("No SVN processes found using folder: " + folderPath);
+            }
+            
+        } catch (Exception e) {
+            LoggerUtil.getLogger().warning("Failed to check SVN processes on Unix: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Attempt to unlock a file on Windows using various methods
+     */
+    private static void unlockFileOnWindows(File file) {
+        try {
+            // Method 1: Try to take ownership and set permissions
+            ProcessBuilder pb = new ProcessBuilder(
+                "takeown", "/f", file.getAbsolutePath(), "/r", "/d", "y"
+            );
+            Process process = pb.start();
+            process.waitFor();
+            
+            // Method 2: Grant full control to current user
+            pb = new ProcessBuilder(
+                "icacls", file.getAbsolutePath(), "/grant", "Everyone:F", "/t"
+            );
+            process = pb.start();
+            process.waitFor();
+            
+        } catch (Exception e) {
+            LoggerUtil.getLogger().fine("Windows file unlock failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Special handling for SVN database files that are often locked
+     */
+    private static void handleSVNDatabaseFiles(File svnDir, ProgressCallback callback) {
+        try {
+            // Find and handle wc.db specifically
+            File wcDbFile = new File(svnDir, "wc.db");
+            if (wcDbFile.exists()) {
+                LoggerUtil.getLogger().info("Handling SVN database file: " + wcDbFile.getAbsolutePath());
+                
+                // Multiple attempts with different strategies
+                boolean deleted = false;
+                int attempts = 0;
+                int maxAttempts = 10;
+                
+                while (!deleted && attempts < maxAttempts) {
+                    if (callback != null && callback.isCancelled()) {
+                        return;
+                    }
+                    
+                    attempts++;
+                    LoggerUtil.getLogger().info("Attempt " + attempts + " to delete wc.db");
+                    
+                    // Strategy 1: Standard deletion
+                    deleted = wcDbFile.delete();
+                    
+                    if (!deleted) {
+                        // Strategy 2: Force unlock and delete
+                        if (System.getProperty("os.name").toLowerCase().contains("windows")) {
+                            unlockFileOnWindows(wcDbFile);
+                            Thread.sleep(500);
+                            deleted = wcDbFile.delete();
+                        }
+                    }
+                    
+                    if (!deleted) {
+                        // Strategy 3: Use NIO.2 with force option
+                        try {
+                            java.nio.file.Files.deleteIfExists(wcDbFile.toPath());
+                            deleted = true;
+                        } catch (Exception e) {
+                            LoggerUtil.getLogger().fine("NIO.2 deletion failed: " + e.getMessage());
+                        }
+                    }
+                    
+                    if (!deleted) {
+                        // Strategy 4: Try to close any open file handles (Windows specific)
+                        if (System.getProperty("os.name").toLowerCase().contains("windows")) {
+                            try {
+                                closeFileHandles(wcDbFile);
+                                Thread.sleep(1000);
+                                deleted = wcDbFile.delete();
+                            } catch (Exception e) {
+                                LoggerUtil.getLogger().fine("File handle closing failed: " + e.getMessage());
+                            }
+                        }
+                    }
+                    
+                    if (!deleted && attempts < maxAttempts) {
+                        Thread.sleep(1000 * attempts); // Exponential backoff
+                    }
+                }
+                
+                if (deleted) {
+                    LoggerUtil.getLogger().info("Successfully deleted wc.db after " + attempts + " attempts");
+                } else {
+                    String errorMsg = "Failed to delete wc.db after " + maxAttempts + " attempts";
+                    LoggerUtil.getLogger().severe(errorMsg);
+                    if (callback != null) {
+                        callback.onError("SVN database deletion failed: wc.db could not be deleted. Please delete folder manually: " + svnDir.getParent());
+                    }
+                    throw new RuntimeException("SVN database deletion failed: wc.db");
+                }
+            }
+            
+            // Handle other SVN database files
+            File[] svnFiles = svnDir.listFiles();
+            if (svnFiles != null) {
+                for (File svnFile : svnFiles) {
+                    if (svnFile.isFile() && (svnFile.getName().endsWith(".db") || svnFile.getName().startsWith("wc"))) {
+                        if (!svnFile.delete()) {
+                            String errorMsg = "Could not delete SVN file: " + svnFile.getName();
+                            LoggerUtil.getLogger().severe(errorMsg);
+                            if (callback != null) {
+                                callback.onError("SVN file deletion failed: " + svnFile.getName() + " could not be deleted. Please delete folder manually: " + svnDir.getParent());
+                            }
+                            throw new RuntimeException("SVN file deletion failed: " + svnFile.getName());
+                        }
+                    }
+                }
+            }
+            
+        } catch (RuntimeException e) {
+            // Re-throw RuntimeException to fail the process
+            throw e;
+        } catch (Exception e) {
+            LoggerUtil.getLogger().warning("Error handling SVN database files: " + e.getMessage());
+            throw new RuntimeException("SVN database handling failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Attempt to close file handles on Windows using handle.exe or similar tools
+     */
+    private static void closeFileHandles(File file) {
+        try {
+            // This is a placeholder - in a real implementation, you might use
+            // tools like handle.exe or ProcessHacker API to close file handles
+            LoggerUtil.getLogger().fine("Attempting to close file handles for: " + file.getName());
+            
+            // Force garbage collection to release any Java file handles
+            System.gc();
+            // Note: runFinalization() is deprecated since Java 18, removed for compatibility
+            System.gc();
+            
+        } catch (Exception e) {
+            LoggerUtil.getLogger().fine("File handle closing failed: " + e.getMessage());
         }
     }
 
