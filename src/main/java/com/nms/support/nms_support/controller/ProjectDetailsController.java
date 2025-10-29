@@ -649,6 +649,9 @@ public class ProjectDetailsController {
             case "HAS_JAVA_MODE":
                 setupMode = SetupService.SetupMode.HAS_JAVA_MODE;
                 break;
+            case "BUILD_FILES_ONLY":
+                setupMode = SetupService.SetupMode.BUILD_FILES_ONLY;
+                break;
             default:
                 LoggerUtil.getLogger().warning("Unknown setup mode: " + selectedMode.getId());
                 setupMode = SetupService.SetupMode.PATCH_UPGRADE;

@@ -96,7 +96,54 @@ public class SVNAutomationTool {
     public static void performCheckout(String remoteUrl, String localDir, ProgressCallback callback) throws SVNException {
         SVNClientManager cm = null;
         try {
-            cm = SVNClientManager.newInstance();
+            // Create authentication manager with dialog support
+            ISVNAuthenticationManager authManager = SVNWCUtil.createDefaultAuthenticationManager();
+            authManager.setAuthenticationProvider(new ISVNAuthenticationProvider() {
+                public SVNAuthentication requestClientAuthentication(String kind, SVNURL url, String realm,
+                                                                     SVNErrorMessage errorMessage, SVNAuthentication previousAuth,
+                                                                     boolean authMayBeStored) {
+                    // Use JavaFX authentication dialog
+                    final String[] credentials = new String[2];
+                    final boolean[] dialogResult = new boolean[1];
+                    
+                    Platform.runLater(() -> {
+                        try {
+                            SVNAuthenticationDialog authDialog = new SVNAuthenticationDialog(null, realm, url.toString());
+                            dialogResult[0] = authDialog.showAndWait();
+                            if (dialogResult[0]) {
+                                credentials[0] = authDialog.getUsername();
+                                credentials[1] = authDialog.getPassword();
+                            }
+                        } catch (Exception e) {
+                            LoggerUtil.error(e);
+                            dialogResult[0] = false;
+                        }
+                    });
+                    
+                    // Wait for dialog result (with timeout)
+                    long startTime = System.currentTimeMillis();
+                    while (!dialogResult[0] && (System.currentTimeMillis() - startTime) < 30000) {
+                        try {
+                            Thread.sleep(100);
+                        } catch (InterruptedException e) {
+                            break;
+                        }
+                    }
+                    
+                    if (dialogResult[0] && credentials[0] != null && credentials[1] != null) {
+                        return SVNPasswordAuthentication.newInstance(
+                                credentials[0], credentials[1].toCharArray(),
+                                authMayBeStored, url, false);
+                    }
+                    return null;
+                }
+                public int acceptServerAuthentication(SVNURL url, String realm,
+                                                      Object certificate, boolean resultMayBeStored) {
+                    return ISVNAuthenticationProvider.ACCEPTED;
+                }
+            });
+            
+            cm = SVNClientManager.newInstance(null, authManager);
             SVNURL svnUrl = SVNURL.parseURIEncoded(remoteUrl);
             File dest = new File(localDir);
             SVNUpdateClient uc = cm.getUpdateClient();

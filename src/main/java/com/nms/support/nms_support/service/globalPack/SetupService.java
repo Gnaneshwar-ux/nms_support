@@ -8,10 +8,14 @@ import com.nms.support.nms_support.service.buildTabPack.patchUpdate.FileFetcher;
 import com.nms.support.nms_support.service.buildTabPack.patchUpdate.DirectoryProcessor;
 import com.nms.support.nms_support.service.globalPack.sshj.UnifiedSSHManager;
 import com.nms.support.nms_support.service.globalPack.sshj.SSHJSessionManager;
+import net.schmizz.sshj.sftp.SFTPClient;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
 import org.tmatesoft.svn.core.SVNException;
+import org.tmatesoft.svn.core.SVNCancelException;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -49,7 +53,8 @@ public class SetupService {
         PROJECT_AND_PRODUCT_FROM_SERVER,
         PROJECT_ONLY_SVN,
         PROJECT_ONLY_SERVER,
-        HAS_JAVA_MODE           // Java already extracted, perform loading resources, exe creation, and build file updates
+        HAS_JAVA_MODE,          // Java already extracted, perform loading resources, exe creation, and build file updates
+        BUILD_FILES_ONLY        // Standalone build file download and update
     }
     
     public enum ValidationResult {
@@ -89,6 +94,7 @@ public class SetupService {
     private final ProcessMonitor processMonitor;
     private final SetupMode setupMode;
     private final String sshSessionPurpose; // SSH session purpose based on setup mode
+    private MainController mainController; // Reference to main controller for dialog access
     
     /**
      * Helper method to check if a boolean validation failure is due to user cancellation
@@ -174,6 +180,7 @@ public class SetupService {
      * Main setup execution method
      */
     public void executeSetup(MainController mc) {
+        this.mainController = mc; // Store reference for dialog access
         try {
             // Validate inputs and required tools
             processMonitor.addStep(validation, "Running Pre Validation");
@@ -272,8 +279,54 @@ public class SetupService {
 
                     ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "checkout");
                     SVNAutomationTool.performCheckout(project.getSvnRepo(), folderToCheckout.getAbsolutePath(), callback);
+                } catch (SVNCancelException e) {
+                    processMonitor.markFailed("checkout", "SVN checkout cancelled by user");
+                    return;
                 } catch (SVNException e) {
                     processMonitor.markFailed("checkout", "Failed to checkout: " + e.getMessage());
+                    return;
+                }
+                if(!processMonitor.isRunning()) return;
+
+                // Check and handle missing build files
+                processMonitor.addStep("build_file_check", "Checking for build files");
+                try {
+                    String projectFolderPath = project.getProjectFolderPathForCheckout();
+                    File projectFolder = new File(projectFolderPath);
+                    
+                    if (!checkBuildFilesExist(projectFolder)) {
+                        processMonitor.logMessage("build_file_check", "Build files missing, asking user for action...");
+                        
+                        // Show dialog to user asking what to do
+                        MissingBuildFilesDialog.BuildFilesAction userAction = showMissingBuildFilesDialog();
+                        
+                        switch (userAction) {
+                            case DOWNLOAD_AND_CONTINUE:
+                                processMonitor.logMessage("build_file_check", "User chose to download build files from server...");
+                                if (!downloadBuildFilesFromServer(projectFolder, processMonitor)) {
+                                    processMonitor.markFailed("build_file_check", "Failed to download build files from server");
+                                    return;
+                                }
+                                // Process build files after download
+                                processBuildFiles(project);
+                                if(!processMonitor.isRunning()) return;
+                                break;
+                                
+                            case SKIP_AND_CONTINUE:
+                                processMonitor.logMessage("build_file_check", "User chose to skip build files download");
+                                processMonitor.markComplete("build_file_check", "Build files check completed - skipped by user");
+                                break;
+                                
+                            case CANCEL_SETUP:
+                                processMonitor.logMessage("build_file_check", "User chose to cancel setup");
+                                processMonitor.markFailed("build_file_check", "Setup cancelled by user due to missing build files");
+                                return;
+                        }
+                    } else {
+                        processMonitor.logMessage("build_file_check", "Build files found, skipping download");
+                    }
+                } catch (Exception e) {
+                    processMonitor.markFailed("build_file_check", "Build file check failed: " + e.getMessage());
                     return;
                 }
                 if(!processMonitor.isRunning()) return;
@@ -595,6 +648,12 @@ public class SetupService {
                         return;
                     }
                     break;
+                case BUILD_FILES_ONLY:
+                    // Standalone build file download and update
+                    if (!performBuildFileDownload(processMonitor)) {
+                        return;
+                    }
+                    break;
             }
             
             // Finalize setup
@@ -892,6 +951,8 @@ public class SetupService {
                     return validateProjectOnlyServerMode();
                 case HAS_JAVA_MODE:
                     return validateHasJavaMode();
+                case BUILD_FILES_ONLY:
+                    return validateBuildFilesOnlyMode();
                 default:
                     logger.severe("Unknown setup mode: " + setupMode);
                     return ValidationResult.EXCEPTION;
@@ -899,6 +960,59 @@ public class SetupService {
         } catch (Exception e) {
             logger.severe("Validation failed with exception: " + e.getMessage());
             return ValidationResult.EXCEPTION;
+        }
+    }
+    
+    /**
+     * Validate for Build Files Only mode (Standalone build file download)
+     */
+    private ValidationResult validateBuildFilesOnlyMode() {
+        // Project folder validation
+        if (project.getProjectFolderPathForCheckout() == null || project.getProjectFolderPathForCheckout().trim().isEmpty()) {
+            logger.severe("Project folder path is not configured");
+            return ValidationResult.MISSING_PROJECT_FOLDER;
+        }
+        
+        // Verify project folder exists
+        File projectFolder = new File(project.getProjectFolderPathForCheckout());
+        if (!projectFolder.exists()) {
+            logger.severe("Project folder does not exist: " + project.getProjectFolderPathForCheckout());
+            return ValidationResult.MISSING_PROJECT_FOLDER;
+        }
+        
+        // Server details validation (required for SFTP download)
+        ValidationResult serverResult = validateServerDetails();
+        if (serverResult != ValidationResult.SUCCESS) {
+            return serverResult;
+        }
+        
+        // Validate NMS_CONFIG environment variable on server
+        try {
+            processMonitor.logMessage("validation", "Validating NMS_CONFIG on server...");
+            SSHJSessionManager ssh = UnifiedSSHService.createSSHSession(project, sshSessionPurpose);
+            ssh.initialize();
+            
+            String nmsConfigPath = ssh.resolveEnvVar("NMS_CONFIG");
+            if (nmsConfigPath == null || nmsConfigPath.trim().isEmpty()) {
+                processMonitor.markFailed("validation", "NMS_CONFIG environment variable is not set on server");
+                return ValidationResult.MISSING_NMS_CONFIG;
+            }
+            
+            // Check if jconfig directory exists
+            String jconfigPath = nmsConfigPath + "/jconfig";
+            SSHJSessionManager.CommandResult dirCheck = ssh.executeCommand("test -d " + jconfigPath, 30);
+            if (!dirCheck.isSuccess()) {
+                processMonitor.markFailed("validation", "jconfig directory not found on server: " + jconfigPath);
+                return ValidationResult.MISSING_NMS_CONFIG;
+            }
+            
+            processMonitor.logMessage("validation", "NMS_CONFIG and jconfig directory validated successfully");
+            return ValidationResult.SUCCESS;
+            
+        } catch (Exception e) {
+            logger.severe("Failed to validate NMS_CONFIG on server: " + e.getMessage());
+            processMonitor.markFailed("validation", "Failed to validate NMS_CONFIG: " + e.getMessage());
+            return ValidationResult.SERVER_CONNECTION_FAILED;
         }
     }
     
@@ -974,17 +1088,6 @@ public class SetupService {
             return ValidationResult.MISSING_SVN_URL;
         }
         processMonitor.updateState(validation, 20);
-        
-        // SVN credentials validation
-        if (project.getUsername() == null || project.getUsername().trim().isEmpty()) {
-            logger.severe("SVN username is not configured");
-            return ValidationResult.MISSING_SVN_CREDENTIALS;
-        }
-        if (project.getPassword() == null || project.getPassword().trim().isEmpty()) {
-            logger.severe("SVN password is not configured");
-            return ValidationResult.MISSING_SVN_CREDENTIALS;
-        }
-        processMonitor.updateState(validation, 22);
 
         // SVN connectivity validation
         ValidationResult svnConnectivityResult = validateSVNConnectivity();
@@ -1076,17 +1179,6 @@ public class SetupService {
             return ValidationResult.MISSING_SVN_URL;
         }
         processMonitor.updateState(validation, 15);
-        
-        // SVN credentials validation
-        if (project.getUsername() == null || project.getUsername().trim().isEmpty()) {
-            logger.severe("SVN username is not configured");
-            return ValidationResult.MISSING_SVN_CREDENTIALS;
-        }
-        if (project.getPassword() == null || project.getPassword().trim().isEmpty()) {
-            logger.severe("SVN password is not configured");
-            return ValidationResult.MISSING_SVN_CREDENTIALS;
-        }
-        processMonitor.updateState(validation, 20);
 
         // SVN connectivity validation
         ValidationResult svnConnectivityResult = validateSVNConnectivity();
@@ -1216,11 +1308,19 @@ public class SetupService {
 
             processMonitor.updateState("server_env_validation", 30, "Server connection established");
 
-            // Validate $NMS_CONFIG for project operations using existing ServerProjectService validation
+            // Validate $NMS_CONFIG for project operations and build file downloads
             if (setupMode == SetupMode.PROJECT_AND_PRODUCT_FROM_SERVER || 
-                setupMode == SetupMode.PROJECT_ONLY_SERVER) {
+                setupMode == SetupMode.PROJECT_ONLY_SERVER ||
+                setupMode == SetupMode.BUILD_FILES_ONLY) {
                 
                 processMonitor.updateState("server_env_validation", 40, "Validating server project structure...");
+                
+                // For BUILD_FILES_ONLY, we only need to validate NMS_CONFIG exists
+                if (setupMode == SetupMode.BUILD_FILES_ONLY) {
+                    processMonitor.logMessage("server_env_validation", "Validating NMS_CONFIG for build file download...");
+                    // NMS_CONFIG validation will be done in the download method
+                    processMonitor.updateState("server_env_validation", 60, "Build file download validation ready");
+                } else {
                 ServerProjectService serverProjectService = new ServerProjectService(project);
                 
                 // Use existing ServerProjectService validation method
@@ -1250,6 +1350,7 @@ public class SetupService {
                     return pathResult;
                 }
                 processMonitor.updateState("server_env_validation", 70, "Server paths validated successfully");
+                }
             }
 
             // Check if process was cancelled
@@ -2686,8 +2787,54 @@ public class SetupService {
                 processMonitor.logMessage("checkout", "Checking out to folder: " + folderToCheckout.getAbsolutePath());
                 ProgressCallback callback = new ProcessMonitorAdapter(processMonitor, "checkout");
                 SVNAutomationTool.performCheckout(project.getSvnRepo(), folderToCheckout.getAbsolutePath(), callback);
+            } catch (SVNCancelException e) {
+                processMonitor.markFailed("checkout", "SVN checkout cancelled by user");
+                return false;
             } catch (SVNException e) {
                 processMonitor.markFailed("checkout", "Failed to checkout: " + e.getMessage());
+                return false;
+            }
+            
+            if (!processMonitor.isRunning()) return false;
+            // Check and handle missing build files
+            processMonitor.addStep("build_file_check", "Checking for build files");
+            try {
+                String projectFolderPath = project.getProjectFolderPathForCheckout();
+                File projectFolder = new File(projectFolderPath);
+                
+                if (!checkBuildFilesExist(projectFolder)) {
+                    processMonitor.logMessage("build_file_check", "Build files missing, asking user for action...");
+                    
+                    // Show dialog to user asking what to do
+                    MissingBuildFilesDialog.BuildFilesAction userAction = showMissingBuildFilesDialog();
+                    
+                    switch (userAction) {
+                        case DOWNLOAD_AND_CONTINUE:
+                            processMonitor.logMessage("build_file_check", "User chose to download build files from server...");
+                            if (!downloadBuildFilesFromServer(projectFolder, processMonitor)) {
+                                processMonitor.markFailed("build_file_check", "Failed to download build files from server");
+                                return false;
+                            }
+                            // Process build files after download
+                            processBuildFiles(project);
+                            if (!processMonitor.isRunning()) return false;
+                            break;
+                            
+                        case SKIP_AND_CONTINUE:
+                            processMonitor.logMessage("build_file_check", "User chose to skip build files download");
+                            processMonitor.markComplete("build_file_check", "Build files check completed - skipped by user");
+                            break;
+                            
+                        case CANCEL_SETUP:
+                            processMonitor.logMessage("build_file_check", "User chose to cancel setup");
+                            processMonitor.markFailed("build_file_check", "Setup cancelled by user due to missing build files");
+                            return false;
+                    }
+                } else {
+                    processMonitor.logMessage("build_file_check", "Build files found, skipping download");
+                }
+            } catch (Exception e) {
+                processMonitor.markFailed("build_file_check", "Build file check failed: " + e.getMessage());
                 return false;
             }
             
@@ -3371,85 +3518,371 @@ public class SetupService {
         return file.delete();
     }
     
+    
+    
+    
     /**
-     * Update build.xml files with environment variables
+     * Show dialog to user when build files are missing
+     * @return The user's chosen action
      */
-    private void updateBuildXmlFiles(File projectFolder, ProcessMonitor processMonitor) {
+    private MissingBuildFilesDialog.BuildFilesAction showMissingBuildFilesDialog() {
         try {
-            processMonitor.logMessage("update_build_files", "Updating build.xml files...");
+            // Create a new stage for the dialog
+            Stage dialogStage = new Stage();
+            dialogStage.initModality(Modality.APPLICATION_MODAL);
             
-            // Find and update build.xml files
-            Files.walk(projectFolder.toPath())
-                .filter(path -> path.getFileName().toString().equals("build.xml"))
-                .forEach(path -> {
-                    try {
-                        // Update the build.xml file with environment variables
-                        updateBuildXmlFile(path.toFile());
-                        processMonitor.logMessage("update_build_files", "Updated: " + path.toString());
+            MissingBuildFilesDialog dialog = new MissingBuildFilesDialog();
+            return dialog.showDialog(dialogStage);
+            
                     } catch (Exception e) {
-                        logger.warning("Failed to update build.xml: " + path + " - " + e.getMessage());
-                    }
-                });
+            logger.severe("Error showing missing build files dialog: " + e.getMessage());
+            // Default to cancel if dialog fails
+            return MissingBuildFilesDialog.BuildFilesAction.CANCEL_SETUP;
+        }
+    }
+    
+    /**
+     * TEMPORARY METHOD FOR TESTING - Delete build files to test missing build files dialog
+     * This method should be removed after testing is complete
+     * @param projectFolder The project folder containing build files
+     * @return true if files were deleted successfully, false otherwise
+     */
+    public boolean tempDeleteBuildFilesForTesting(File projectFolder) {
+        try {
+            logger.info("TEMPORARY: Deleting build files for testing purposes...");
+            
+            File jconfigDir = new File(projectFolder, "jconfig");
+            if (!jconfigDir.exists()) {
+                logger.warning("jconfig directory does not exist: " + jconfigDir.getAbsolutePath());
+                return false;
+            }
+            
+            File buildXml = new File(jconfigDir, "build.xml");
+            File buildProperties = new File(jconfigDir, "build.properties");
+            
+            boolean deleted = true;
+            
+            if (buildXml.exists()) {
+                if (buildXml.delete()) {
+                    logger.info("TEMPORARY: Deleted build.xml for testing");
+                } else {
+                    logger.warning("TEMPORARY: Failed to delete build.xml");
+                    deleted = false;
+                }
+            } else {
+                logger.info("TEMPORARY: build.xml does not exist, nothing to delete");
+            }
+            
+            if (buildProperties.exists()) {
+                if (buildProperties.delete()) {
+                    logger.info("TEMPORARY: Deleted build.properties for testing");
+                } else {
+                    logger.warning("TEMPORARY: Failed to delete build.properties");
+                    deleted = false;
+                }
+            } else {
+                logger.info("TEMPORARY: build.properties does not exist, nothing to delete");
+            }
+            
+            if (deleted) {
+                logger.info("TEMPORARY: Build files deleted successfully for testing");
+            } else {
+                logger.warning("TEMPORARY: Some build files could not be deleted");
+            }
+            
+            return deleted;
                 
         } catch (Exception e) {
-            logger.warning("Error updating build.xml files: " + e.getMessage());
+            logger.severe("TEMPORARY: Error deleting build files for testing: " + e.getMessage());
+            return false;
         }
     }
     
     /**
-     * Update a single build.xml file
+     * Check if build files exist in the project folder's jconfig directory
+     * @param projectFolder The project folder to check
+     * @return true if both build.xml and build.properties exist in jconfig subfolder, false otherwise
      */
-    private void updateBuildXmlFile(File buildXmlFile) throws IOException {
-        // Read the file content
-        String content = new String(Files.readAllBytes(buildXmlFile.toPath()));
+    private boolean checkBuildFilesExist(File projectFolder) {
+        File jconfigDir = new File(projectFolder, "jconfig");
+        File buildXml = new File(jconfigDir, "build.xml");
+        File buildProperties = new File(jconfigDir, "build.properties");
         
-        // Replace environment variable placeholders
-        if (project.getNmsEnvVar() != null && project.getExePath() != null) {
-            content = content.replace("${" + project.getNmsEnvVar() + "}", project.getExePath());
-        }
+        boolean buildXmlExists = buildXml.exists() && buildXml.isFile();
+        boolean buildPropertiesExists = buildProperties.exists() && buildProperties.isFile();
         
-        // Write back to file
-        Files.write(buildXmlFile.toPath(), content.getBytes());
+        logger.info("Build files check in jconfig directory - build.xml: " + (buildXmlExists ? "EXISTS" : "MISSING") + 
+                   ", build.properties: " + (buildPropertiesExists ? "EXISTS" : "MISSING"));
+        
+        return buildXmlExists && buildPropertiesExists;
     }
     
     /**
-     * Update other build-related files
+     * Download build files from server if they don't exist
+     * @param projectFolder The project folder to download build files to
+     * @param processMonitor Process monitor for progress updates
+     * @return true if build files were downloaded successfully, false otherwise
      */
-    private void updateOtherBuildFiles(File projectFolder, ProcessMonitor processMonitor) {
+    private boolean downloadBuildFilesFromServer(File projectFolder, ProcessMonitor processMonitor) {
         try {
-            processMonitor.logMessage("update_build_files", "Updating other build files...");
+            processMonitor.logMessage("build_file_download", "Checking if build files need to be downloaded...");
             
-            // Update properties files
-            Files.walk(projectFolder.toPath())
-                .filter(path -> path.getFileName().toString().endsWith(".properties"))
-                .forEach(path -> {
-                    try {
-                        updatePropertiesFile(path.toFile());
-                        processMonitor.logMessage("update_build_files", "Updated properties: " + path.toString());
-                    } catch (Exception e) {
-                        logger.warning("Failed to update properties file: " + path + " - " + e.getMessage());
-                    }
-                });
+            // Check if build files already exist
+            if (checkBuildFilesExist(projectFolder)) {
+                processMonitor.logMessage("build_file_download", "Build files already exist, skipping download");
+                processMonitor.markComplete("build_file_download", "Build files already exist");
+                return true;
+            }
+            
+            processMonitor.logMessage("build_file_download", "Build files missing, downloading from server...");
+            
+            // Create SSH session for build file download
+            SSHJSessionManager ssh = null;
+            SFTPClient sftpClient = null;
+            
+            try {
+                // Create SSH session with purpose-based isolation
+                ssh = UnifiedSSHService.createSSHSession(project, sshSessionPurpose);
+                ssh.initialize();
                 
+                // Register session with ProcessMonitorManager for proper cleanup
+                ProcessMonitorManager.getInstance().registerSession(
+                    ssh.getSessionId(), 
+                    ssh, 
+                    true, // Mark as in progress
+                    sshSessionPurpose // Include purpose for proper session tracking
+                );
+                
+                processMonitor.logMessage("build_file_download", "Connected to server for build file download");
+                
+                // Resolve NMS_CONFIG path using existing method
+                processMonitor.logMessage("build_file_download", "Resolving NMS_CONFIG environment variable...");
+                String nmsConfigPath = ssh.resolveEnvVar("NMS_CONFIG");
+                if (nmsConfigPath == null || nmsConfigPath.trim().isEmpty()) {
+                    processMonitor.markFailed("build_file_download", "NMS_CONFIG environment variable is not set");
+                    return false;
+                }
+                
+                processMonitor.logMessage("build_file_download", "NMS_CONFIG resolved to: " + nmsConfigPath);
+                
+                // Check if jconfig directory exists
+                String jconfigPath = nmsConfigPath + "/jconfig";
+                processMonitor.logMessage("build_file_download", "Checking jconfig directory: " + jconfigPath);
+                
+                SSHJSessionManager.CommandResult dirCheck = ssh.executeCommand("test -d " + jconfigPath, 30);
+                if (!dirCheck.isSuccess()) {
+                    processMonitor.markFailed("build_file_download", "jconfig directory not found: " + jconfigPath);
+                    return false;
+                }
+                
+                // Copy build files to /tmp/ with proper permissions
+                String[] tempFilePaths = copyBuildFilesToTemp(ssh, jconfigPath, processMonitor);
+                if (tempFilePaths == null) {
+                    processMonitor.markFailed("build_file_download", "Failed to copy build files to /tmp/");
+                    return false;
+                }
+                
+                String tmpBuildXml = tempFilePaths[0];
+                String tmpBuildProperties = tempFilePaths[1];
+                
+                // Check if /tmp/ files exist before trying to download
+                processMonitor.logMessage("build_file_download", "Checking if /tmp/ files exist...");
+                SSHJSessionManager.CommandResult fileExistsCheck = ssh.executeCommand("ls -la " + tmpBuildXml + " " + tmpBuildProperties, 30);
+                processMonitor.logMessage("build_file_download", "File existence check result: " + fileExistsCheck.getOutput());
+                
+                if (!fileExistsCheck.isSuccess()) {
+                    processMonitor.markFailed("build_file_download", "/tmp/ build files do not exist or are not accessible");
+                    return false;
+                }
+                
+                // Open SFTP client for file download
+                sftpClient = ssh.openSftp();
+                processMonitor.logMessage("build_file_download", "SFTP client opened, starting file download");
+                
+                // Create local jconfig directory if it doesn't exist
+                File localJconfigDir = new File(projectFolder, "jconfig");
+                if (!localJconfigDir.exists()) {
+                    if (!localJconfigDir.mkdirs()) {
+                        processMonitor.markFailed("build_file_download", "Failed to create local jconfig directory");
+                        return false;
+                    }
+                }
+                
+                processMonitor.logMessage("build_file_download", "Local jconfig directory ready: " + localJconfigDir.getAbsolutePath());
+                
+                // Download build.xml from /tmp/
+                String localBuildXml = localJconfigDir.getAbsolutePath() + File.separator + "build.xml";
+                
+                processMonitor.logMessage("build_file_download", "Downloading build.xml from: " + tmpBuildXml);
+                processMonitor.logMessage("build_file_download", "Local path: " + localBuildXml);
+                
+                try {
+                    sftpClient.get(tmpBuildXml, localBuildXml);
+                    processMonitor.logMessage("build_file_download", "build.xml downloaded successfully");
+                } catch (Exception e) {
+                    logger.severe("Failed to download build.xml: " + e.getMessage());
+                    processMonitor.markFailed("build_file_download", "Failed to download build.xml: " + e.getMessage());
+                    return false;
+                }
+                
+                // Download build.properties from /tmp/
+                String localBuildProperties = localJconfigDir.getAbsolutePath() + File.separator + "build.properties";
+                
+                processMonitor.logMessage("build_file_download", "Downloading build.properties from: " + tmpBuildProperties);
+                processMonitor.logMessage("build_file_download", "Local path: " + localBuildProperties);
+                
+                try {
+                    sftpClient.get(tmpBuildProperties, localBuildProperties);
+                    processMonitor.logMessage("build_file_download", "build.properties downloaded successfully");
+                } catch (Exception e) {
+                    logger.severe("Failed to download build.properties: " + e.getMessage());
+                    processMonitor.markFailed("build_file_download", "Failed to download build.properties: " + e.getMessage());
+                    return false;
+                }
+                
+                // Verify files were downloaded
+                if (checkBuildFilesExist(projectFolder)) {
+                    processMonitor.logMessage("build_file_download", "Build files downloaded successfully, cleaning up /tmp/ files...");
+                    
+                    // Clean up /tmp/ files
+                    try {
+                        ssh.executeCommand("rm -f " + tmpBuildXml + " " + tmpBuildProperties, 30);
+                        processMonitor.logMessage("build_file_download", "Temporary files cleaned up");
+                    } catch (Exception cleanupException) {
+                        logger.warning("Failed to clean up /tmp/ files: " + cleanupException.getMessage());
+                        // Don't fail the entire operation for cleanup issues
+                    }
+                    
+                    processMonitor.markComplete("build_file_download", "Build files downloaded successfully");
+                    return true;
+                } else {
+                    processMonitor.markFailed("build_file_download", "Build files download verification failed");
+                    return false;
+                }
+                
+            } catch (Exception e) {
+                logger.severe("Failed to download build files: " + e.getMessage());
+                processMonitor.markFailed("build_file_download", "Build files download failed: " + e.getMessage());
+                return false;
+            } finally {
+                // Clean up resources
+                if (sftpClient != null) {
+                    try {
+                        sftpClient.close();
+                    } catch (Exception ignored) {}
+                }
+                if (ssh != null) {
+                    try {
+                        // Mark operation as completed
+                        ProcessMonitorManager.getInstance().updateOperationState(ssh.getSessionId(), false);
+                    } catch (Exception ignored) {}
+                }
+            }
+            
         } catch (Exception e) {
-            logger.warning("Error updating other build files: " + e.getMessage());
+            logger.severe("Error in downloadBuildFilesFromServer: " + e.getMessage());
+            processMonitor.markFailed("build_file_download", "Build files download error: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    
+    /**
+     * Check and grant permissions for build files
+     * @param ssh SSH session manager
+     * @param jconfigPath Path to jconfig directory
+     * @param processMonitor Process monitor for progress updates
+     * @return true if permissions are set successfully, false otherwise
+     */
+    private String[] copyBuildFilesToTemp(SSHJSessionManager ssh, String jconfigPath, ProcessMonitor processMonitor) {
+        try {
+            processMonitor.logMessage("build_file_download", "Checking build file permissions...");
+            
+            // Check if build files exist and are readable
+            String buildXmlPath = jconfigPath + "/build.xml";
+            String buildPropertiesPath = jconfigPath + "/build.properties";
+            
+            // Copy build files to /tmp/ with proper permissions for SFTP access
+            String timestamp = String.valueOf(System.currentTimeMillis());
+            String tmpBuildXml = "/tmp/build_" + timestamp + ".xml";
+            String tmpBuildProperties = "/tmp/build_" + timestamp + ".properties";
+            
+            processMonitor.logMessage("build_file_download", "Copying build files to /tmp/ for SFTP access...");
+            
+            // Copy build.xml to /tmp/
+            SSHJSessionManager.CommandResult copyXmlResult = ssh.executeCommand("cp " + buildXmlPath + " " + tmpBuildXml, 30);
+            if (!copyXmlResult.isSuccess()) {
+                processMonitor.markFailed("build_file_download", "Failed to copy build.xml to /tmp/: " + copyXmlResult.getOutput());
+                return null;
+            }
+            processMonitor.logMessage("build_file_download", "build.xml copied to: " + tmpBuildXml);
+            
+            // Copy build.properties to /tmp/
+            SSHJSessionManager.CommandResult copyPropsResult = ssh.executeCommand("cp " + buildPropertiesPath + " " + tmpBuildProperties, 30);
+            if (!copyPropsResult.isSuccess()) {
+                processMonitor.markFailed("build_file_download", "Failed to copy build.properties to /tmp/: " + copyPropsResult.getOutput());
+                return null;
+            }
+            processMonitor.logMessage("build_file_download", "build.properties copied to: " + tmpBuildProperties);
+            
+            // Set proper permissions on /tmp/ files
+            SSHJSessionManager.CommandResult chmodTmpXmlResult = ssh.executeCommand("chmod 644 " + tmpBuildXml, 30);
+            SSHJSessionManager.CommandResult chmodTmpPropsResult = ssh.executeCommand("chmod 644 " + tmpBuildProperties, 30);
+            
+            if (!chmodTmpXmlResult.isSuccess() || !chmodTmpPropsResult.isSuccess()) {
+                processMonitor.markFailed("build_file_download", "Failed to set permissions on /tmp/ files");
+                return null;
+            }
+            processMonitor.logMessage("build_file_download", "Build files copied to /tmp/ with proper permissions");
+            
+            // Store the /tmp/ file paths for download
+            processMonitor.logMessage("build_file_download", "Temporary files ready for download: " + tmpBuildXml + ", " + tmpBuildProperties);
+            return new String[]{tmpBuildXml, tmpBuildProperties};
+            
+        } catch (Exception e) {
+            logger.severe("Failed to copy build files to /tmp/: " + e.getMessage());
+            processMonitor.markFailed("build_file_download", "File copy failed: " + e.getMessage());
+            return null;
         }
     }
     
     /**
-     * Update a properties file
+     * Perform standalone build file download and update
+     * This method can be called independently to download and update build files
+     * @param processMonitor Process monitor for progress updates
+     * @return true if successful, false otherwise
      */
-    private void updatePropertiesFile(File propertiesFile) throws IOException {
-        // Read the file content
-        String content = new String(Files.readAllBytes(propertiesFile.toPath()));
-        
-        // Replace environment variable placeholders
-        if (project.getNmsEnvVar() != null && project.getExePath() != null) {
-            content = content.replace("${" + project.getNmsEnvVar() + "}", project.getExePath());
+    public boolean performBuildFileDownload(ProcessMonitor processMonitor) {
+        try {
+            processMonitor.addStep("build_file_download", "Downloading build files from server");
+            
+            // Get project folder path
+            String projectFolderPath = project.getProjectFolderPathForCheckout();
+            File projectFolder = new File(projectFolderPath);
+            
+            if (!projectFolder.exists()) {
+                processMonitor.markFailed("build_file_download", "Project folder does not exist: " + projectFolderPath);
+                return false;
+            }
+            
+            // Download build files from server
+            if (!downloadBuildFilesFromServer(projectFolder, processMonitor)) {
+                return false;
+            }
+            
+            // Use existing processBuildFiles method for updating build files
+            processBuildFiles(project);
+            if (!processMonitor.isRunning()) return false;
+            
+            processMonitor.markComplete("build_file_download", "Build file download and update completed successfully");
+            
+            return true;
+            
+        } catch (Exception e) {
+            logger.severe("Error in performBuildFileDownload: " + e.getMessage());
+            processMonitor.markFailed("build_file_download", "Build file download failed: " + e.getMessage());
+            return false;
         }
-        
-        // Write back to file
-        Files.write(propertiesFile.toPath(), content.getBytes());
     }
 
     /**

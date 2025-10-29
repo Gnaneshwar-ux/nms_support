@@ -118,6 +118,7 @@ public class RestartToolsCommand extends JBotCommand {
     private JTable toolTable;
     private StringBuilder buildOutput = new StringBuilder();
     private boolean hasFailures = false;
+    private boolean hasRestartfails = false;
 
     public void createAndShowUI() {
         // Create a JFrame instead of JDialog for Windows preview integration
@@ -418,9 +419,11 @@ public class RestartToolsCommand extends JBotCommand {
                         @Override
                         protected Void doInBackground() throws Exception {
                             hasFailures = false; // Reset failure flag
+                            hasRestartfails = false;
                             
                             if (checkBuild.isSelected() && !executeAnt(antPath, statusLabel)) {
                                 publish("Build failed. Check build log for details.");
+                                hasFailures = true;
                                 return null;
                             }
 
@@ -433,12 +436,12 @@ public class RestartToolsCommand extends JBotCommand {
                                         publish("Restarting tool: " + selectedToolName + "...");
                                         if (!validation(tool, selectedToolName)) {
                                             publish("Validation failed for: " + selectedToolName + " - " + valRes);
-                                            hasFailures = true;
+                                            hasRestartfails = true;
                                             continue;
                                         }
                                         if (!handleTool(tool, selectedToolName, dsNames.getText())) {
                                             publish("Restart failed for: " + selectedToolName + " - check logs");
-                                            hasFailures = true;
+                                            hasRestartfails = true;
                                         }
                                     }
                                 }
@@ -466,8 +469,12 @@ public class RestartToolsCommand extends JBotCommand {
                             progressBar.setValue(100);
                             
                             if (hasFailures) {
-                                statusLabel.setText("Restart completed with failures. See details.");
+                                statusLabel.setText("Build completed with failures. See details in log.");
                                 showBuildFailureDialog(frame, buildOutput.toString());
+                            } else if (hasRestartfails) {
+                                statusLabel.setText("Restart completed with failures. See details.");
+                                JOptionPane.showMessageDialog(frame, "Restart completed with failures. See details in log.", "Failed",
+                                        JOptionPane.WARNING_MESSAGE);
                             } else {
                                 statusLabel.setText("All selected tools have been started successfully.");
                                 JOptionPane.showMessageDialog(frame, "Restart Tools Process Completed Successfully.", "Success",

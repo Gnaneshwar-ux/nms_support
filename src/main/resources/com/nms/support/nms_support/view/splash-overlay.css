@@ -1,0 +1,14 @@
+/* Minimalist white overlay */
+.splash-overlay {
+    -fx-background-color: rgba(255, 255, 255, 0.96);
+}
+
+.splash-title {
+    -fx-text-fill: #000000;
+    -fx-font-weight: 600;
+}
+
+.splash-status {
+    -fx-text-fill: #666666;
+    -fx-font-weight: 400;
+}

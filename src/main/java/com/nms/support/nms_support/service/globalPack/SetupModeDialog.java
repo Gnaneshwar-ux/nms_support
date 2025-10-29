@@ -104,6 +104,14 @@ public class SetupModeDialog {
         false
     );
     
+    public static final SetupMode BUILD_FILES_ONLY = new SetupMode(
+        "BUILD_FILES_ONLY", 
+        "Project Build Files Only (Download & Update)", 
+        "Download project build files from server and update with environment variables",
+        "fa-file-code",
+        false
+    );
+    
     public static final SetupMode CUSTOM = new SetupMode(
         "CUSTOM", 
         "Custom setup", 
@@ -134,7 +142,8 @@ public class SetupModeDialog {
             PROJECT_AND_PRODUCT_FROM_SERVER,
             PROJECT_ONLY_SVN,
             PROJECT_ONLY_SERVER,
-            HAS_JAVA_MODE
+            HAS_JAVA_MODE,
+            BUILD_FILES_ONLY
         ));
     }
     

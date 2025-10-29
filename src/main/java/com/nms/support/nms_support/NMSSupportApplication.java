@@ -75,9 +75,9 @@ public class NMSSupportApplication extends Application {
         }
 
     }
-
+    
     @Override
-    public void stop(){
+    public void stop() {
         Platform.exit();
         System.exit(0);
     }

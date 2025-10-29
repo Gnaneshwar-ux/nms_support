@@ -19,6 +19,11 @@ import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.ImageView;
+import javafx.scene.layout.AnchorPane;
+import javafx.scene.layout.Pane;
+import javafx.scene.layout.StackPane;
+import javafx.geometry.Pos;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
@@ -81,6 +86,11 @@ public class MainController implements Initializable {
     private EnhancedJarDecompilerController jarDecompilerController;
     private ChangeTrackingService changeTrackingService;
     
+    // Splash overlay components
+    private Parent splashOverlay;
+    private SplashScreenController splashController;
+    private final java.util.concurrent.atomic.AtomicInteger preloadRemaining = new java.util.concurrent.atomic.AtomicInteger(3);
+    
     // Flag to prevent listener from triggering during programmatic changes
     private volatile boolean isUpdatingComboBoxProgrammatically = false;
 
@@ -118,6 +128,10 @@ public class MainController implements Initializable {
             logger.warning("Root is null");
         }
 
+        // Show splash overlay first
+        showSplashOverlay();
+        
+        // Initialize managers
         String user = System.getProperty("user.name");
         projectManager = new ProjectManager("C:\\Users\\" + user + "\\Documents\\nms_support_data\\projects.json");
         logManager = new LogManager("C:\\Users\\" + user + "\\Documents\\nms_support_data\\logs.json");
@@ -145,13 +159,113 @@ public class MainController implements Initializable {
         // Setup save button visual feedback
         setupSaveButtonVisualFeedback();
         
-        // Setup window close handler and accelerators after scene is available
+        // Load content and prepare; overlay will close when all tabs are preloaded
         Platform.runLater(() -> {
-            // Load tab content after scene is available
             loadTabContent();
             setupWindowCloseHandler();
             setupAccelerators();
         });
+    }
+
+    /**
+     * Shows the splash overlay on top of the main interface
+     */
+    private void showSplashOverlay() {
+        try {
+            // Load splash overlay FXML
+            FXMLLoader splashLoader = new FXMLLoader(getClass().getResource("/com/nms/support/nms_support/view/splash-overlay.fxml"));
+            if (splashLoader.getLocation() == null) {
+                logger.warning("Splash overlay FXML resource not found");
+                return;
+            }
+            
+            splashOverlay = splashLoader.load();
+            splashController = splashLoader.getController();
+            
+            // Add splash overlay stylesheet
+            try {
+                splashOverlay.getStylesheets().add(getClass().getResource("/com/nms/support/nms_support/view/splash-overlay.css").toExternalForm());
+            } catch (Exception e) {
+                logger.warning("Could not load splash overlay stylesheet: " + e.getMessage());
+            }
+            
+            // Add splash overlay to the root container safely (supports StackPane or AnchorPane)
+            if (root != null) {
+                if (root instanceof AnchorPane) {
+                    AnchorPane anchorRoot = (AnchorPane) root;
+                    anchorRoot.getChildren().add(splashOverlay);
+                    AnchorPane.setTopAnchor(splashOverlay, 0.0);
+                    AnchorPane.setBottomAnchor(splashOverlay, 0.0);
+                    AnchorPane.setLeftAnchor(splashOverlay, 0.0);
+                    AnchorPane.setRightAnchor(splashOverlay, 0.0);
+                } else if (root instanceof StackPane) {
+                    StackPane stackRoot = (StackPane) root;
+                    stackRoot.getChildren().add(splashOverlay);
+                    StackPane.setAlignment(splashOverlay, Pos.CENTER);
+                    // Bind to fill the parent
+                    ((Region) splashOverlay).prefWidthProperty().bind(stackRoot.widthProperty());
+                    ((Region) splashOverlay).prefHeightProperty().bind(stackRoot.heightProperty());
+                } else if (root instanceof Pane) {
+                    Pane paneRoot = (Pane) root;
+                    paneRoot.getChildren().add(splashOverlay);
+                    // Bind to fill the parent for generic Pane
+                    ((Region) splashOverlay).prefWidthProperty().bind(paneRoot.widthProperty());
+                    ((Region) splashOverlay).prefHeightProperty().bind(paneRoot.heightProperty());
+                } else {
+                    logger.warning("Unsupported root container type for splash overlay: " + root.getClass().getSimpleName());
+                }
+            }
+            
+            logger.info("Splash overlay displayed");
+            
+        } catch (IOException e) {
+            logger.severe("Error loading splash overlay: " + e.getMessage());
+        }
+    }
+    
+    // Sleep-based splash removed; overlay hides when preloads finish
+    
+    /**
+     * Hides the splash overlay with fade-out animation
+     */
+    private void hideSplashOverlay() {
+        if (splashController != null && splashOverlay != null) {
+            splashController.fadeOut(() -> {
+                Platform.runLater(() -> {
+                    if (root != null && splashOverlay != null) {
+                        if (root instanceof Pane) {
+                            ((Pane) root).getChildren().remove(splashOverlay);
+                            logger.info("Splash overlay removed");
+                        }
+                    }
+                });
+            });
+        }
+    }
+
+    /**
+     * Called each time a tab finishes preloading. When all are ready, auto-select project and hide overlay.
+     */
+    private void onTabPreloaded() {
+        int remaining = preloadRemaining.decrementAndGet();
+        logger.info("Preload remaining: " + remaining);
+        if (remaining <= 0) {
+            Platform.runLater(() -> {
+                try {
+                    List<ProjectEntity> projects = projectManager.getProjects();
+                    if (projects != null && !projects.isEmpty()) {
+                        String mostRecentProjectName = projects.get(0).getName();
+                        if (mostRecentProjectName != null && !mostRecentProjectName.trim().isEmpty()) {
+                            projectComboBox.setValue(mostRecentProjectName);
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.warning("Auto-select on preload completion failed: " + e.getMessage());
+                } finally {
+                    hideSplashOverlay();
+                }
+            });
+        }
     }
 
     /**
@@ -452,35 +566,56 @@ public class MainController implements Initializable {
         Thread.ofVirtual().start(() -> {
             try {
                 // Preload project details tab
-                Thread.sleep(100); // Small delay to not interfere with startup
+                Platform.runLater(() -> {
+                    if (splashController != null) {
+                        splashController.updateStatus("Loading Project Details...");
+                    }
+                });
+                Thread.sleep(200); // Small delay to not interfere with startup
                 Platform.runLater(() -> {
                     try {
                         loadProjectDetailsTab();
                         logger.info("Project Details tab preloaded");
+                        onTabPreloaded();
                     } catch (IOException e) {
                         logger.warning("Failed to preload Project Details tab: " + e.getMessage());
+                        onTabPreloaded();
                     }
                 });
                 
                 // Preload datastore dump tab
-                Thread.sleep(100);
+                Platform.runLater(() -> {
+                    if (splashController != null) {
+                        splashController.updateStatus("Loading Datastore Explorer...");
+                    }
+                });
+                Thread.sleep(200);
                 Platform.runLater(() -> {
                     try {
                         loadDatastoreDumpTab();
                         logger.info("Datastore Explorer tab preloaded");
+                        onTabPreloaded();
                     } catch (IOException e) {
                         logger.warning("Failed to preload Datastore Explorer tab: " + e.getMessage());
+                        onTabPreloaded();
                     }
                 });
                 
                 // Preload jar decompiler tab
-                Thread.sleep(100);
+                Platform.runLater(() -> {
+                    if (splashController != null) {
+                        splashController.updateStatus("Loading JAR Decompiler...");
+                    }
+                });
+                Thread.sleep(200);
                 Platform.runLater(() -> {
                     try {
                         loadJarDecompilerTab();
                         logger.info("JAR Decompiler tab preloaded");
+                        onTabPreloaded();
                     } catch (IOException e) {
                         logger.warning("Failed to preload JAR Decompiler tab: " + e.getMessage());
+                        onTabPreloaded();
                     }
                 });
                 
