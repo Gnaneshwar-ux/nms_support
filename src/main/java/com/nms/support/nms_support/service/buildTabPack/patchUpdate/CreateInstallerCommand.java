@@ -228,9 +228,25 @@ public class CreateInstallerCommand {
 			String iUrl = serverURL + jnlpName + ".jnlp";
 			String saveClasspath = null;
 
-			try (InputStream is = getInputStreamFromURL(iUrl)) {
+			InputStream is = null;
+			// Try to load .jnlp file first
+			try {
+				is = getInputStreamFromURL(iUrl);
+			} catch (Exception e) {
+				// If .jnlp fails, try .jnlpx as fallback
+				try {
+					String iUrlFallback = serverURL + jnlpName + ".jnlpx";
+					is = getInputStreamFromURL(iUrlFallback);
+					System.out.println("Failed to load .jnlp file, using .jnlpx fallback: " + iUrlFallback);
+				} catch (Exception fallbackException) {
+					// Both failed, rethrow the original exception
+					throw new IOException("Failed to load both .jnlp and .jnlpx files for " + jnlpName, e);
+				}
+			}
+
+			try (InputStream inputStream = is) {
 				str.append(TEMPLATE.replace("%long%", name).replace("%short%", jnlpName));
-				Document document = docBuilder.parse(is);
+				Document document = docBuilder.parse(inputStream);
 
 				boolean inSystemProps = false;
 				ArrayList<String> systemProps = new ArrayList<>();
@@ -251,8 +267,12 @@ public class CreateInstallerCommand {
 							maxMemory = "-Xmx" + setting;
 						} else if (arch32 && value.equals("nms.maxmemory32")) {
 							maxMemory = "-Xmx" + setting;
-						} else if (value.startsWith("-")) {
+						} else if (value.equals("--add-opens")) {
+    						systemProps.add(value + "=" + setting);
+						}
+						else if (value.startsWith("-")) {
 							systemProps.add(value);
+							i--;
 						} else {
 							systemProps.add("-D" + value + "=\"" + setting + "\"");
 						}
@@ -353,7 +373,7 @@ public class CreateInstallerCommand {
 					trans.transform(source, result);
 				}
 				runLaunch4j(launchXML);
-				launchXML.delete();
+				//launchXML.delete();
 			} catch (Exception e) {
 				//progressCallback.onError("Not able to setup " + product + ": " + e.getMessage());
 				failed_setups += product +", ";

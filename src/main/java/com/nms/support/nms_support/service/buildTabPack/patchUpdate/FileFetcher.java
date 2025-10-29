@@ -109,10 +109,36 @@ public class FileFetcher {
 
     private static List<String> fetchJarFiles(String baseUrl) throws IOException {
         String jnlpUrl = baseUrl + "/ConfigurationAssistant.jnlp";
+        List<String> jarFiles = null;
+        IOException lastException = null;
+        
+        // Try to load .jnlp file first
+        try {
+            LoggerUtil.getLogger().info("Fetching JAR files from: " + jnlpUrl);
+            jarFiles = fetchJarFilesFromJnlp(jnlpUrl);
+        } catch (IOException e) {
+            // If .jnlp fails, try .jnlpx as fallback
+            lastException = e;
+            String jnlpxUrl = baseUrl + "/ConfigurationAssistant.jnlpx";
+            LoggerUtil.getLogger().info("Failed to load .jnlp file, trying .jnlpx fallback: " + jnlpxUrl);
+            try {
+                jarFiles = fetchJarFilesFromJnlp(jnlpxUrl);
+            } catch (IOException fallbackException) {
+                // Both failed, throw exception with details
+                String errorMessage = "Failed to load both .jnlp and .jnlpx files for ConfigurationAssistant";
+                LoggerUtil.getLogger().severe(errorMessage);
+                LoggerUtil.error(fallbackException);
+                progressCallback.onError(errorMessage);
+                throw new IOException(errorMessage, lastException);
+            }
+        }
+        
+        return jarFiles;
+    }
+    
+    private static List<String> fetchJarFilesFromJnlp(String jnlpUrl) throws IOException {
         List<String> jarFiles = new ArrayList<>();
         HttpURLConnection connection = null;
-        
-        LoggerUtil.getLogger().info("Fetching JAR files from: " + jnlpUrl);
         
         try {
             // Open connection to the JNLP URL
@@ -175,25 +201,11 @@ public class FileFetcher {
             }
             
         } catch (IOException e) {
-            e.printStackTrace();
-            LoggerUtil.error(e);
-            LoggerUtil.getLogger().severe("fetchJarFiles IOException: " + e.getClass().getSimpleName() + " - " + e.getMessage());
-            String errorMessage = e.getMessage();
-            if (errorMessage == null || errorMessage.trim().isEmpty()) {
-                errorMessage = "Failed to connect to server or parse JNLP file";
-            }
-            progressCallback.onError("Failed to fetch JAR file list: " + errorMessage);
-            throw e; // Re-throw to ensure the process fails
+            LoggerUtil.getLogger().severe("fetchJarFilesFromJnlp IOException for " + jnlpUrl + ": " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            throw e; // Re-throw to allow fallback mechanism
         } catch (Exception e) {
-            e.printStackTrace();
-            LoggerUtil.error(e);
-            LoggerUtil.getLogger().severe("fetchJarFiles Exception: " + e.getClass().getSimpleName() + " - " + e.getMessage());
-            String errorMessage = e.getMessage();
-            if (errorMessage == null || errorMessage.trim().isEmpty()) {
-                errorMessage = "Unexpected error while fetching JAR files: " + e.getClass().getSimpleName();
-            }
-            progressCallback.onError("Failed to fetch JAR file list: " + errorMessage);
-            throw new IOException("Failed to fetch JAR file list: " + errorMessage, e);
+            LoggerUtil.getLogger().severe("fetchJarFilesFromJnlp Exception for " + jnlpUrl + ": " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            throw new IOException("Unexpected error while fetching JAR files from " + jnlpUrl + ": " + e.getClass().getSimpleName(), e);
         } finally {
             // Ensure connection is properly closed
             if (connection != null) {
