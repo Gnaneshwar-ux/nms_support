@@ -327,10 +327,12 @@ public class PersistentSudoSession {
             StringBuilder response = new StringBuilder();
             readAvailableOutput(shellOutput, response, 100);
             
-            LoggerUtil.getLogger().info("Sudo response output: '" + response.toString() + "'");
+            // Clean the response before logging to avoid escape sequences in logs
+            String cleanResponse = cleanAnsiEscapeSequences(response.toString());
+            LoggerUtil.getLogger().info("Sudo response output: '" + cleanResponse + "'");
             
-            // Check if password prompt detected
-            if (isPasswordPrompt(response.toString())) {
+            // Check if password prompt detected (use cleaned response for detection)
+            if (isPasswordPrompt(cleanResponse)) {
                 LoggerUtil.getLogger().info("Password prompt detected, providing password...");
                 if (sudoPassword != null && !sudoPassword.trim().isEmpty()) {
                     shellInput.write((sudoPassword + "\n").getBytes(StandardCharsets.UTF_8));
@@ -516,7 +518,7 @@ public class PersistentSudoSession {
         LoggerUtil.getLogger().info("Exit code: " + exitCode);
         LoggerUtil.getLogger().info("Stdout length: " + cleanOutput.length());
         LoggerUtil.getLogger().info("Stderr length: " + cleanStderr.length());
-        LoggerUtil.getLogger().fine("Clean output: " + cleanOutput.substring(0, Math.min(200, cleanOutput.length())));
+        LoggerUtil.getLogger().fine("Clean output: " + cleanOutput.substring(0, Math.min(800, cleanOutput.length())));
         LoggerUtil.getLogger().info("=== END COMMAND EXECUTION ===");
         
         return new SSHCommandResult(cleanOutput, cleanStderr, exitCode);
@@ -627,6 +629,9 @@ public class PersistentSudoSession {
         // Remove carriage returns
         output = output.replace("\r", "");
         
+        // Remove ANSI escape sequences comprehensively
+        output = cleanAnsiEscapeSequences(output);
+        
         // Remove command echo
         output = output.replaceFirst(Pattern.quote(command), "");
         
@@ -648,13 +653,39 @@ public class PersistentSudoSession {
     }
     
     /**
+     * Comprehensive ANSI escape sequence cleaning.
+     * Handles all types of escape sequences including bracketed paste mode.
+     */
+    private String cleanAnsiEscapeSequences(String input) {
+        if (input == null || input.isEmpty()) {
+            return "";
+        }
+        
+        // Remove ANSI CSI sequences when ESC is present (safe to strip)
+        input = input.replaceAll("\u001B\\[[0-9;?]*[A-Za-z]", "");
+
+        // Explicitly remove bracketed paste toggles even if ESC was lost
+        input = input.replaceAll("\\[\\?2004[hl]", "");
+        input = input.replaceAll("\u001B\\[\\?2004[hl]", "");
+        
+        // Remove any remaining control characters
+        input = input.replaceAll("[\\u0000-\\u0008\\u000B-\\u000C\\u000E-\\u001F\\u007F-\\u009F]", "");
+        
+        return input;
+    }
+    
+    /**
      * Clean command string from invisible characters.
      */
     private String cleanCommand(String command) {
         if (command == null) {
             return "";
         }
-        return command.replaceAll("[\\u0000-\\u0008\\u000B-\\u000C\\u000E-\\u001F\\u007F-\\u009F]", "").trim();
+        // Strip ANSI/CSI and residual tokens first
+        String cleaned = cleanAnsiEscapeSequences(command);
+        // Then strip other control chars
+        cleaned = cleaned.replaceAll("[\\u0000-\\u0008\\u000B-\\u000C\\u000E-\\u001F\\u007F-\\u009F]", "");
+        return cleaned.trim();
     }
     
     /**

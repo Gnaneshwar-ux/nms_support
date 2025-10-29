@@ -822,7 +822,7 @@ public class SSHSessionManager {
         LoggerUtil.getLogger().info("=== COMMAND EXECUTION RESULT ===");
         LoggerUtil.getLogger().info("Exit code: " + exitCode);
         LoggerUtil.getLogger().info("Output length: " + cleanOutput.length());
-        LoggerUtil.getLogger().fine("Clean output: " + cleanOutput.substring(0, Math.min(200, cleanOutput.length())));
+        LoggerUtil.getLogger().fine("Clean output: " + cleanOutput.substring(0, Math.min(800, cleanOutput.length())));
         LoggerUtil.getLogger().info("=== END COMMAND EXECUTION ===");
         
         return new CommandResult(cleanOutput, exitCode);
@@ -919,6 +919,10 @@ public class SSHSessionManager {
         }
 
         output = output.replace("\r", "");
+        
+        // Remove ANSI escape sequences comprehensively
+        output = cleanAnsiEscapeSequences(output);
+        
         // Remove the command echo
         output = output.replaceFirst(Pattern.quote(command), "");
         
@@ -942,6 +946,28 @@ public class SSHSessionManager {
         output = output.replaceAll("\n{3,}", "\n\n");
         
         return output.trim();
+    }
+    
+    /**
+     * Comprehensive ANSI escape sequence cleaning.
+     * Handles all types of escape sequences including bracketed paste mode.
+     */
+    private String cleanAnsiEscapeSequences(String input) {
+        if (input == null || input.isEmpty()) {
+            return "";
+        }
+        
+        // Remove ANSI CSI sequences when ESC is present (safe to strip)
+        input = input.replaceAll("\u001B\\[[0-9;?]*[A-Za-z]", "");
+
+        // Explicitly remove bracketed paste toggles even if ESC was lost
+        input = input.replaceAll("\\[\\?2004[hl]", "");
+        input = input.replaceAll("\u001B\\[\\?2004[hl]", "");
+        
+        // Remove any remaining control characters
+        input = input.replaceAll("[\\u0000-\\u0008\\u000B-\\u000C\\u000E-\\u001F\\u007F-\\u009F]", "");
+        
+        return input;
     }
     
     /**
@@ -1038,7 +1064,11 @@ public class SSHSessionManager {
      */
     private String cleanString(String input) {
         if (input == null) return "";
-        return input.replaceAll("[\\u0000-\\u0008\\u000B-\\u000C\\u000E-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\uFEFF]", "").trim();
+        // First strip ANSI/CSI and residual bracketed-paste tokens
+        String cleaned = cleanAnsiEscapeSequences(input);
+        // Then strip other invisible/control characters
+        cleaned = cleaned.replaceAll("[\\u0000-\\u0008\\u000B-\\u000C\\u000E-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u206F\\uFEFF]", "");
+        return cleaned.trim();
     }
     
     /**
