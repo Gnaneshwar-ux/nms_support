@@ -14,6 +14,7 @@ import javafx.fxml.Initializable;
 import javafx.scene.control.*;
 import javafx.scene.layout.AnchorPane;
 import javafx.stage.Stage;
+import javafx.stage.DirectoryChooser;
 
 import java.awt.event.KeyEvent;
 import java.io.File;
@@ -57,6 +58,8 @@ public class BuildAutomation implements Initializable {
     public TextField projectLogComboBox;
     public AnchorPane buildRoot;
     public Button reloadUsersButton;
+    public TextField jdkPathField;
+    public Button jdkBrowseButton;
 
     private MainController mainController;
     private ControlApp controlApp;
@@ -87,6 +90,9 @@ public class BuildAutomation implements Initializable {
         openBuildLogButton.setOnAction(event -> openBuildLog());
         restartButton.setOnAction(event -> restart());
         reloadUsersButton.setOnAction(event -> initializeUserTypes());
+        if (jdkBrowseButton != null) {
+            jdkBrowseButton.setOnAction(event -> browseJdk());
+        }
 
         buildMode.getItems().addAll("Ant config", "Ant clean config");
         buildMode.getSelectionModel().select(0);
@@ -195,6 +201,9 @@ public class BuildAutomation implements Initializable {
             controls.add(autoLoginCheckBox);
             controls.add(manageToolCheckBox);
             controls.add(projectLogComboBox);
+            if (jdkPathField != null) {
+                controls.add(jdkPathField);
+            }
             // Note: buildMode is not tracked as it's not a persistent setting
             // Note: appName is not tracked as it's a runtime selection, not a saved setting
             
@@ -448,6 +457,9 @@ public class BuildAutomation implements Initializable {
                 }
                 
                 projectLogComboBox.setText(project.getLogId() != null ? project.getLogId() : "");
+                if (jdkPathField != null) {
+                    jdkPathField.setText(project.getJdkHome() != null ? project.getJdkHome() : "");
+                }
                 
                 // Only populate usertype if it's empty or needs initialization
                 if (userTypeComboBox.getItems().isEmpty()) {
@@ -474,6 +486,7 @@ public class BuildAutomation implements Initializable {
         userTypeComboBox.setValue(null);
         appName.getItems().clear();
         appName.setValue(null);
+        if (jdkPathField != null) jdkPathField.clear();
     }
 
     private void restart() {
@@ -707,6 +720,18 @@ public class BuildAutomation implements Initializable {
         appendTextToLog("Project: " + project.getName() + " | App: " + app);
         
         try {
+            // Validate custom JDK if provided
+            if (jdkPathField != null) {
+                String raw = jdkPathField.getText() != null ? jdkPathField.getText().trim() : "";
+                if (!raw.isEmpty()) {
+                    String jdkHome = JavaEnvUtil.normalizeJdkHome(raw).orElse(raw);
+                    if (!JavaEnvUtil.validateJdk(jdkHome)) {
+                        appendTextToLog("ERROR: Invalid JDK path provided. Expecting a folder containing bin/java.exe");
+                        DialogUtil.showWarning("Invalid JDK", "Invalid JDK path. Please select a valid JDK home (contains bin/java.exe) or clear the field to use system Java.");
+                        return;
+                    }
+                }
+            }
             // appendTextToLog("Step 1: Validating configuration...");
             // Validation.ValidationResult validationResult = Validation.validateDetailed(project, app);
             // if (validationResult.isValid()) {
@@ -816,6 +841,18 @@ public class BuildAutomation implements Initializable {
         }
         
         try {
+            // Validate custom JDK if provided
+            if (jdkPathField != null) {
+                String raw = jdkPathField.getText() != null ? jdkPathField.getText().trim() : "";
+                if (!raw.isEmpty()) {
+                    String jdkHome = JavaEnvUtil.normalizeJdkHome(raw).orElse(raw);
+                    if (!JavaEnvUtil.validateJdk(jdkHome)) {
+                        appendTextToLog("ERROR: Invalid JDK path provided. Expecting a folder containing bin/java.exe");
+                        DialogUtil.showWarning("Invalid JDK", "Invalid JDK path. Please select a valid JDK home (contains bin/java.exe) or clear the field to use system Java.");
+                        return;
+                    }
+                }
+            }
             clearLog();
             appendTextToLog("=== BUILD PROCESS STARTED ===");
             appendTextToLog("Project: " + project.getName() + " | App: " + app + " | Mode: " + buildMode.getValue());
@@ -924,6 +961,11 @@ public class BuildAutomation implements Initializable {
         project.setLogId(projectCode);
         project.setUsername(usernameField.getText());
         project.setPassword(passwordField.getText());
+        if (jdkPathField != null) {
+            String raw = jdkPathField.getText() != null ? jdkPathField.getText().trim() : "";
+            Optional<String> norm = JavaEnvUtil.normalizeJdkHome(raw);
+            project.setJdkHome(norm.orElse(raw));
+        }
         if (userTypeComboBox.getValue() != null) {
             project.setPrevTypeSelected(getSelectedAppName(), userTypeComboBox.getValue());
         }
@@ -948,6 +990,62 @@ public class BuildAutomation implements Initializable {
             }
         } else {
             appendTextToLog("Skipping credentials update - no application selected");
+        }
+    }
+
+    private void browseJdk() {
+        try {
+            DirectoryChooser chooser = new DirectoryChooser();
+            chooser.setTitle("Select JDK Home (contains bin/java.exe)");
+            // Choose a sensible default directory
+            File initial = null;
+            try {
+                // 1) Current value if valid directory
+                if (jdkPathField != null && jdkPathField.getText() != null) {
+                    File current = new File(jdkPathField.getText().trim());
+                    if (current.exists() && current.isDirectory()) initial = current;
+                    // If user typed bin/java.exe or bin, go up to JDK home
+                    else if (current.isFile() && current.getName().equalsIgnoreCase("java.exe") && current.getParentFile() != null && current.getParentFile().getParentFile() != null) {
+                        initial = current.getParentFile().getParentFile();
+                    } else if (current.isDirectory() && current.getName().equalsIgnoreCase("bin") && current.getParentFile() != null) {
+                        initial = current.getParentFile();
+                    }
+                }
+                // 2) Common install locations
+                if (initial == null) {
+                    String[] candidates = new String[] {
+                            System.getenv("ProgramFiles") + File.separator + "Java",
+                            System.getenv("ProgramFiles(x86)") + File.separator + "Java",
+                            System.getenv("ProgramFiles") + File.separator + "Eclipse Adoptium",
+                            System.getProperty("user.home") + File.separator + ".jdks",
+                            System.getProperty("user.home") + File.separator + "scoop" + File.separator + "apps" + File.separator + "jdk"
+                    };
+                    for (String c : candidates) {
+                        if (c != null) {
+                            File f = new File(c);
+                            if (f.exists() && f.isDirectory()) { initial = f; break; }
+                        }
+                    }
+                }
+            } catch (Exception ignore) { }
+            if (initial != null) {
+                try { chooser.setInitialDirectory(initial); } catch (Exception ignore) { }
+            }
+            File selected = chooser.showDialog(buildRoot != null ? buildRoot.getScene().getWindow() : null);
+            if (selected == null) return;
+            String chosen = selected.getAbsolutePath();
+            Optional<String> norm = JavaEnvUtil.normalizeJdkHome(chosen);
+            String jdkHome = norm.orElse(chosen);
+            if (JavaEnvUtil.validateJdk(jdkHome)) {
+                jdkPathField.setText(jdkHome);
+                Optional<String> ver = JavaEnvUtil.detectVersion(jdkHome);
+                ver.ifPresent(v -> appendTextToLog("JDK selected: " + jdkHome + "\n" + v));
+            } else {
+                DialogUtil.showWarning("Invalid JDK", "Selected path is not a valid JDK. Expecting a folder containing bin/java.exe");
+            }
+        } catch (Exception e) {
+            LoggerUtil.error(e);
+            appendTextToLog("ERROR: Failed to browse JDK - " + e.getMessage());
         }
     }
 

@@ -20,8 +20,14 @@ public class SVNAuthenticationDialog {
     private String username;
     private String password;
     private boolean cancelled = false;
+    private final String initialUsername;
+    private final String errorText;
     
     public SVNAuthenticationDialog(Window parent, String realm, String url) {
+        this(parent, realm, url, null, null);
+    }
+
+    public SVNAuthenticationDialog(Window parent, String realm, String url, String initialUsername, String errorText) {
         dialog = new Stage();
         dialog.initOwner(parent);
         dialog.initModality(Modality.APPLICATION_MODAL);
@@ -29,6 +35,8 @@ public class SVNAuthenticationDialog {
         dialog.setResizable(false);
         dialog.setMinWidth(400);
         dialog.setMinHeight(300);
+        this.initialUsername = initialUsername;
+        this.errorText = errorText;
         
         // Set the standard dialog icon
         IconUtils.setStageIcon(dialog);
@@ -79,6 +87,13 @@ public class SVNAuthenticationDialog {
         VBox formSection = new VBox(15);
         formSection.setAlignment(Pos.CENTER);
         
+        // Error message (optional)
+        if (errorText != null && !errorText.isEmpty()) {
+            Label errorLabel = new Label(errorText);
+            errorLabel.setStyle("-fx-text-fill: #b91c1c; -fx-font-size: 12px;");
+            formSection.getChildren().add(errorLabel);
+        }
+        
         // Username field
         VBox usernameContainer = new VBox(5);
         Label usernameLabel = new Label("Username");
@@ -88,6 +103,9 @@ public class SVNAuthenticationDialog {
         usernameField.setPromptText("Enter your username");
         usernameField.setStyle("-fx-background-color: white; -fx-border-color: #d1d5db; -fx-border-radius: 4; -fx-padding: 8 12; -fx-font-size: 13px;");
         usernameField.setPrefWidth(300);
+        if (initialUsername != null && !initialUsername.isEmpty()) {
+            usernameField.setText(initialUsername);
+        }
         
         usernameContainer.getChildren().addAll(usernameLabel, usernameField);
         

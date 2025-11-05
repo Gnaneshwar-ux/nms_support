@@ -22,7 +22,7 @@ public class SplashScreenController implements Initializable {
     @FXML
     private Label statusLabel;
     
-    private Timeline pulseTimeline;
+    // No animations; keep simple
     
     @Override
     public void initialize(URL url, ResourceBundle resourceBundle) {
@@ -31,28 +31,20 @@ public class SplashScreenController implements Initializable {
     }
     
     private void setupInitialState() {
-        // Minimal setup: only title with initial opacity for breathing
-        titleLabel.setOpacity(0.8);
-        statusLabel.setOpacity(0);
+        // Show labels plainly
+        if (titleLabel.getText() == null || titleLabel.getText().isEmpty()) {
+            titleLabel.setText("NMS Development Tools");
+        }
+        statusLabel.setOpacity(1.0);
     }
     
     private void startAnimations() {
-        // Create breathing fade for title (black text) - faster breathing
-        FadeTransition titlePulse = new FadeTransition(Duration.millis(1000), titleLabel);
-        titlePulse.setFromValue(1.0);
-        titlePulse.setToValue(0.6);
-        titlePulse.setAutoReverse(true);
-        titlePulse.setCycleCount(Animation.INDEFINITE);
-        
-        // Fade in status label
-        FadeTransition statusFadeIn = new FadeTransition(Duration.millis(800), statusLabel);
-        statusFadeIn.setFromValue(0);
-        statusFadeIn.setToValue(1.0);
-        
-        // Start animations
+        // Intentionally left blank (no animations)
         Platform.runLater(() -> {
-            titlePulse.play();
-            statusFadeIn.play();
+            // Ensure status shows a base message if empty
+            if (statusLabel.getText() == null || statusLabel.getText().isEmpty()) {
+                statusLabel.setText("Loading...");
+            }
         });
     }
     
@@ -72,10 +64,7 @@ public class SplashScreenController implements Initializable {
             return;
         }
         
-        // Stop pulse animations
-        if (pulseTimeline != null) {
-            pulseTimeline.stop();
-        }
+        // No timelines to stop
         
         try {
             // Create fade-out animation for all elements (smooth 600-800ms)

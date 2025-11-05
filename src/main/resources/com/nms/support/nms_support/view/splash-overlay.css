@@ -4,8 +4,10 @@
 }
 
 .splash-title {
-    -fx-text-fill: #000000;
+    /* Subtle wave-like gradient fill and soft white highlight */
+    -fx-text-fill: linear-gradient(to right, #222222 0%, #000000 25%, #222222 50%, #000000 75%, #222222 100%);
     -fx-font-weight: 600;
+    -fx-effect: dropshadow(gaussian, rgba(255,255,255,0.35), 6, 0.4, 0, 0);
 }
 
 .splash-status {

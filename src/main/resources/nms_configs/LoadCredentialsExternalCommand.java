@@ -72,6 +72,7 @@ public class LoadCredentialsExternalCommand extends JBotCommand{
 		}
 		catch (Exception e) {
 			System.out.println("Exception raised in LoadCredentials command");
+			e.printStackTrace();
 		}
 	}
 }

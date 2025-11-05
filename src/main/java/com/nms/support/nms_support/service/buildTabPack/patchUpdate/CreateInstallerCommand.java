@@ -211,6 +211,7 @@ public class CreateInstallerCommand {
 			}
 		}
 		String failed_setups="";
+		int success_count = 0;
 		int totalProducts = products.length;
 		int processedProducts = 0;
 		
@@ -228,23 +229,28 @@ public class CreateInstallerCommand {
 			String iUrl = serverURL + jnlpName + ".jnlp";
 			String saveClasspath = null;
 
-			InputStream is = null;
-			// Try to load .jnlp file first
 			try {
-				is = getInputStreamFromURL(iUrl);
-			} catch (Exception e) {
-				// If .jnlp fails, try .jnlpx as fallback
+				InputStream is = null;
+				// Try to load .jnlp file first
 				try {
-					String iUrlFallback = serverURL + jnlpName + ".jnlpx";
-					is = getInputStreamFromURL(iUrlFallback);
-					System.out.println("Failed to load .jnlp file, using .jnlpx fallback: " + iUrlFallback);
-				} catch (Exception fallbackException) {
-					// Both failed, rethrow the original exception
-					throw new IOException("Failed to load both .jnlp and .jnlpx files for " + jnlpName, e);
+					is = getInputStreamFromURL(iUrl);
+				} catch (Exception e) {
+					// If .jnlp fails, try .jnlpx as fallback
+					try {
+						String iUrlFallback = serverURL + jnlpName + ".jnlpx";
+						is = getInputStreamFromURL(iUrlFallback);
+						LoggerUtil.getLogger().severe("Failed to load .jnlp file, using .jnlpx fallback: " + iUrlFallback);
+					} catch (Exception fallbackException) {
+						// Both failed, handle per-product failure and continue
+						failed_setups += product + ", ";
+						LoggerUtil.getLogger().severe("Failed to load both .jnlp and .jnlpx files for " + jnlpName);
+						LoggerUtil.error(e);
+						progressCallback.onProgress(progress, "Failed to process " + product + ": cannot load JNLP/JNLPX");
+						continue;
+					}
 				}
-			}
 
-			try (InputStream inputStream = is) {
+				try (InputStream inputStream = is) {
 				str.append(TEMPLATE.replace("%long%", name).replace("%short%", jnlpName));
 				Document document = docBuilder.parse(inputStream);
 
@@ -373,12 +379,18 @@ public class CreateInstallerCommand {
 					trans.transform(source, result);
 				}
 				runLaunch4j(launchXML);
-				//launchXML.delete();
+				// Count success if outfile exists
+				File expectedExe = new File(dir, jnlpName + ".exe");
+				if (expectedExe.exists()) {
+					success_count++;
+				}
+				launchXML.delete();
+			}
 			} catch (Exception e) {
-				//progressCallback.onError("Not able to setup " + product + ": " + e.getMessage());
-				failed_setups += product +", ";
-				e.printStackTrace();
+				failed_setups += product + ", ";
 				LoggerUtil.error(e);
+				progressCallback.onProgress(progress, "Failed to process " + product + ": " + e.getMessage());
+				continue;
 			}
 		}
 		String config = readFileAsString(dir_temp + "/nms.nsi");
@@ -407,7 +419,14 @@ public class CreateInstallerCommand {
 		//progressCallback.onProgress(85, "Running NSIS installer creation...");
 		//runNSIS(dir);
 
-		progressCallback.onComplete("Installer creation completed successfully."+"\n failed products: "+failed_setups);
+		if (success_count == 0) {
+			progressCallback.onError("Installer creation failed: no executables were created.");
+			return false;
+		}
+		if (failed_setups != null && !failed_setups.trim().isEmpty()) {
+			progressCallback.onProgress(100, "Some products failed: " + failed_setups);
+		}
+		progressCallback.onComplete("Installer creation completed. EXEs created: " + success_count + ".");
 		return true;
 	}
 

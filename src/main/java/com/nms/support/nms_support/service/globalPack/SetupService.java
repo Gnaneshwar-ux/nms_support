@@ -522,6 +522,28 @@ public class SetupService {
                     return;
                 }
                 if (!processMonitor.isRunning()) return;
+                    // Update build files with environment variable using automated logic
+                processMonitor.addStep("build_file_updates", "Updating build files with environment variable");
+                try {
+                    String env_name = project.getNmsEnvVar();
+                    String exePath = project.getExePath();
+
+                    // Use automated replacement logic
+                    boolean replacementSuccess = performAutomatedBuildFileReplacement(exePath, env_name, processMonitor);
+
+                    if (replacementSuccess) {
+                        processMonitor.markComplete("build_file_updates", "Build files updated successfully with environment variable: " + env_name);
+                    } else {
+                        processMonitor.markFailed("build_file_updates", "Automated build file replacement failed - manual replacement required");
+                        // Show warning dialog about manual replacement needed
+                        showManualReplacementWarning(env_name);
+                    }
+                } catch (Exception e) {
+                    logger.severe("Failed to update build files: " + e.getMessage());
+                    processMonitor.markFailed("build_file_updates", "Failed to update build files: " + e.getMessage());
+                    return;
+                }
+                if (!processMonitor.isRunning()) return;
                 }
                     break;
                     
@@ -688,6 +710,15 @@ public class SetupService {
                 }
                 
                 mc.performGlobalSave();
+                
+                // Refresh UI to display auto-detected project code immediately
+                Platform.runLater(() -> {
+                    if (mc != null && mc.getBuildAutomation() != null) {
+                        mc.getBuildAutomation().loadProjectDetails();
+                        logger.info("✓ Build Automation UI refreshed to display auto-detected project code");
+                    }
+                });
+                
                 processMonitor.markProcessCompleted("Setup completed successfully");
             }
             

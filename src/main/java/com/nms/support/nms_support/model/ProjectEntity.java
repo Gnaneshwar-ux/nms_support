@@ -31,6 +31,7 @@ public class ProjectEntity {
     private String nmsEnvVar;
     private String svnRepo;
     private String selectedApplication; // Store the previously selected application
+    private String jdkHome; // Optional per-project JDK home override
 
     // Oracle DB details
     private String dbHost;
@@ -335,6 +336,9 @@ public class ProjectEntity {
     public void setSelectedApplication(String selectedApplication) {
         this.selectedApplication = selectedApplication;
     }
+
+    public String getJdkHome() { return jdkHome; }
+    public void setJdkHome(String jdkHome) { this.jdkHome = jdkHome; }
 
     // ===== Oracle DB getters/setters =====
     public String getDbHost() { return dbHost; }

@@ -492,6 +492,63 @@ public class RestartToolsCommand extends JBotCommand {
                                 ProcessBuilder processBuilder = new ProcessBuilder("cmd.exe", "/c", "cd /d " + jconfigPath + " && " + "ant init create_config");
                                 processBuilder.redirectErrorStream(true);
 
+                                // Log diagnostics before running Ant
+                                try {
+                                    buildOutput.append("=== JAVA DIAGNOSTICS (RestartTools before Ant) ===\n");
+                                    Map<String,String> env = processBuilder.environment();
+                                    String javaHome = env.getOrDefault("JAVA_HOME", "");
+                                    String antHome = env.getOrDefault("ANT_HOME", "");
+                                    String pathVar = env.getOrDefault("Path", env.getOrDefault("PATH", ""));
+                                    buildOutput.append("JAVA_HOME=" + javaHome + "\n");
+                                    buildOutput.append("ANT_HOME=" + antHome + "\n");
+                                    buildOutput.append("Path=" + pathVar + "\n");
+
+                                    // Console prints (requested): which javac/java and versions, and JRE presence
+                                    System.out.println("[RestartTools] JAVA_HOME=" + javaHome);
+                                    System.out.println("[RestartTools] ANT_HOME=" + antHome);
+                                    java.io.File jreBin = new java.io.File(javaHome, "jre" + java.io.File.separator + "bin");
+                                    System.out.println("[RestartTools] JRE bin exists=" + (jreBin.exists() ? jreBin.getAbsolutePath() : "<none>"));
+
+                                    ProcessBuilder wherePB = new ProcessBuilder("cmd.exe", "/c", "where ant && where java && where javac");
+                                    wherePB.directory(new java.io.File(jconfigPath));
+                                    wherePB.environment().putAll(env);
+                                    Process pw = wherePB.start();
+                                    try (BufferedReader r = new BufferedReader(new InputStreamReader(pw.getInputStream()))) {
+                                        String line; 
+                                        while ((line = r.readLine()) != null) {
+                                            buildOutput.append(line).append("\n");
+                                            System.out.println("[RestartTools] where: " + line);
+                                        }
+                                    }
+                                    pw.waitFor();
+
+                                    ProcessBuilder javaVer = new ProcessBuilder("cmd.exe", "/c", "java -version");
+                                    javaVer.redirectErrorStream(true);
+                                    javaVer.environment().putAll(env);
+                                    Process pj = javaVer.start();
+                                    try (BufferedReader r = new BufferedReader(new InputStreamReader(pj.getInputStream()))) {
+                                        String line; while ((line = r.readLine()) != null) { 
+                                            buildOutput.append(line).append("\n");
+                                            System.out.println("[RestartTools] java -version: " + line);
+                                        }
+                                    }
+                                    pj.waitFor();
+
+                                    ProcessBuilder javacVer = new ProcessBuilder("cmd.exe", "/c", "javac -version");
+                                    javacVer.environment().putAll(env);
+                                    Process pc = javacVer.start();
+                                    try (BufferedReader r = new BufferedReader(new InputStreamReader(pc.getInputStream()))) {
+                                        String line; while ((line = r.readLine()) != null) {
+                                            buildOutput.append(line).append("\n");
+                                            System.out.println("[RestartTools] javac -version: " + line);
+                                        }
+                                    }
+                                    pc.waitFor();
+                                    buildOutput.append("=== END JAVA DIAGNOSTICS ===\n");
+                                } catch (Exception diagEx) {
+                                    buildOutput.append("WARNING: Diagnostics failed: ").append(diagEx.getMessage()).append("\n");
+                                }
+
                                 Process process = processBuilder.start();
                                 BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
                                 String line;
@@ -521,7 +578,14 @@ public class RestartToolsCommand extends JBotCommand {
             openLogButton.addActionListener(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    openApplicationLog();
+                    openLogButton.setEnabled(false);
+                    new Thread(() -> {
+                        try {
+                            openApplicationLog();
+                        } finally {
+                            SwingUtilities.invokeLater(() -> openLogButton.setEnabled(true));
+                        }
+                    }, "open-log-thread").start();
                 }
             });
 
@@ -1534,47 +1598,45 @@ public class RestartToolsCommand extends JBotCommand {
      */
     private void openApplicationLog() {
         try {
-            // Use the NMS framework's method to get the current log file
             File logFile = com.splwg.oms.fcp.JWSLauncher.getLogFile();
-            
             if (logFile == null || !logFile.exists()) {
-                JOptionPane.showMessageDialog(null, 
-                    "Could not find application log file.\nExpected location:\n" + 
-                    (logFile != null ? logFile.getAbsolutePath() : "Unknown"), 
-                    "Log File Not Found", 
-                    JOptionPane.WARNING_MESSAGE);
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
+                        "Could not find application log file.\nExpected location:\n" +
+                                (logFile != null ? logFile.getAbsolutePath() : "Unknown"),
+                        "Log File Not Found",
+                        JOptionPane.WARNING_MESSAGE));
                 return;
             }
-            
+
             System.out.println("Opening log file: " + logFile.getAbsolutePath());
-            
-            // Try to find and use an editor
             String editor = findAvailableEditor();
-            
-            if (editor != null) {
-                ProcessBuilder pb = new ProcessBuilder(editor, logFile.getAbsolutePath());
-                pb.start();
-                System.out.println("Opened log file with: " + editor);
-            } else {
-                // Fallback to default system editor
-                if (Desktop.isDesktopSupported()) {
+
+            try {
+                if (editor != null) {
+                    new ProcessBuilder(editor, logFile.getAbsolutePath()).start();
+                    System.out.println("Opened log file with: " + editor);
+                } else if (Desktop.isDesktopSupported()) {
                     Desktop.getDesktop().open(logFile);
                     System.out.println("Opened log file with default editor");
                 } else {
-                    JOptionPane.showMessageDialog(null, 
-                        "Could not find any text editor.\nLog file location:\n" + logFile.getAbsolutePath(), 
-                        "No Editor Found", 
-                        JOptionPane.INFORMATION_MESSAGE);
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
+                            "Could not find any text editor.\nLog file location:\n" + logFile.getAbsolutePath(),
+                            "No Editor Found",
+                            JOptionPane.INFORMATION_MESSAGE));
                 }
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
+                        "Error opening log file: " + ex.getMessage(),
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE));
             }
-            
         } catch (Exception e) {
             System.out.println("Error opening log file: " + e.getMessage());
             e.printStackTrace();
-            JOptionPane.showMessageDialog(null, 
-                "Error opening log file: " + e.getMessage(), 
-                "Error", 
-                JOptionPane.ERROR_MESSAGE);
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
+                    "Error opening log file: " + e.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE));
         }
     }
     

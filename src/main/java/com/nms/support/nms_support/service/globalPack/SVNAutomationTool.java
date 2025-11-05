@@ -35,35 +35,42 @@ public class SVNAutomationTool {
             public SVNAuthentication requestClientAuthentication(String kind, SVNURL url, String realm,
                                                                  SVNErrorMessage errorMessage, SVNAuthentication previousAuth,
                                                                  boolean authMayBeStored) {
-                // Use JavaFX authentication dialog
+                // Use JavaFX authentication dialog with proper blocking and retry support
                 final String[] credentials = new String[2];
-                final boolean[] dialogResult = new boolean[1];
-                
+                final boolean[] submitted = new boolean[1];
+                final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+
+                String previousUsername = null;
+                if (previousAuth instanceof SVNPasswordAuthentication) {
+                    previousUsername = ((SVNPasswordAuthentication) previousAuth).getUserName();
+                }
+                final String initialUser = previousUsername;
+                final String errorText = (errorMessage != null) ? "Authentication failed. Please try again." : null;
+
                 Platform.runLater(() -> {
                     try {
-                        SVNAuthenticationDialog authDialog = new SVNAuthenticationDialog(null, realm, url.toString());
-                        dialogResult[0] = authDialog.showAndWait();
-                        if (dialogResult[0]) {
+                        SVNAuthenticationDialog authDialog = new SVNAuthenticationDialog(null, realm, url.toString(), initialUser, errorText);
+                        submitted[0] = authDialog.showAndWait();
+                        if (submitted[0]) {
                             credentials[0] = authDialog.getUsername();
                             credentials[1] = authDialog.getPassword();
                         }
                     } catch (Exception e) {
                         LoggerUtil.error(e);
-                        dialogResult[0] = false;
+                        submitted[0] = false;
+                    } finally {
+                        latch.countDown();
                     }
                 });
-                
-                // Wait for dialog result (with timeout)
-                long startTime = System.currentTimeMillis();
-                while (!dialogResult[0] && (System.currentTimeMillis() - startTime) < 30000) {
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException e) {
-                        break;
-                    }
+
+                try {
+                    latch.await();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return null;
                 }
-                
-                if (dialogResult[0] && credentials[0] != null && credentials[1] != null) {
+
+                if (submitted[0] && credentials[0] != null && credentials[1] != null) {
                     return SVNPasswordAuthentication.newInstance(
                             credentials[0], credentials[1].toCharArray(),
                             authMayBeStored, url, false);
@@ -102,35 +109,42 @@ public class SVNAutomationTool {
                 public SVNAuthentication requestClientAuthentication(String kind, SVNURL url, String realm,
                                                                      SVNErrorMessage errorMessage, SVNAuthentication previousAuth,
                                                                      boolean authMayBeStored) {
-                    // Use JavaFX authentication dialog
+                    // Use JavaFX authentication dialog with proper blocking and retry support
                     final String[] credentials = new String[2];
-                    final boolean[] dialogResult = new boolean[1];
-                    
+                    final boolean[] submitted = new boolean[1];
+                    final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+
+                    String previousUsername = null;
+                    if (previousAuth instanceof SVNPasswordAuthentication) {
+                        previousUsername = ((SVNPasswordAuthentication) previousAuth).getUserName();
+                    }
+                    final String initialUser = previousUsername;
+                    final String errorText = (errorMessage != null) ? "Authentication failed. Please try again." : null;
+
                     Platform.runLater(() -> {
                         try {
-                            SVNAuthenticationDialog authDialog = new SVNAuthenticationDialog(null, realm, url.toString());
-                            dialogResult[0] = authDialog.showAndWait();
-                            if (dialogResult[0]) {
+                            SVNAuthenticationDialog authDialog = new SVNAuthenticationDialog(null, realm, url.toString(), initialUser, errorText);
+                            submitted[0] = authDialog.showAndWait();
+                            if (submitted[0]) {
                                 credentials[0] = authDialog.getUsername();
                                 credentials[1] = authDialog.getPassword();
                             }
                         } catch (Exception e) {
                             LoggerUtil.error(e);
-                            dialogResult[0] = false;
+                            submitted[0] = false;
+                        } finally {
+                            latch.countDown();
                         }
                     });
-                    
-                    // Wait for dialog result (with timeout)
-                    long startTime = System.currentTimeMillis();
-                    while (!dialogResult[0] && (System.currentTimeMillis() - startTime) < 30000) {
-                        try {
-                            Thread.sleep(100);
-                        } catch (InterruptedException e) {
-                            break;
-                        }
+
+                    try {
+                        latch.await();
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return null;
                     }
-                    
-                    if (dialogResult[0] && credentials[0] != null && credentials[1] != null) {
+
+                    if (submitted[0] && credentials[0] != null && credentials[1] != null) {
                         return SVNPasswordAuthentication.newInstance(
                                 credentials[0], credentials[1].toCharArray(),
                                 authMayBeStored, url, false);

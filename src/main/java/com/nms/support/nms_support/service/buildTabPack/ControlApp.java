@@ -15,6 +15,7 @@ import java.util.Set;
 
 import com.nms.support.nms_support.service.globalPack.DialogUtil;
 import com.nms.support.nms_support.service.globalPack.ManageFile;
+import com.nms.support.nms_support.service.globalPack.JavaEnvUtil;
 import javafx.concurrent.Task;
 import javafx.scene.control.Alert;
 
@@ -270,17 +271,79 @@ public class ControlApp {
                     
                     ProcessBuilder builder = new ProcessBuilder("cmd.exe", "/c", type + " && exit 0 || exit 1");
                     builder.directory(workingDir);
+                    builder.redirectErrorStream(true); // Merge stderr into stdout so we capture all output including errors
                     Map<String, String> env = builder.environment();
-                    
-                    if(project.getNmsEnvVar() != null) {
-                        env.put(project.getNmsEnvVar(), project.getExePath());
-                        logger.info("Environment variable configured: " + project.getNmsEnvVar() + " = " + project.getExePath());
-                        buildAutomation.appendTextToLog("  → Environment variable configured: " + project.getNmsEnvVar() + " = " + project.getExePath());
-                    } else {
-                        logger.warning("WARNING: NMS environment variable not configured for project: " + project.getName());
-                        buildAutomation.appendTextToLog("  → WARNING: NMS environment variable not configured");
-                        buildAutomation.appendTextToLog("  → This may cause build issues if the build process requires this variable");
-                        buildAutomation.appendTextToLog("  → Resolution: Configure NMS environment variable in Project Configuration tab and perform restart");
+                    // Apply per-project Java override if provided (log to build file only)
+                    JavaEnvUtil.applyJavaOverride(env, project.getJdkHome(), msg -> addToBuildLog(project, msg, false));
+
+                    // Force Ant/Javac to use our Java explicitly
+                    if (project.getJdkHome() != null && !project.getJdkHome().isBlank()) {
+                        File javaExe = new File(project.getJdkHome(), "bin" + File.separator + "java.exe");
+                        env.put("JAVACMD", javaExe.getAbsolutePath());
+                    }
+
+                    // Prefer project-local Ant if present: <exePath>\java\ant
+                    try {
+                        if (project.getExePath() != null && !project.getExePath().isBlank()) {
+                            File antHome = new File(project.getExePath(), "java" + File.separator + "ant");
+                            File antBin = new File(antHome, "bin");
+                            if (antBin.exists()) {
+                                env.put("ANT_HOME", antHome.getAbsolutePath());
+                                String existingPath = env.getOrDefault("Path", "");
+                                String newPath = antBin.getAbsolutePath() + File.pathSeparator + existingPath;
+                                env.put("Path", newPath);
+                            }
+                        }
+                    } catch (Exception ignore) { }
+
+                    // Diagnostics
+                    try {
+                        addToBuildLog(project, "=== JAVA DIAGNOSTICS (before Ant) ===", false);
+                        addToBuildLog(project, "JAVA_HOME=" + env.getOrDefault("JAVA_HOME", ""), false);
+                        addToBuildLog(project, "ANT_HOME=" + env.getOrDefault("ANT_HOME", ""), false);
+                        addToBuildLog(project, "JAVACMD=" + env.getOrDefault("JAVACMD", ""), false);
+                        addToBuildLog(project, "Path=" + env.getOrDefault("Path", ""), false);
+
+                        ProcessBuilder diagWhere = new ProcessBuilder("cmd.exe", "/c", "where ant && where java && where javac");
+                        diagWhere.directory(workingDir);
+                        diagWhere.environment().putAll(env);
+                        Process pw = diagWhere.start();
+                        try (BufferedReader r = new BufferedReader(new InputStreamReader(pw.getInputStream()))) {
+                            String line; while ((line = r.readLine()) != null) addToBuildLog(project, line, false);
+                        }
+                        pw.waitFor();
+
+                        ProcessBuilder diagAnt = new ProcessBuilder("cmd.exe", "/c", "ant -diagnostics");
+                        diagAnt.directory(workingDir);
+                        diagAnt.environment().putAll(env);
+                        diagAnt.redirectErrorStream(true);
+                        Process pa = diagAnt.start();
+                        try (BufferedReader r = new BufferedReader(new InputStreamReader(pa.getInputStream()))) {
+                            String line; int c=0; while ((line = r.readLine()) != null && c < 80) { addToBuildLog(project, line, false); c++; }
+                        }
+                        pa.waitFor();
+
+                        ProcessBuilder diagJava = new ProcessBuilder("cmd.exe", "/c", "java -version");
+                        diagJava.directory(workingDir);
+                        diagJava.environment().putAll(env);
+                        diagJava.redirectErrorStream(true);
+                        Process pj = diagJava.start();
+                        try (BufferedReader r = new BufferedReader(new InputStreamReader(pj.getInputStream()))) {
+                            String line; while ((line = r.readLine()) != null) addToBuildLog(project, line, false);
+                        }
+                        pj.waitFor();
+
+                        ProcessBuilder diagJavac = new ProcessBuilder("cmd.exe", "/c", "javac -version");
+                        diagJavac.directory(workingDir);
+                        diagJavac.environment().putAll(env);
+                        Process pc = diagJavac.start();
+                        try (BufferedReader r = new BufferedReader(new InputStreamReader(pc.getInputStream()))) {
+                            String line; while ((line = r.readLine()) != null) addToBuildLog(project, line, false);
+                        }
+                        pc.waitFor();
+                        addToBuildLog(project, "=== END JAVA DIAGNOSTICS ===", false);
+                    } catch (Exception diagEx) {
+                        addToBuildLog(project, "WARNING: Diagnostics failed: " + diagEx.getMessage(), false);
                     }
                     
                     logger.info("Step 2: Starting build process for project: " + project.getName());
@@ -321,6 +384,30 @@ public class ControlApp {
                     }
 
                     int exitCode = process.waitFor();
+                    
+                    // After process completes, make one final attempt to read any remaining buffered output
+                    // This ensures we capture output that might be written right before process termination
+                    // and not yet flushed when readLine() returned null
+                    try {
+                        // Try to read any remaining characters that might be buffered
+                        char[] buffer = new char[1024];
+                        int charsRead;
+                        while ((charsRead = stdInput.read(buffer)) > 0) {
+                            String remaining = new String(buffer, 0, charsRead);
+                            String[] remainingLines = remaining.split("\r?\n");
+                            for (String line : remainingLines) {
+                                if (!line.trim().isEmpty()) {
+                                    updateMessage(line);
+                                    addToBuildLog(project, line, false);
+                                    buildOutput.append(line).append("\n");
+                                    lineCount++;
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        // Ignore errors when trying to read final output - stream may already be closed
+                        logger.fine("No additional output available after process completion: " + e.getMessage());
+                    }
                     logger.info("Build process completed for project: " + project.getName() + " with exit code: " + exitCode + ", total lines: " + lineCount);
                     
                     // Add build completion summary to build log file
@@ -522,87 +609,80 @@ public class ControlApp {
     public void start(String app, ProjectEntity project) throws IOException, InterruptedException {
         String path = "";
         
-        buildAutomation.appendTextToLog("APPLICATION START DETAILS:");
-        buildAutomation.appendTextToLog("• Application: " + app);
-        buildAutomation.appendTextToLog("• Project: " + project.getName());
-        buildAutomation.appendTextToLog("• Executable Path: " + (project.getExePath() != null ? project.getExePath() : "NOT SET"));
+        buildAutomation.appendTextToLog("Starting application: " + app + " (project: " + project.getName() + ")");
         
         if (project.getExePath() == null || project.getExePath().equals("")) {
-            buildAutomation.appendTextToLog("ERROR: Executable path configuration missing");
-            buildAutomation.appendTextToLog("DETAILS: Executable path is required to start application but is null or empty");
-            buildAutomation.appendTextToLog("RESOLUTION: Configure executable path in Project Configuration tab under 'Executable Path' field");
+            buildAutomation.appendTextToLog("Executable path not configured");
             return;
         } else {
             path = project.getExePath();
-            buildAutomation.appendTextToLog("INFO: Executable path validation passed");
+            buildAutomation.appendTextToLog("Executable path set: " + path);
         }
         
-        String commandArray1[] = {"cmd.exe", "/c", "start", app};
+        String exeFullPath = new File(path, app).getAbsolutePath();
         try {
             File f = new File(path + "/" + app);
-            buildAutomation.appendTextToLog("STEP 1: Validating application file existence...");
-            buildAutomation.appendTextToLog("• Expected File Path: " + f.getAbsolutePath());
+            buildAutomation.appendTextToLog("Validating executable: " + f.getAbsolutePath());
             
             if (!f.exists()) {
-                buildAutomation.appendTextToLog("ERROR: Application file not found");
-                buildAutomation.appendTextToLog("DETAILS: File does not exist at the specified path");
-                buildAutomation.appendTextToLog("POSSIBLE CAUSES:");
-                buildAutomation.appendTextToLog("• Incorrect executable path configuration");
-                buildAutomation.appendTextToLog("• Application file not installed or missing");
-                buildAutomation.appendTextToLog("• File permissions or access issues");
-                buildAutomation.appendTextToLog("RESOLUTION: Verify executable path and ensure application is properly installed");
+                buildAutomation.appendTextToLog("Executable not found: " + f.getAbsolutePath());
                 return;
             }
             
-            buildAutomation.appendTextToLog("SUCCESS: Application file found and validated");
-            buildAutomation.appendTextToLog("STEP 2: Starting application process...");
-            buildAutomation.appendTextToLog("• Command: " + String.join(" ", commandArray1));
-            buildAutomation.appendTextToLog("• Working Directory: " + path);
+            buildAutomation.appendTextToLog("Executable validated");
+            buildAutomation.appendTextToLog("Launching application...");
 
-            ProcessBuilder pb = new ProcessBuilder(commandArray1)
-                    .directory(new File(path));
-            Map<String, String> env = pb.environment();
-            if (project.getNmsEnvVar() != null && !project.getNmsEnvVar().isBlank()) {
-                env.put(project.getNmsEnvVar(), project.getExePath());
-                logger.info("Environment variable configured: " + project.getNmsEnvVar() +
-                        " = " + project.getExePath());
-                buildAutomation.appendTextToLog(" → Environment variable configured: " +
-                        project.getNmsEnvVar() + " = " + project.getExePath());
-            } else {
-                logger.warning("WARNING: NMS environment variable not configured for project: " + project.getName());
-                buildAutomation.appendTextToLog(" → WARNING: NMS environment variable not configured");
-                buildAutomation.appendTextToLog(" → This may cause build issues if the build process requires this variable");
-                buildAutomation.appendTextToLog(" → Resolution: Configure NMS environment variable in Project Configuration tab and perform restart");
-            }
+            // Launch off the JavaFX/UI thread to avoid UI freeze
+            final String launchDir = path;
+            final String launchExe = exeFullPath;
+            Thread launcherThread = new Thread(() -> {
+                try {
+                    // Build a ProcessBuilder that starts the EXE fully detached on Windows
+                    ProcessBuilder pb;
+                    boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
+                    if (isWindows) {
+                        // cmd /c start "" /D "<dir>" "<exe>"
+                        pb = new ProcessBuilder(
+                                "cmd.exe", "/c", "start", "", "/D", launchDir, launchExe
+                        );
+                    } else {
+                        // Non-Windows fallback: just start without inheriting IO
+                        pb = new ProcessBuilder(launchExe);
+                    }
+                    pb.directory(new File(launchDir));
 
-            Process process;
-            try {
-                process = pb.start();
-            } catch (IOException e) {
-                logger.log(Level.SEVERE, "Failed to launch NMS process", e);
-                buildAutomation.appendTextToLog(" → ERROR: Failed to launch NMS process: " + e.getMessage());
-                throw e;
-            }
-            //Removed this to inject env vars to launch exe to make NMS apps aware of the new vars.
-            //Process process = Runtime.getRuntime().exec(commandArray1, null, new File(path));
+                    Map<String, String> env = pb.environment();
+                    // Preserve Java/NMS dynamic injections
+                    JavaEnvUtil.applyJavaOverride(env, project.getJdkHome(), buildAutomation::appendTextToLog);
+                    env.put("L4J_DEBUG", "1");
+                    if (project.getNmsEnvVar() != null && !project.getNmsEnvVar().isBlank()) {
+                        env.put(project.getNmsEnvVar(), project.getExePath());
+                        logger.info("Set env: " + project.getNmsEnvVar());
+                    } else {
+                        logger.warning("NMS environment variable not configured for project: " + project.getName());
+                    }
+
+                    // Discard child IO to prevent potential blocking on pipes
+                    pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+                    pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+                    pb.redirectInput(ProcessBuilder.Redirect.PIPE);
+
+                    pb.start(); // do not hold reference; detached on Windows via 'start'
+                    buildAutomation.appendTextToLog("Application launched");
+                } catch (IOException ioe) {
+                    logger.log(Level.SEVERE, "Failed to launch NMS process", ioe);
+                    buildAutomation.appendTextToLog("Failed to launch application: " + ioe.getMessage());
+                } catch (Exception ex) {
+                    logger.log(Level.SEVERE, "Unexpected error while launching process", ex);
+                    buildAutomation.appendTextToLog("Failed to launch application: " + ex.getMessage());
+                }
+            }, "DetachedExeLauncher");
+            launcherThread.setDaemon(true);
+            launcherThread.start();
 
 
-            buildAutomation.appendTextToLog("SUCCESS: Application process started successfully");
-            buildAutomation.appendTextToLog("INFO: Application is now running in background");
-
-
-        } catch (IOException e) {
-            buildAutomation.appendTextToLog("ERROR: FAILED TO START APPLICATION");
-            buildAutomation.appendTextToLog("EXCEPTION DETAILS:");
-            buildAutomation.appendTextToLog("• Exception Type: " + e.getClass().getSimpleName());
-            buildAutomation.appendTextToLog("• Error Message: " + e.getMessage());
-            buildAutomation.appendTextToLog("• Stack Trace: " + e.toString());
-            buildAutomation.appendTextToLog("POSSIBLE CAUSES:");
-            buildAutomation.appendTextToLog("• File system access permissions");
-            buildAutomation.appendTextToLog("• Invalid executable path or file corruption");
-            buildAutomation.appendTextToLog("• System resource limitations");
-            buildAutomation.appendTextToLog("• Antivirus or security software blocking execution");
-            buildAutomation.appendTextToLog("RESOLUTION: Check file permissions, verify executable integrity, and ensure system resources are available");
+        } catch (Exception e) {
+            buildAutomation.appendTextToLog("Failed to start application: " + e.getMessage());
         }
     }
 
@@ -707,7 +787,7 @@ public class ControlApp {
             List<Map<String, String>> processes = new ArrayList<>();
             
             buildAutomation.appendTextToLog("STEP 2: Loading current process map...");
-            loadProcessMap();
+            loadProcessMap(project);
 
             if (logs == null || logs.length == 0) {
                 buildAutomation.appendTextToLog("INFO: No log files found for application: " + app);
@@ -759,11 +839,13 @@ public class ControlApp {
     //Local copy launched "jps" gives as JWSLauncher
     //JNLP copy launched "jps" gives as Launcher
     //creates a map that helps to find which process is local executed and which from jnlp executed
-    public void loadProcessMap() {
+    public void loadProcessMap(ProjectEntity project) {
         buildAutomation.appendTextToLog("Loading process list ...");
         jpsMap = new HashMap<>();
         try {
-            Process process = Runtime.getRuntime().exec("jps");
+            ProcessBuilder pb = new ProcessBuilder("jps");
+            JavaEnvUtil.applyJavaOverride(pb.environment(), project != null ? project.getJdkHome() : null);
+            Process process = pb.start();
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
             String line;
 

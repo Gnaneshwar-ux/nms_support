@@ -3,6 +3,7 @@
 <?import javafx.scene.layout.*?>
 <?import javafx.scene.image.ImageView?>
 <?import javafx.scene.image.Image?>
+<?import org.kordamp.ikonli.javafx.FontIcon?>
 <AnchorPane fx:id="root" stylesheets="@../../styles/light/tabs/build-automation.css" xmlns="http://javafx.com/javafx/17.0.2-ea" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.nms.support.nms_support.controller.BuildAutomation">
     <ScrollPane fitToWidth="true" fitToHeight="true" hbarPolicy="AS_NEEDED" vbarPolicy="NEVER" AnchorPane.bottomAnchor="10" AnchorPane.leftAnchor="0" AnchorPane.rightAnchor="0" AnchorPane.topAnchor="0">
         <VBox alignment="TOP_CENTER" spacing="4" styleClass="transparent-pane main-container">
@@ -93,6 +94,8 @@
                             <RowConstraints percentHeight="20" />
                             <RowConstraints percentHeight="10" />
                             <RowConstraints percentHeight="20" />
+                            <RowConstraints percentHeight="10" />
+                            <RowConstraints percentHeight="20" />
                         </rowConstraints>
                         <Label styleClass="label-common" text="Build Type:" GridPane.columnIndex="0" GridPane.rowIndex="0" GridPane.halignment="LEFT" />
                         <!-- Build Type ComboBox and buttons on same line -->
@@ -109,6 +112,19 @@
                             <Button fx:id="startButton" styleClass="button-common" text="START" prefWidth="80" minWidth="80" maxWidth="80" />
                             <Button fx:id="stopButton" styleClass="button-common" text="STOP" prefWidth="80" minWidth="80" maxWidth="80" />
                             <Button fx:id="restartButton" styleClass="button-common" text="RESTART" prefWidth="80" minWidth="80" maxWidth="80" />
+                        </HBox>
+                        <Label styleClass="label-common" text="JDK Path:" GridPane.columnIndex="0" GridPane.rowIndex="4" GridPane.halignment="LEFT" />
+                        <!-- JDK Path field and browse button on same line -->
+                        <HBox alignment="CENTER_LEFT" spacing="4" GridPane.columnIndex="0" GridPane.rowIndex="5" HBox.hgrow="ALWAYS">
+                            <TextField fx:id="jdkPathField" promptText="e.g. C:/Program Files/Java/jdk-17" HBox.hgrow="ALWAYS" />
+                            <Button fx:id="jdkBrowseButton" styleClass="button-icon">
+                                <graphic>
+                                    <FontIcon iconLiteral="fa-folder-open" iconSize="14" />
+                                </graphic>
+                                <tooltip>
+                                    <Tooltip text="Select JDK home (folder containing bin/java.exe)"/>
+                                </tooltip>
+                            </Button>
                         </HBox>
                     </GridPane>
                 </HBox>
