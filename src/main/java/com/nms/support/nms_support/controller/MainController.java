@@ -79,6 +79,8 @@ public class MainController implements Initializable {
     private ImageView themeIcon;
     @FXML
     public Button mainSaveButton;
+    @FXML
+    public Button infoButton;
 
     BuildAutomation buildAutomation;
     private ProjectDetailsController projectDetailsController;
@@ -140,6 +142,9 @@ public class MainController implements Initializable {
         addButton.setOnAction(event -> addProject());
         delButton.setOnAction(event -> removeProject());
         editProjectButton.setOnAction(event -> editProject());
+        if (infoButton != null) {
+            infoButton.setOnAction(event -> showInfoDialog());
+        }
         reloadProjectNamesCB();
         
         // Initialize change tracking service
@@ -1658,6 +1663,20 @@ public class MainController implements Initializable {
         } catch (Exception e) {
             logger.severe("Error handling restart shortcut: " + e.getMessage());
             DialogUtil.showError("Error", "An error occurred while handling restart shortcut:\n" + e.getMessage());
+        }
+    }
+    
+    /**
+     * Shows the information dialog with version and shortcuts
+     */
+    private void showInfoDialog() {
+        try {
+            Stage parentStage = (Stage) (infoButton != null ? infoButton.getScene().getWindow() : root.getScene().getWindow());
+            InfoDialog infoDialog = new InfoDialog();
+            infoDialog.showDialog(parentStage);
+        } catch (Exception e) {
+            logger.severe("Error showing info dialog: " + e.getMessage());
+            DialogUtil.showError("Error", "An error occurred while showing information dialog:\n" + e.getMessage());
         }
     }
 

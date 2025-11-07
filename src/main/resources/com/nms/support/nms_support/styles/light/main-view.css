@@ -141,6 +141,34 @@
     -fx-effect: dropshadow(gaussian, rgba(52, 152, 219, 0.3), 4, 0, 0, 2);
 }
 
+/* Info icon button: black "i" text on white background */
+.info-icon-button {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #d1d5db;
+    -fx-border-width: 1;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.08), 2, 0, 0, 1);
+    -fx-text-fill: #000000;
+    -fx-font-family: 'Inter', 'Segoe UI', 'Arial', sans-serif;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-alignment: center;
+}
+
+.info-icon-button:hover {
+    -fx-background-color: #f9fafb;
+    -fx-border-color: #9ca3af;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.12), 3, 0, 0, 1);
+}
+
+.info-icon-button:pressed {
+    -fx-background-color: #f3f4f6;
+    -fx-border-color: #6b7280;
+}
+
 /* Modern Tab Styling - Comprehensive Approach */
 .tab-pane {
     -fx-background-color: #ffffff;

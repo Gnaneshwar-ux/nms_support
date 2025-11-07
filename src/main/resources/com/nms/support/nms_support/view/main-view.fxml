@@ -9,7 +9,7 @@
 <StackPane fx:id="root"  xmlns="http://javafx.com/javafx/17.0.2-ea"
            xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.nms.support.nms_support.controller.MainController">
     <!-- StackPane will automatically resize its content -->
-    <VBox spacing="5" alignment="CENTER" styleClass="root-container">
+    <VBox spacing="5" alignment="CENTER" styleClass="root-container" fillWidth="true">
         <!-- HBox to hold the ComboBox and theme toggle button -->
         <BorderPane>
             <padding>
@@ -59,9 +59,16 @@
                 </HBox>
             </center>
             <right>
-                <Button fx:id="openVpnButton" text="VPN" textAlignment="RIGHT" visible="false"
-                        styleClass="button-common"
-                        onAction="#openVpnManager"/>
+                <HBox spacing="6" alignment="CENTER_RIGHT">
+                    <Button fx:id="infoButton" text="i" prefWidth="28.0" prefHeight="28.0" styleClass="info-icon-button">
+                        <tooltip>
+                            <Tooltip text="View DevTools information and shortcuts"/>
+                        </tooltip>
+                    </Button>
+                    <Button fx:id="openVpnButton" text="VPN" textAlignment="RIGHT" visible="false" managed="false"
+                            styleClass="button-common"
+                            onAction="#openVpnManager"/>
+                </HBox>
             </right>
         </BorderPane>
         <!-- TabPane set to fill the VBox -->
