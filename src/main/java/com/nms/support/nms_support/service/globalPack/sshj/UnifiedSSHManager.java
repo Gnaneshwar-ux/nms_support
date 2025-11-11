@@ -37,6 +37,8 @@ public class UnifiedSSHManager {
     
     // Connection timeout: 30 seconds
     private static final int CONNECTION_TIMEOUT_MS = 30_000;
+    // Read/socket timeout for IO (e.g., SFTP): 3 minutes
+    private static final int READ_TIMEOUT_MS = 120_000;
     
     /**
      * Get or create a PersistentSudoSession for the given connection parameters.
@@ -261,7 +263,7 @@ public class UnifiedSSHManager {
         // Configure client
         client.addHostKeyVerifier(new PromiscuousVerifier()); // TODO: Replace with proper host key verification in production
         client.setConnectTimeout(CONNECTION_TIMEOUT_MS);
-        client.setTimeout(CONNECTION_TIMEOUT_MS);
+        client.setTimeout(READ_TIMEOUT_MS);
         
         // Connect
         client.connect(host, port);

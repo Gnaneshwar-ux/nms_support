@@ -343,6 +343,9 @@ public class SSHJSessionManager {
         try {
             sshClient = new SSHClient();
             sshClient.addHostKeyVerifier(new net.schmizz.sshj.transport.verification.PromiscuousVerifier());
+            // Configure timeouts: 30s connect, 3 minutes read/socket
+            sshClient.setConnectTimeout(30_000);
+            sshClient.setTimeout(120_000);
             sshClient.connect(host, port);
             
             if (keyFilePath != null && !keyFilePath.trim().isEmpty()) {

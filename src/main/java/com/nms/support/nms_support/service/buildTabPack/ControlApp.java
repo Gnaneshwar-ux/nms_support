@@ -843,8 +843,29 @@ public class ControlApp {
         buildAutomation.appendTextToLog("Loading process list ...");
         jpsMap = new HashMap<>();
         try {
-            ProcessBuilder pb = new ProcessBuilder("jps");
-            JavaEnvUtil.applyJavaOverride(pb.environment(), project != null ? project.getJdkHome() : null);
+			// Prefer absolute jps from configured JDK. Fall back to JAVA_HOME/bin, then plain "jps".
+			ProcessBuilder pb;
+			String jdkHome = (project != null) ? project.getJdkHome() : null;
+			File jpsFromProject = (jdkHome != null && !jdkHome.trim().isEmpty())
+					? new File(new File(jdkHome.trim(), "bin"), "jps.exe")
+					: null;
+			if (jpsFromProject != null && jpsFromProject.isFile()) {
+				pb = new ProcessBuilder(jpsFromProject.getAbsolutePath());
+			} else {
+				// Try JAVA_HOME/bin/jps.exe from current environment
+				String envJavaHome = System.getenv("JAVA_HOME");
+				File jpsFromEnv = (envJavaHome != null && !envJavaHome.trim().isEmpty())
+						? new File(new File(envJavaHome.trim(), "bin"), "jps.exe")
+						: null;
+				if (jpsFromEnv != null && jpsFromEnv.isFile()) {
+					pb = new ProcessBuilder(jpsFromEnv.getAbsolutePath());
+				} else {
+					// Last resort: rely on PATH
+					pb = new ProcessBuilder("jps");
+				}
+			}
+			// Inject JAVA_HOME/PATH for the chosen JDK to ensure tools resolve
+			JavaEnvUtil.applyJavaOverride(pb.environment(), jdkHome);
             Process process = pb.start();
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
             String line;

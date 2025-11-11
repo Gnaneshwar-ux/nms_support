@@ -3244,22 +3244,35 @@ public class SetupService {
                 if (logFiles != null && logFiles.length > 0) {
                     processMonitor.logMessage("process_cleanup", "Scanning " + logFiles.length + " log files...");
                     
-                    // Load process map using jps (reuse ControlApp logic)
+                    // Load process map using jps with custom JDK env (reuse ControlApp strategy)
                     Map<String, String> jpsMap = new HashMap<>();
                     try {
-                        Process jpsProcess = Runtime.getRuntime().exec("jps");
-                        BufferedReader reader = new BufferedReader(new InputStreamReader(jpsProcess.getInputStream()));
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            String[] parts = line.split(" ");
-                            if (parts.length >= 2) {
-                                jpsMap.put(parts[0], parts[1]);
+                        ProcessBuilder pb;
+                        // Prefer absolute jps from configured JDK, if available
+                        String jdkHome = project != null ? project.getJdkHome() : null;
+                        File jpsExe = (jdkHome != null && !jdkHome.trim().isEmpty())
+                                ? new File(new File(jdkHome.trim(), "bin"), "jps.exe")
+                                : null;
+                        if (jpsExe != null && jpsExe.isFile()) {
+                            pb = new ProcessBuilder(jpsExe.getAbsolutePath());
+                        } else {
+                            pb = new ProcessBuilder("jps");
+                        }
+                        // Inject JAVA_HOME/PATH so jps resolves even if only custom JDK is present
+                        com.nms.support.nms_support.service.globalPack.JavaEnvUtil.applyJavaOverride(pb.environment(), jdkHome);
+                        Process jpsProcess = pb.start();
+                        try (BufferedReader reader = new BufferedReader(new InputStreamReader(jpsProcess.getInputStream()))) {
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                String[] parts = line.split(" ");
+                                if (parts.length >= 2) {
+                                    jpsMap.put(parts[0], parts[1]);
+                                }
                             }
                         }
-                        reader.close();
                         jpsProcess.waitFor();
                     } catch (Exception e) {
-                        logger.warning("Error loading process map: " + e.getMessage());
+                        logger.warning("Error loading process map (jps): " + e.getMessage());
                     }
                     
                     // Scan log files for matching processes (reuse ControlApp logic)

@@ -511,18 +511,55 @@ public class CreateInstallerCommand {
 	}
 
 	private void runLaunch4j(File f) throws IOException, Exception {
-		String launch4jExe = System.getenv("LAUNCH4J_HOME");
-		if (launch4jExe == null) {
-			launch4jExe = "c:" + File.separator + "Program Files" + File.separator + "Launch4j/";
-		}
-		File exeFile = new File(launch4jExe + LAUNCH4J_EXE);
-		if (!exeFile.isFile()) {
-			exeFile = new File(
-					"c:" + File.separator + "Program Files (x86)" + File.separator + "Launch4j/" + LAUNCH4J_EXE);
-			if (!exeFile.isFile()) {
-				throw new Exception("MISSING_LAUNCH4J");
+		// Resolve Launch4j executable robustly: LAUNCH4J_HOME, standard paths, then PATH
+		File exeFile = null;
+
+		// 1) Try LAUNCH4J_HOME (proper join to avoid missing separators)
+		String launch4jHome = System.getenv("LAUNCH4J_HOME");
+		if (launch4jHome != null && !launch4jHome.trim().isEmpty()) {
+			File homeDir = new File(launch4jHome.trim());
+			File candidate = new File(homeDir, LAUNCH4J_EXE);
+			if (candidate.isFile()) {
+				exeFile = candidate;
 			}
 		}
+
+		// 2) Try standard installation locations
+		if (exeFile == null) {
+			File candidate = new File("C:" + File.separator + "Program Files" + File.separator + "Launch4j", LAUNCH4J_EXE);
+			if (candidate.isFile()) {
+				exeFile = candidate;
+			}
+		}
+		if (exeFile == null) {
+			File candidate = new File("C:" + File.separator + "Program Files (x86)" + File.separator + "Launch4j", LAUNCH4J_EXE);
+			if (candidate.isFile()) {
+				exeFile = candidate;
+			}
+		}
+
+		// 3) Search PATH for any directory containing "launch4j" with the exe present
+		if (exeFile == null) {
+			String pathEnv = System.getenv("PATH");
+			if (pathEnv != null && !pathEnv.trim().isEmpty()) {
+				String[] pathDirs = pathEnv.split(";");
+				for (String pathDir : pathDirs) {
+					if (pathDir != null && pathDir.toLowerCase().contains("launch4j")) {
+						File pathDirFile = new File(pathDir.trim());
+						File candidate = new File(pathDirFile, LAUNCH4J_EXE);
+						if (candidate.isFile()) {
+							exeFile = candidate;
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		if (exeFile == null || !exeFile.isFile()) {
+			throw new Exception("MISSING_LAUNCH4J");
+		}
+
 		String execPath = exeFile.getPath();
 		String fPath = f.getPath();
 		ExecHelper.exec(new String[] { execPath, fPath });
