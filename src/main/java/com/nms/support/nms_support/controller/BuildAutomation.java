@@ -75,7 +75,7 @@ public class BuildAutomation implements Initializable {
         // Removed updateButton action - now handled by global save
         deleteButton.setOnAction(event -> deleteSetup());
         buildButton.setOnAction(event -> build());
-        stopButton.setOnAction(event -> stop());
+        stopButton.setOnAction(event -> stopAsync());
         startButton.setOnAction(event -> {
             String selectedApp = getSelectedAppName();
             if (selectedApp != null) {
@@ -822,6 +822,26 @@ public class BuildAutomation implements Initializable {
         }
     }
 
+    private void stopAsync() {
+        // Run the heavy stop flow off the JavaFX Application Thread to keep UI responsive
+        // Disable the stop button while work is in progress
+        if (stopButton != null) {
+            stopButton.setDisable(true);
+        }
+        Thread worker = new Thread(() -> {
+            try {
+                stop();
+            } finally {
+                Platform.runLater(() -> {
+                    if (stopButton != null) {
+                        stopButton.setDisable(false);
+                    }
+                });
+            }
+        }, "StopOperationWorker");
+        worker.setDaemon(true);
+        worker.start();
+    }
     public void build() {
         ProjectEntity project = mainController.getSelectedProject();
         String app = getSelectedAppName();
