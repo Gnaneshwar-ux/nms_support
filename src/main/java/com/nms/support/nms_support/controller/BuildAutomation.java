@@ -475,6 +475,31 @@ public class BuildAutomation implements Initializable {
         }
     }
 
+    /**
+     * Updates the project code text field from automated setup flows before saving.
+     * Ensures the UI reflects the latest detected logId so the value persists.
+     *
+     * @param projectCode the detected project code, or null to clear the field
+     */
+    public void updateProjectCodeFromSetup(String projectCode) {
+        Runnable updater = () -> {
+            changeTrackingService.startLoading();
+            try {
+                if (projectLogComboBox != null) {
+                    projectLogComboBox.setText(projectCode != null ? projectCode : "");
+                }
+            } finally {
+                changeTrackingService.endLoading();
+            }
+        };
+
+        if (Platform.isFxApplicationThread()) {
+            updater.run();
+        } else {
+            Platform.runLater(updater);
+        }
+    }
+
     public void clearFields() {
         logger.fine("Clearing fields");
         usernameField.clear();

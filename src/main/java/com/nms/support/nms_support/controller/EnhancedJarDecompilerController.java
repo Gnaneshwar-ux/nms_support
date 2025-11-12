@@ -1383,6 +1383,19 @@ public class EnhancedJarDecompilerController implements Initializable {
                 logger.info("JAR selection saved in decompilation info");
                 
                 DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Success", "JARs decompiled successfully!");
+
+                // Refresh tab content to reflect latest decompiled output
+                loadExistingDecompiledData();
+
+                String selectedJar = jarListView.getSelectionModel().getSelectedItem();
+                if (selectedJar != null) {
+                    loadClassTreeForJar(selectedJar);
+                }
+
+                String selectedClass = classListView.getSelectionModel().getSelectedItem();
+                if (selectedClass != null) {
+                    loadDecompiledCode(selectedClass);
+                }
             });
         });
         

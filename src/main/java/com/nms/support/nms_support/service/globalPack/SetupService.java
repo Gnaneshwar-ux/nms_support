@@ -699,6 +699,9 @@ public class SetupService {
                         project.setLogId(projectCode);
                         processMonitor.logMessage("finalize", "Project code auto-detected: " + projectCode);
                         logger.info("Successfully auto-detected project code: " + projectCode);
+                        if (mc != null && mc.getBuildAutomation() != null) {
+                            mc.getBuildAutomation().updateProjectCodeFromSetup(projectCode);
+                        }
                     } else {
                         processMonitor.logMessage("finalize", "Project code auto-detection returned null - skipping update");
                         logger.info("Project code auto-detection returned null - will need manual setup");
@@ -709,15 +712,15 @@ public class SetupService {
                     logger.warning("Failed to auto-detect project code: " + e.getMessage());
                 }
                 
-                mc.performGlobalSave();
-                
-                // Refresh UI to display auto-detected project code immediately
-                Platform.runLater(() -> {
-                    if (mc != null && mc.getBuildAutomation() != null) {
-                        mc.getBuildAutomation().loadProjectDetails();
-                        logger.info("✓ Build Automation UI refreshed to display auto-detected project code");
-                    }
-                });
+                if (mc != null) {
+                    Platform.runLater(() -> {
+                        if (mc.getBuildAutomation() != null) {
+                            mc.getBuildAutomation().loadProjectDetails();
+                            logger.info("✓ Build Automation UI refreshed to display auto-detected project code");
+                        }
+                        mc.performGlobalSave();
+                    });
+                }
                 
                 processMonitor.markProcessCompleted("Setup completed successfully");
             }
