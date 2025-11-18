@@ -384,7 +384,7 @@ public class CreateInstallerCommand {
 				if (expectedExe.exists()) {
 					success_count++;
 				}
-				launchXML.delete();
+				archiveLaunchXml(launchXML, project);
 			}
 			} catch (Exception e) {
 				failed_setups += product + ", ";
@@ -428,6 +428,27 @@ public class CreateInstallerCommand {
 		}
 		progressCallback.onComplete("Installer creation completed. EXEs created: " + success_count + ".");
 		return true;
+	}
+
+	private void archiveLaunchXml(File launchXML, ProjectEntity project) {
+		if (launchXML == null || !launchXML.exists()) {
+			return;
+		}
+		try {
+			String tempRoot = System.getenv("TEMP");
+			if (tempRoot == null || tempRoot.isBlank()) {
+				tempRoot = System.getProperty("java.io.tmpdir");
+			}
+			String projectName = (project != null && project.getName() != null && !project.getName().isBlank())
+					? project.getName()
+					: "nms_support";
+			Path archiveDir = Paths.get(tempRoot, projectName);
+			Files.createDirectories(archiveDir);
+			Path target = archiveDir.resolve(launchXML.getName());
+			Files.move(launchXML.toPath(), target, StandardCopyOption.REPLACE_EXISTING);
+		} catch (IOException ioe) {
+			LoggerUtil.getLogger().warning("Failed to archive Launch4j XML: " + ioe.getMessage());
+		}
 	}
 
 	private boolean createUserEnvVar(String variableName, String variableValue) {
