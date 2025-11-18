@@ -275,6 +275,12 @@ public class ControlApp {
                     Map<String, String> env = builder.environment();
                     // Apply per-project Java override if provided (log to build file only)
                     JavaEnvUtil.applyJavaOverride(env, project.getJdkHome(), msg -> addToBuildLog(project, msg, false));
+                    if (project.getNmsEnvVar() != null && !project.getNmsEnvVar().isBlank()) {
+                        env.put(project.getNmsEnvVar(), project.getExePath());
+                        logger.info("Set env: " + project.getNmsEnvVar());
+                    } else {
+                        logger.warning("NMS environment variable not configured for project: " + project.getName());
+                    }
 
                     // Force Ant/Javac to use our Java explicitly
                     if (project.getJdkHome() != null && !project.getJdkHome().isBlank()) {
