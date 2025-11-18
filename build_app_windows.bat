@@ -12,6 +12,19 @@ rem APP_VERSION: the application version, e.g. 1.0.0, shown in "about" dialog
 set JAVA_VERSION=22
 set MAIN_JAR=nms-support-main.jar
 
+rem DEVTOOLS_JAVA_HOME should point to a JDK %JAVA_VERSION% install. If it is not set,
+rem fall back to JAVA_HOME (which might already be JDK 22 on some machines).
+IF NOT DEFINED DEVTOOLS_JAVA_HOME (
+    IF DEFINED JAVA_HOME (
+        set "DEVTOOLS_JAVA_HOME=%JAVA_HOME%"
+    ) ELSE (
+        echo [ERROR] Please set the DEVTOOLS_JAVA_HOME environment variable to a JDK %JAVA_VERSION% installation.
+        exit /B 1
+    )
+)
+set "JAVA_BIN=%DEVTOOLS_JAVA_HOME%\bin"
+echo Using JDK from: %DEVTOOLS_JAVA_HOME%
+
 rem Set desired installer type: "app-image" "msi" "exe".
 set INSTALLER_TYPE=exe
 
@@ -36,7 +49,7 @@ rem application.
 
 echo detecting required modules
 
-"%JAVA22_HOME%\bin\jdeps" ^
+call "%JAVA_BIN%\jdeps" ^
   -q ^
   --multi-release %JAVA_VERSION% ^
   --ignore-missing-deps ^
@@ -70,7 +83,7 @@ rem works with dependencies that are not fully modularized, yet.
 
 echo creating java runtime image
 
-call "%JAVA22_HOME%\bin\jlink" ^
+call "%JAVA_BIN%\jlink" ^
   --strip-native-commands ^
   --no-header-files ^
   --no-man-pages ^
@@ -87,7 +100,7 @@ rem In the end we will find the package inside the target/installer directory.
 echo APP_VERSION is set to: %APP_VERSION%
 echo Creating executable...
 
-call "%JAVA22_HOME%\bin\jpackage" ^
+call "%JAVA_BIN%\jpackage" ^
   --type %INSTALLER_TYPE% ^
   --dest target/installer ^
   --input target/installer/input/libs ^

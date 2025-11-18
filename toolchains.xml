@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<toolchains>
+    <toolchain>
+        <type>jdk</type>
+        <provides>
+            <version>22</version>
+            <vendor>any</vendor>
+        </provides>
+        <configuration>
+            <jdkHome>C:/Users/Gnaneshwar/.jdks/openjdk-22.0.1</jdkHome>
+        </configuration>
+    </toolchain>
+</toolchains>
+
+
