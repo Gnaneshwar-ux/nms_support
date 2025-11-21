@@ -1,4 +1,4 @@
-package com.nms.support.nms_support.model;
+    package com.nms.support.nms_support.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.nms.support.nms_support.util.ProjectPathUtil;
@@ -32,6 +32,8 @@ public class ProjectEntity {
     private String svnRepo;
     private String selectedApplication; // Store the previously selected application
     private String jdkHome; // Optional per-project JDK home override
+    // Semicolon-separated JAR directories for Jar Decompiler tab (persisted)
+    private String jarDecompilerPaths;
 
     // Oracle DB details
     private String dbHost;
@@ -339,6 +341,14 @@ public class ProjectEntity {
 
     public String getJdkHome() { return jdkHome; }
     public void setJdkHome(String jdkHome) { this.jdkHome = jdkHome; }
+    
+    // ===== Jar Decompiler persisted paths (semicolon-separated) =====
+    public String getJarDecompilerPaths() {
+        return ProjectPathUtil.normalizeForWindows(jarDecompilerPaths);
+    }
+    public void setJarDecompilerPaths(String jarDecompilerPaths) {
+        this.jarDecompilerPaths = ProjectPathUtil.normalizeForWindows(jarDecompilerPaths);
+    }
 
     // ===== Oracle DB getters/setters =====
     public String getDbHost() { return dbHost; }

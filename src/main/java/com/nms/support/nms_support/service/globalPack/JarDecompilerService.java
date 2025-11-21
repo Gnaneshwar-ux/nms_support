@@ -115,7 +115,11 @@ public class JarDecompilerService extends Service<Void> {
                 Platform.runLater(() -> currentMessage.set("Scanning JAR files..."));
                 
                 for (String jarName : selectedJars) {
-                    String jarFilePath = Paths.get(jarPath, jarName).toString();
+                    String jarFilePath = resolveJarFilePath(jarName);
+                    if (jarFilePath == null) {
+                        logger.warning("JAR file not found in configured paths for: " + jarName);
+                        continue;
+                    }
                     try (JarFile jarFile = new JarFile(jarFilePath)) {
                         Enumeration<JarEntry> entries = jarFile.entries();
                         while (entries.hasMoreElements()) {
@@ -170,7 +174,7 @@ public class JarDecompilerService extends Service<Void> {
      */
     private void createExtractionDirectory() throws IOException {
         String userHome = System.getProperty("user.home");
-        extractedPath = Paths.get(userHome, "Documents", "nms_support_data", "extracted", projectName).toString();
+        extractedPath = Paths.get(userHome, "Documents", "nms_support_data", "extracted", projectName + "_JAR_DECOMPILED").toString();
         
         Path extractionDir = Paths.get(extractedPath);
         if (Files.exists(extractionDir)) {
@@ -236,7 +240,10 @@ public class JarDecompilerService extends Service<Void> {
      * Using generic Task type to allow updateTaskMessage() calls
      */
     private void decompileJar(String jarName, Task<?> task) throws Exception {
-        String jarFilePath = Paths.get(jarPath, jarName).toString();
+        String jarFilePath = resolveJarFilePath(jarName);
+        if (jarFilePath == null) {
+            throw new IOException("JAR file not found in configured paths: " + jarName);
+        }
         File jarFile = new File(jarFilePath);
         
         if (!jarFile.exists()) {
@@ -426,6 +433,112 @@ public class JarDecompilerService extends Service<Void> {
     }
     
     /**
+     * Get list of JAR files across multiple directories (semicolon-separated support)
+     */
+    public static List<String> getJarFilesFromPaths(List<String> directories) {
+        List<String> jarNames = new ArrayList<>();
+        if (directories == null || directories.isEmpty()) return jarNames;
+        try {
+            Map<String, File> seen = new HashMap<>();
+            for (String dirPath : directories) {
+                if (dirPath == null || dirPath.trim().isEmpty()) continue;
+                File directory = new File(dirPath.trim());
+                if (!directory.exists() || !directory.isDirectory()) {
+                    logger.warning("Directory does not exist or is not a directory: " + dirPath);
+                    continue;
+                }
+                File[] files = directory.listFiles((dir, name) -> name.toLowerCase().endsWith(".jar"));
+                if (files != null) {
+                    for (File f : files) {
+                        String name = f.getName();
+                        if (!seen.containsKey(name)) {
+                            seen.put(name, f);
+                            jarNames.add(name);
+                        }
+                    }
+                }
+            }
+            Collections.sort(jarNames);
+            logger.info("Found " + jarNames.size() + " JAR files across " + directories.size() + " directories");
+        } catch (Exception e) {
+            logger.severe("Error reading multiple directories: " + e.getMessage());
+        }
+        return jarNames;
+    }
+    
+    /**
+     * Parse semicolon-separated jarPath into valid directory list
+     */
+    private List<String> parseJarPathDirs(String jarPath) {
+        List<String> dirs = new ArrayList<>();
+        if (jarPath == null) return dirs;
+        String[] parts = jarPath.split(";");
+        for (String p : parts) {
+            String s = p.trim();
+            if (s.isEmpty()) continue;
+            File d = new File(s);
+            if (d.exists() && d.isDirectory()) {
+                dirs.add(d.getAbsolutePath());
+            }
+        }
+        return dirs;
+    }
+    
+    /**
+     * Resolve a JAR file path by searching all configured directories
+     */
+    private String resolveJarFilePath(String jarName) {
+        // Fast path for single directory
+        if (jarPath != null && !jarPath.contains(";")) {
+            String p = Paths.get(jarPath, jarName).toString();
+            if (new File(p).exists()) return p;
+        }
+        for (String dir : parseJarPathDirs(jarPath)) {
+            String candidate = Paths.get(dir, jarName).toString();
+            if (new File(candidate).exists()) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Resolve a JAR file path by searching a semicolon-separated list of directories.
+     * This static helper also tries "<dir>/nmslib/<jarName>" in case a product folder is provided.
+     */
+    public static String resolveJarFilePath(String jarDirs, String jarName) {
+        if (jarDirs == null || jarDirs.trim().isEmpty() || jarName == null || jarName.trim().isEmpty()) {
+            return null;
+        }
+
+        // Fast path when a single directory is provided
+        if (!jarDirs.contains(";")) {
+            String direct = Paths.get(jarDirs, jarName).toString();
+            if (new File(direct).exists()) return direct;
+
+            // Also try "<dir>/nmslib/<jarName>" when a product folder is provided
+            String withNmslib = Paths.get(jarDirs, "nmslib", jarName).toString();
+            if (new File(withNmslib).exists()) return withNmslib;
+        }
+
+        // Split semicolon-separated directories and try each
+        String[] parts = jarDirs.split(";");
+        for (String part : parts) {
+            String dir = part.trim();
+            if (dir.isEmpty()) continue;
+
+            String candidate = Paths.get(dir, jarName).toString();
+            if (new File(candidate).exists()) return candidate;
+
+            // Support product folder input by trying nmslib subfolder
+            String candidateNmslib = Paths.get(dir, "nmslib", jarName).toString();
+            if (new File(candidateNmslib).exists()) return candidateNmslib;
+        }
+
+        return null;
+    }
+    
+    /**
      * Get list of class files in a JAR
      */
     public static List<String> getClassFilesInJar(String jarPath, String jarName) {
@@ -509,7 +622,7 @@ public class JarDecompilerService extends Service<Void> {
      */
     public static String getExtractionDirectory(String projectName) {
         String userHome = System.getProperty("user.home");
-        return Paths.get(userHome, "Documents", "nms_support_data", "extracted", projectName).toString();
+        return Paths.get(userHome, "Documents", "nms_support_data", "extracted", projectName + "_JAR_DECOMPILED").toString();
     }
     
     /**

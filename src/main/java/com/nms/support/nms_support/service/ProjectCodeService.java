@@ -110,44 +110,84 @@ public class ProjectCodeService {
      */
     public static String getCvsTagFromNmsCommonJar(String productFolderPath) {
         if (productFolderPath == null || productFolderPath.trim().isEmpty()) {
-            logger.warning("Product folder path is null or empty");
+            logger.warning("Path(s) for nms_common.jar search is null or empty");
             return null;
         }
 
         try {
-            String nmsCommonJarPath = productFolderPath + File.separator + "nms_common.jar";
-            File nmsCommonJar = new File(nmsCommonJarPath);
-            
-            logger.info("Looking for nms_common.jar at: " + nmsCommonJarPath);
-            logger.info("File exists: " + nmsCommonJar.exists());
-            
-            if (!nmsCommonJar.exists()) {
-                logger.warning("nms_common.jar not found at: " + nmsCommonJarPath);
-                return null;
+            // Build candidate directories:
+            // - If semicolon-separated, consider each as a directory to search for nms_common.jar
+            // - Also consider that the provided path may be a product folder (so append 'nmslib')
+            java.util.List<String> candidateDirs = new java.util.ArrayList<>();
+            String raw = productFolderPath.trim();
+
+            if (raw.contains(";")) {
+                for (String p : raw.split(";")) {
+                    String s = p.trim();
+                    if (!s.isEmpty()) {
+                        candidateDirs.add(s);
+                    }
+                }
+            } else {
+                candidateDirs.add(raw);
             }
 
-            try (JarFile jarFile = new JarFile(nmsCommonJar)) {
-                // First, let's explore the jar contents to find the version file
-                logger.info("Exploring jar contents to find version file...");
-                String versionFilePath = findVersionFileInJar(jarFile);
-                
-                if (versionFilePath == null) {
-                    logger.warning("No version file found in nms_common.jar");
-                    return null;
-                }
-                
-                logger.info("Found version file at: " + versionFilePath);
-                ZipEntry versionXmlEntry = jarFile.getEntry(versionFilePath);
-                
-                if (versionXmlEntry == null) {
-                    logger.warning("Version file entry not found: " + versionFilePath);
-                    return null;
+            // For each candidate directory, try:
+            // 1) <dir>/nms_common.jar
+            // 2) <dir>/nmslib/nms_common.jar (in case <dir> is product folder)
+            for (String dir : candidateDirs) {
+                // First assume dir points to the jar folder (e.g., nmslib)
+                String directPath = dir + File.separator + "nms_common.jar";
+                File directJar = new File(directPath);
+                logger.info("Looking for nms_common.jar at: " + directPath + " | exists=" + directJar.exists());
+
+                File jarToUse = null;
+                if (directJar.exists()) {
+                    jarToUse = directJar;
+                } else {
+                    // Next assume dir is product folder; append nmslib
+                    String nmslibPath = dir + File.separator + "nmslib" + File.separator + "nms_common.jar";
+                    File nmslibJar = new File(nmslibPath);
+                    logger.info("Looking for nms_common.jar at: " + nmslibPath + " | exists=" + nmslibJar.exists());
+                    if (nmslibJar.exists()) {
+                        jarToUse = nmslibJar;
+                    }
                 }
 
-                try (InputStream inputStream = jarFile.getInputStream(versionXmlEntry)) {
-                    return parseCvsTagFromXml(inputStream);
+                if (jarToUse != null && jarToUse.exists()) {
+                    try (JarFile jarFile = new JarFile(jarToUse)) {
+                        // Explore jar contents to find the version file
+                        logger.info("Exploring jar contents to find version file in: " + jarToUse.getAbsolutePath());
+                        String versionFilePath = findVersionFileInJar(jarFile);
+
+                        if (versionFilePath == null) {
+                            logger.warning("No version file found in nms_common.jar at: " + jarToUse.getAbsolutePath());
+                            // Try next candidate dir
+                            continue;
+                        }
+
+                        logger.info("Found version file at: " + versionFilePath);
+                        ZipEntry versionXmlEntry = jarFile.getEntry(versionFilePath);
+
+                        if (versionXmlEntry == null) {
+                            logger.warning("Version file entry not found: " + versionFilePath);
+                            // Try next candidate dir
+                            continue;
+                        }
+
+                        try (InputStream inputStream = jarFile.getInputStream(versionXmlEntry)) {
+                            String tag = parseCvsTagFromXml(inputStream);
+                            if (tag != null && !tag.trim().isEmpty()) {
+                                return tag;
+                            }
+                        }
+                    }
                 }
             }
+
+            logger.warning("nms_common.jar not found in any provided path(s): " + productFolderPath);
+            return null;
+
         } catch (Exception e) {
             logger.severe("Error reading nms_common.jar: " + e.getMessage());
             e.printStackTrace();

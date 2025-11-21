@@ -237,27 +237,39 @@ public class EnhancedJarDecompilerController implements Initializable {
         jarSearchField.setTooltip(jarSearchTooltip);
         jarSearchField.setPromptText("Search JAR files... (case insensitive)");
         
-        // JAR path field - make it editable and set default
+        // JAR path field - support semicolon-separated directories
         jarPathField.setOnAction(event -> {
-            String path = jarPathField.getText().trim();
-            if (!path.isEmpty() && new File(path).exists()) {
-                loadJarFiles(path);
-            }
+            loadJarFilesFromJarPathField();
         });
         
         // JAR path field text change listener
         jarPathField.textProperty().addListener((observable, oldValue, newValue) -> {
-            String path = newValue != null ? newValue.trim() : "";
-            if (!path.isEmpty() && new File(path).exists()) {
-                loadJarFiles(path);
-            } else {
-                // Clear JAR list if path is invalid
-                jarFiles.clear();
-                jarListView.getItems().clear();
-                updateCounts();
-            }
+            loadJarFilesFromJarPathField();
         });
         
+        // Add Ctrl+Space to open folder chooser and append to the field
+        jarPathField.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, event -> {
+            if (event.isControlDown() && event.getCode() == javafx.scene.input.KeyCode.SPACE) {
+                DirectoryChooser directoryChooser = new DirectoryChooser();
+                File initialDir = getLastValidDirectoryFromField();
+                if (initialDir != null) {
+                    directoryChooser.setInitialDirectory(initialDir);
+                }
+                Stage stage = (Stage) browseButton.getScene().getWindow();
+                File selectedDirectory = directoryChooser.showDialog(stage);
+                if (selectedDirectory != null) {
+                    appendPathToJarPathField(selectedDirectory.getAbsolutePath());
+                    loadJarFilesFromJarPathField();
+                    // Auto-save the selected path(s)
+                    if (mainController != null && mainController.getSelectedProject() != null) {
+                        String projectName = mainController.getSelectedProject().getName();
+                        saveJarPath(projectName, jarPathField.getText().trim());
+                    }
+                }
+                event.consume(); // prevent space char from entering the field
+            }
+        });
+
         // Set default JAR path based on project
         setDefaultJarPath();
         
@@ -271,10 +283,10 @@ public class EnhancedJarDecompilerController implements Initializable {
         classSearchField.setTooltip(classSearchTooltip);
         classSearchField.setPromptText("Search class names only... (prioritized results)");
         
-        // JAR list selection
+        // JAR list selection - keep classes list to show all decompiled classes
         jarListView.getSelectionModel().selectedItemProperty().addListener((observable, oldValue, newValue) -> {
             if (newValue != null) {
-                loadClassTreeForJar(newValue);
+                updateStatus("Selected JAR: " + newValue + " (showing all decompiled classes)", "fa-archive");
             }
         });
         
@@ -427,13 +439,114 @@ public class EnhancedJarDecompilerController implements Initializable {
         if (selectedDirectory != null) {
             String directoryPath = selectedDirectory.getAbsolutePath();
             jarPathField.setText(directoryPath);
-            loadJarFiles(directoryPath);
+            loadJarFilesFromJarPathField();
             
             // Auto-save the selected path to prevent save prompts
             if (mainController != null && mainController.getSelectedProject() != null) {
                 String projectName = mainController.getSelectedProject().getName();
                 saveJarPath(projectName, directoryPath);
             }
+        }
+    }
+    
+    // Helpers for multi-path jar directory management
+    private List<String> parseJarPaths(String input) {
+        List<String> result = new ArrayList<>();
+        if (input == null) return result;
+        String[] parts = input.split(";");
+        for (String raw : parts) {
+            String s = raw.trim();
+            if (s.isEmpty()) continue;
+            File f = new File(s);
+            if (f.exists() && f.isDirectory()) {
+                result.add(f.getAbsolutePath());
+            }
+        }
+        return result;
+    }
+    
+    private File getLastValidDirectoryFromField() {
+        List<String> paths = parseJarPaths(jarPathField.getText());
+        if (!paths.isEmpty()) {
+            return new File(paths.get(paths.size() - 1));
+        }
+        return null;
+    }
+    
+    private void appendPathToJarPathField(String dir) {
+        String current = jarPathField.getText() != null ? jarPathField.getText().trim() : "";
+        if (current.isEmpty()) {
+            jarPathField.setText(dir);
+            return;
+        }
+        // Avoid duplicate entries (case-insensitive on Windows)
+        String[] parts = current.split(";");
+        for (String p : parts) {
+            if (p.trim().equalsIgnoreCase(dir)) {
+                // Already present; ensure proper formatting
+                jarPathField.setText(String.join(";", Arrays.stream(parts).map(String::trim).filter(s -> !s.isEmpty()).toArray(String[]::new)));
+                return;
+            }
+        }
+        if (!current.endsWith(";")) {
+            current = current + ";";
+        }
+        jarPathField.setText(current + dir);
+    }
+    
+    private void loadJarFilesFromJarPathField() {
+        String text = jarPathField.getText() != null ? jarPathField.getText().trim() : "";
+        List<String> directories = parseJarPaths(text);
+        if (!directories.isEmpty()) {
+            currentJarPath = text; // can be semicolon-separated list
+            loadJarFilesFromPaths(directories);
+            // Save JAR path for current project
+            if (mainController != null && mainController.getSelectedProject() != null) {
+                String projectName = mainController.getSelectedProject().getName();
+                saveJarPath(projectName, currentJarPath);
+            }
+        } else {
+            // Clear when no valid directories
+            jarFiles.clear();
+            jarListView.getItems().clear();
+            updateCounts();
+        }
+    }
+    
+    private void loadJarFilesFromPaths(List<String> directories) {
+        try {
+            List<String> jars = JarDecompilerService.getJarFilesFromPaths(directories);
+            
+            jarFiles.clear();
+            jarSelectionMap.clear();
+            jarClassTrees.clear();
+            
+            // Load saved selection from decompilation info if exists
+            DecompilationInfo info = getDecompilationInfo();
+            Map<String, Boolean> savedSelection = (info != null) ? info.jarSelection : null;
+            
+            for (String jar : jars) {
+                jarFiles.add(jar);
+                
+                boolean selected;
+                if (savedSelection != null && savedSelection.containsKey(jar)) {
+                    selected = savedSelection.get(jar);
+                    logger.info("Loaded saved selection from decompilation info for " + jar + ": " + selected);
+                } else {
+                    selected = jar.startsWith("nms_") && jar.endsWith(".jar");
+                }
+                jarSelectionMap.put(jar, selected);
+            }
+            
+            jarListView.refresh();
+            updateDecompileButtonState();
+            updateCounts();
+            updateStatus("Found " + jars.size() + " JAR files (multi-path)", "fa-archive");
+            logger.info("Loaded " + jars.size() + " JAR files from multi-path");
+        } catch (Exception e) {
+            logger.severe("Error loading JAR files from multi-path: " + e.getMessage());
+            DialogUtil.showAlert(Alert.AlertType.ERROR, "Error", "Failed to load JAR files: " + e.getMessage());
+            updateStatus("Error loading JAR files", "fa-exclamation-triangle");
         }
     }
     
@@ -1387,10 +1500,8 @@ public class EnhancedJarDecompilerController implements Initializable {
                 // Refresh tab content to reflect latest decompiled output
                 loadExistingDecompiledData();
 
-                String selectedJar = jarListView.getSelectionModel().getSelectedItem();
-                if (selectedJar != null) {
-                    loadClassTreeForJar(selectedJar);
-                }
+                // Keep showing all decompiled classes across all JARs
+                // No need to filter by selected JAR here.
 
                 String selectedClass = classListView.getSelectionModel().getSelectedItem();
                 if (selectedClass != null) {
@@ -1704,10 +1815,10 @@ public class EnhancedJarDecompilerController implements Initializable {
                 // First, try to load saved JAR path for this project (only if user previously set one)
                 String savedJarPath = getSavedJarPath(projectName);
                 if (savedJarPath != null && !savedJarPath.isEmpty()) {
-                    File savedDir = new File(savedJarPath);
-                    if (savedDir.exists() && savedDir.isDirectory()) {
+                    List<String> savedDirs = parseJarPaths(savedJarPath);
+                    if (!savedDirs.isEmpty()) {
                         jarPathField.setText(savedJarPath);
-                        loadJarFiles(savedJarPath);
+                        loadJarFilesFromJarPathField();
                         // Auto-save the loaded path to prevent future save prompts
                         saveJarPath(projectName, savedJarPath);
                         return;
@@ -1721,7 +1832,7 @@ public class EnhancedJarDecompilerController implements Initializable {
                     File nmslibDir = new File(defaultJarPath);
                     if (nmslibDir.exists() && nmslibDir.isDirectory()) {
                         jarPathField.setText(defaultJarPath);
-                        loadJarFiles(defaultJarPath);
+                        loadJarFilesFromJarPathField();
                         // Auto-save the default path to prevent save prompts
                         saveJarPath(projectName, defaultJarPath);
                         return;
@@ -1744,16 +1855,16 @@ public class EnhancedJarDecompilerController implements Initializable {
      */
     private void saveJarPath(String projectName, String jarPath) {
         try {
-            String userHome = System.getProperty("user.home");
-            String configDir = Paths.get(userHome, "Documents", "nms_support_data", "config").toString();
-            Files.createDirectories(Paths.get(configDir));
-            
-            String configFile = Paths.get(configDir, projectName + "_jar_path.txt").toString();
-            Files.write(Paths.get(configFile), jarPath.getBytes());
-            
-            logger.info("Saved JAR path for project " + projectName + ": " + jarPath);
+            if (mainController != null && mainController.projectManager != null) {
+                ProjectEntity project = mainController.getSelectedProject();
+                if (project != null) {
+                    project.setJarDecompilerPaths(jarPath);
+                    mainController.projectManager.saveData();
+                    logger.info("Saved JAR path for project " + projectName + " to ProjectEntity: " + jarPath);
+                }
+            }
         } catch (Exception e) {
-            logger.warning("Error saving JAR path for project " + projectName + ": " + e.getMessage());
+            logger.warning("Error saving JAR path for project " + projectName + " to ProjectEntity: " + e.getMessage());
         }
     }
     
@@ -1765,17 +1876,30 @@ public class EnhancedJarDecompilerController implements Initializable {
      */
     private String getSavedJarPath(String projectName) {
         try {
-            String userHome = System.getProperty("user.home");
-            String configFile = Paths.get(userHome, "Documents", "nms_support_data", "config", projectName + "_jar_path.txt").toString();
-            File file = new File(configFile);
-            
-            if (file.exists()) {
-                String jarPath = Files.readString(Paths.get(configFile)).trim();
-                logger.info("Loaded saved JAR path for project " + projectName + ": " + jarPath);
-                return jarPath;
+            if (mainController != null) {
+                // Prefer explicit lookup by name to avoid relying on current selection
+                if (mainController.projectManager != null && projectName != null && !projectName.trim().isEmpty()) {
+                    ProjectEntity projectByName = mainController.projectManager.getProject(projectName);
+                    if (projectByName != null) {
+                        String paths = projectByName.getJarDecompilerPaths();
+                        if (paths != null && !paths.trim().isEmpty()) {
+                            logger.info("Loaded saved JAR path from ProjectEntity for project " + projectName + ": " + paths);
+                            return paths;
+                        }
+                    }
+                }
+                // Fallback to currently selected project if lookup by name fails
+                ProjectEntity selected = mainController.getSelectedProject();
+                if (selected != null) {
+                    String paths = selected.getJarDecompilerPaths();
+                    if (paths != null && !paths.trim().isEmpty()) {
+                        logger.info("Loaded saved JAR path from currently selected ProjectEntity for project " + selected.getName() + ": " + paths);
+                        return paths;
+                    }
+                }
             }
         } catch (Exception e) {
-            logger.warning("Error loading saved JAR path for project " + projectName + ": " + e.getMessage());
+            logger.warning("Error loading saved JAR path from ProjectEntity for project " + projectName + ": " + e.getMessage());
         }
         return null;
     }
@@ -1787,9 +1911,15 @@ public class EnhancedJarDecompilerController implements Initializable {
         if (mainController == null) {
             return null;
         }
-        
         try {
-            // Get the project entity and extract exePath
+            // Prefer explicit lookup by project name (does not depend on current selection)
+            if (mainController.projectManager != null && projectName != null && !projectName.trim().isEmpty()) {
+                ProjectEntity byName = mainController.projectManager.getProject(projectName);
+                if (byName != null && byName.getExePath() != null && !byName.getExePath().isEmpty()) {
+                    return byName.getExePath();
+                }
+            }
+            // Fallback to currently selected project
             ProjectEntity project = mainController.getSelectedProject();
             if (project != null && project.getExePath() != null && !project.getExePath().isEmpty()) {
                 return project.getExePath();
@@ -1797,7 +1927,6 @@ public class EnhancedJarDecompilerController implements Initializable {
         } catch (Exception e) {
             logger.warning("Error getting product folder path: " + e.getMessage());
         }
-        
         return null;
     }
     
@@ -1810,7 +1939,7 @@ public class EnhancedJarDecompilerController implements Initializable {
             return null;
         }
         String userHome = System.getProperty("user.home");
-        return Paths.get(userHome, "Documents", "nms_support_data", "extracted", currentProjectName).toString();
+        return Paths.get(userHome, "Documents", "nms_support_data", "extracted", currentProjectName + "_JAR_DECOMPILED").toString();
     }
     
     // Note: Syntax highlighting removed for simplicity - using basic TextArea
@@ -1852,6 +1981,14 @@ public class EnhancedJarDecompilerController implements Initializable {
         // Clear JAR path field to ensure it gets updated
         jarPathField.clear();
         currentJarPath = null;
+
+        // Optimistically pre-populate from saved paths for the newly selected project (fast UI feedback)
+        String preSavedPath = getSavedJarPath(newProjectName);
+        List<String> preDirs = parseJarPaths(preSavedPath);
+        if (preSavedPath != null && !preSavedPath.trim().isEmpty() && !preDirs.isEmpty()) {
+            jarPathField.setText(preSavedPath);
+            loadJarFilesFromJarPathField(); // triggers list population immediately
+        }
         
         updateCounts();
         
@@ -1914,8 +2051,8 @@ public class EnhancedJarDecompilerController implements Initializable {
                 // Load JAR files in background (only if we have a path)
                 String jarPathToLoad = null;
                 if (savedJarPath != null && !savedJarPath.isEmpty()) {
-                    File savedDir = new File(savedJarPath);
-                    if (savedDir.exists() && savedDir.isDirectory()) {
+                    List<String> savedDirs = parseJarPaths(savedJarPath);
+                    if (!savedDirs.isEmpty()) {
                         jarPathToLoad = savedJarPath;
                     }
                 } else if (productFolderPath != null && !productFolderPath.trim().isEmpty()) {
@@ -1926,10 +2063,11 @@ public class EnhancedJarDecompilerController implements Initializable {
                     }
                 }
                 
-                // Load JAR list if we have a path
+                // Load JAR list if we have a path (supports semicolon-separated)
                 List<String> jarsToLoad = new ArrayList<>();
                 if (jarPathToLoad != null) {
-                    jarsToLoad = JarDecompilerService.getJarFiles(jarPathToLoad);
+                    List<String> dirs = parseJarPaths(jarPathToLoad);
+                    jarsToLoad = JarDecompilerService.getJarFilesFromPaths(dirs);
                 }
                 
                 // Try to load saved selection from decompilation info (not separate files)

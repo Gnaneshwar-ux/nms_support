@@ -45,6 +45,13 @@ public class VpnManager implements IManager {
     public void initManager(File source) {
         ObjectMapper objectMapper = new ObjectMapper();
         try {
+            // If the file is empty just initialise a fresh instance instead of failing
+            if (source.length() == 0) {
+                vpnDetails = new VpnDetails();
+                // persist the freshly created blank object to avoid future empty-file issues
+                objectMapper.writerWithDefaultPrettyPrinter().writeValue(source, vpnDetails);
+                return;
+            }
             vpnDetails = objectMapper.readValue(source, VpnDetails.class);
             if (vpnDetails == null) {
                 vpnDetails = new VpnDetails();
