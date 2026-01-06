@@ -60,6 +60,11 @@
             </center>
             <right>
                 <HBox spacing="6" alignment="CENTER_RIGHT">
+                    <Button fx:id="clineButton" text="Cline->" styleClass="cline-button">
+                        <tooltip>
+                            <Tooltip text="Open VS Code workspace (project, product, decompiled). Workflow opens; use with Cline to refine config."/>
+                        </tooltip>
+                    </Button>
                     <Button fx:id="infoButton" text="i" prefWidth="28.0" prefHeight="28.0" styleClass="info-icon-button">
                         <tooltip>
                             <Tooltip text="View DevTools information and shortcuts"/>

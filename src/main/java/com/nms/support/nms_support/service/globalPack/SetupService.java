@@ -37,6 +37,8 @@ import java.util.logging.Logger;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.cert.X509Certificate;
 import javax.net.ssl.*;
+import java.util.Map;
+import java.lang.reflect.Field;
 
 /**
  * Business-level service for handling setup operations
@@ -866,6 +868,18 @@ public class SetupService {
             // Check if environment variable already exists
             if (doesEnvVariableExist(envVarName)) {
                 logger.info("Environment variable '" + envVarName + "' already exists");
+                // Patch current process env so running JavaFX sees the current persisted value
+                try {
+                    String persisted = getPersistedEnvVarValue(envVarName);
+                    if (persisted == null || persisted.trim().isEmpty()) {
+                        persisted = System.getenv(envVarName);
+                    }
+                    if (persisted == null || persisted.trim().isEmpty()) {
+                        persisted = project.getExePath(); // last-resort fallback
+                    }
+                    setProcessEnvVarInCurrentProcess(envVarName, persisted);
+                    logger.info("Patched current process environment for existing var: " + envVarName + "=" + persisted);
+                } catch (Exception ignore) { }
                 processMonitor.updateState("env_validation", 100, "Environment variable '" + envVarName + "' already exists no change required");
                 return true;
             }
@@ -878,6 +892,11 @@ public class SetupService {
             
             if (created) {
                 logger.info("Successfully created environment variable '" + envVarName + "' with value '" + project.getExePath() + "'");
+                // Patch current process env so the running JavaFX app sees the new value without relaunch
+                try {
+                    setProcessEnvVarInCurrentProcess(envVarName, project.getExePath());
+                    logger.info("Patched current process environment for new var: " + envVarName + "=" + project.getExePath());
+                } catch (Exception ignore) { }
                 processMonitor.updateState("env_validation", 100, "Successfully created environment variable '" + envVarName + "' with value '" + project.getExePath() + "'");
                 return true;
             } else {
@@ -956,6 +975,64 @@ public class SetupService {
     /**
      * Validate all required inputs based on setup mode
      */
+    // Retrieve persisted environment variable value from registry (User then Machine) using PowerShell
+    private String getPersistedEnvVarValue(String varName) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command",
+                    "[Environment]::GetEnvironmentVariable('" + varName + "','User')");
+            Process p = pb.start();
+            String out = new String(p.getInputStream().readAllBytes()).trim();
+            p.waitFor();
+            if (!out.isEmpty() && !out.equalsIgnoreCase(varName)) {
+                return out;
+            }
+        } catch (Exception ignored) { }
+        try {
+            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command",
+                    "[Environment]::GetEnvironmentVariable('" + varName + "','Machine')");
+            Process p = pb.start();
+            String out = new String(p.getInputStream().readAllBytes()).trim();
+            p.waitFor();
+            if (!out.isEmpty() && !out.equalsIgnoreCase(varName)) {
+                return out;
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
+
+    /**
+     * Best-effort patch of the current JVM's process environment so subsequent
+     * System.getenv() calls in THIS running app see updated values without restart.
+     * Uses internal ProcessEnvironment maps on common JDKs; safely ignored on failure.
+     */
+    @SuppressWarnings("unchecked")
+    private void setProcessEnvVarInCurrentProcess(String key, String value) {
+        try {
+            Class<?> pe = Class.forName("java.lang.ProcessEnvironment");
+            Field theEnvironment = pe.getDeclaredField("theEnvironment");
+            theEnvironment.setAccessible(true);
+            Map<String, String> env = (Map<String, String>) theEnvironment.get(null);
+            env.put(key, value);
+            // Windows case-insensitive map
+            Field ciEnv = pe.getDeclaredField("theCaseInsensitiveEnvironment");
+            ciEnv.setAccessible(true);
+            Map<String, String> cienv = (Map<String, String>) ciEnv.get(null);
+            cienv.put(key, value);
+            return;
+        } catch (Throwable ignored) {
+            // Fallback for other JVMs: try backing map of unmodifiable map
+        }
+        try {
+            Map<String, String> env = System.getenv();
+            Field m = env.getClass().getDeclaredField("m");
+            m.setAccessible(true);
+            Map<String, String> mod = (Map<String, String>) m.get(env);
+            mod.put(key, value);
+        } catch (Throwable t) {
+            // Ignore; best-effort
+        }
+    }
+
     private ValidationResult validateInputs() {
         try {
             if (project == null) {
@@ -3570,18 +3647,46 @@ public class SetupService {
     
     /**
      * Show dialog to user when build files are missing
+     * Ensures dialog is displayed on the JavaFX Application Thread.
      * @return The user's chosen action
      */
     private MissingBuildFilesDialog.BuildFilesAction showMissingBuildFilesDialog() {
         try {
-            // Create a new stage for the dialog
-            Stage dialogStage = new Stage();
-            dialogStage.initModality(Modality.APPLICATION_MODAL);
-            
-            MissingBuildFilesDialog dialog = new MissingBuildFilesDialog();
-            return dialog.showDialog(dialogStage);
-            
-                    } catch (Exception e) {
+            // If already on FX thread, show directly
+            if (Platform.isFxApplicationThread()) {
+                // Show with no explicit owner; dialog is APPLICATION_MODAL and will block via showAndWait()
+                MissingBuildFilesDialog dialog = new MissingBuildFilesDialog();
+                return dialog.showDialog(null, project);
+            }
+
+            // Otherwise, marshal to FX thread and wait for the result
+            java.util.concurrent.atomic.AtomicReference<MissingBuildFilesDialog.BuildFilesAction> resultRef =
+                    new java.util.concurrent.atomic.AtomicReference<>(MissingBuildFilesDialog.BuildFilesAction.CANCEL_SETUP);
+            CountDownLatch latch = new CountDownLatch(1);
+
+            Platform.runLater(() -> {
+                try {
+                    // Show with no explicit owner; dialog is APPLICATION_MODAL and will block via showAndWait()
+                    MissingBuildFilesDialog dialog = new MissingBuildFilesDialog();
+                    MissingBuildFilesDialog.BuildFilesAction result = dialog.showDialog(null, project);
+                    if (result != null) {
+                        resultRef.set(result);
+                    }
+                } catch (Exception ex) {
+                    logger.severe("Error showing missing build files dialog (FX thread): " + ex.getMessage());
+                    resultRef.set(MissingBuildFilesDialog.BuildFilesAction.CANCEL_SETUP);
+                } finally {
+                    latch.countDown();
+                }
+            });
+
+            latch.await();
+            return resultRef.get();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            logger.warning("Interrupted while waiting for missing build files dialog result");
+            return MissingBuildFilesDialog.BuildFilesAction.CANCEL_SETUP;
+        } catch (Exception e) {
             logger.severe("Error showing missing build files dialog: " + e.getMessage());
             // Default to cancel if dialog fails
             return MissingBuildFilesDialog.BuildFilesAction.CANCEL_SETUP;

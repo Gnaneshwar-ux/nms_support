@@ -315,3 +315,29 @@
     -fx-spacing: 4px;
     -fx-padding: 0;
 }
+
+/* Cline button - light blue with curved borders */
+.cline-button {
+    -fx-font-family: 'Inter', 'Segoe UI', 'Arial', sans-serif;
+    -fx-font-size: 13px;
+    -fx-font-weight: 600;
+    -fx-text-fill: #0f3d91;                 /* Deep blue text */
+    -fx-background-color: linear-gradient(to bottom, #eaf2ff, #dbeafe); /* subtle light-blue gradient */
+    -fx-border-color: #3b82f6;             /* Primary blue border */
+    -fx-border-width: 1;
+    -fx-background-radius: 14;
+    -fx-border-radius: 14;
+    -fx-padding: 4 12 4 12;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(59,130,246,0.18), 3, 0.0, 0, 1);
+}
+
+.cline-button:hover {
+    -fx-background-color: #dbeafe;         /* Slightly darker on hover */
+    -fx-border-color: #2563eb;             /* Stronger blue border */
+}
+
+.cline-button:pressed {
+    -fx-background-color: #bfdbfe;         /* Pressed state */
+    -fx-translate-y: 1;                     /* Subtle click feedback */
+}

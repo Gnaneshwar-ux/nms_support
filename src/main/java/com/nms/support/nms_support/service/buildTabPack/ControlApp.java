@@ -275,12 +275,8 @@ public class ControlApp {
                     Map<String, String> env = builder.environment();
                     // Apply per-project Java override if provided (log to build file only)
                     JavaEnvUtil.applyJavaOverride(env, project.getJdkHome(), msg -> addToBuildLog(project, msg, false));
-                    if (project.getNmsEnvVar() != null && !project.getNmsEnvVar().isBlank()) {
-                        env.put(project.getNmsEnvVar(), project.getExePath());
-                        logger.info("Set env: " + project.getNmsEnvVar());
-                    } else {
-                        logger.warning("NMS environment variable not configured for project: " + project.getName());
-                    }
+                    String resolvedEnvPath = resolveAndInjectEnvVar(env, project);
+                    addToBuildLog(project, "Resolved " + project.getNmsEnvVar() + " for build env: " + (resolvedEnvPath != null ? resolvedEnvPath : "null"), false);
 
                     // Force Ant/Javac to use our Java explicitly
                     if (project.getJdkHome() != null && !project.getJdkHome().isBlank()) {
@@ -347,6 +343,21 @@ public class ControlApp {
                             String line; while ((line = r.readLine()) != null) addToBuildLog(project, line, false);
                         }
                         pc.waitFor();
+
+                        // Verify that the child process will see the resolved env var value
+                        String nmsVarName = project.getNmsEnvVar();
+                        if (nmsVarName != null && !nmsVarName.isBlank()) {
+                            ProcessBuilder diagEnvVar = new ProcessBuilder("cmd.exe", "/c", "echo %" + nmsVarName + "%");
+                            diagEnvVar.directory(workingDir);
+                            diagEnvVar.environment().putAll(env);
+                            diagEnvVar.redirectErrorStream(true);
+                            Process pev = diagEnvVar.start();
+                            try (BufferedReader r = new BufferedReader(new InputStreamReader(pev.getInputStream()))) {
+                                String line; while ((line = r.readLine()) != null) addToBuildLog(project, nmsVarName + "=" + line, false);
+                            }
+                            pev.waitFor();
+                        }
+
                         addToBuildLog(project, "=== END JAVA DIAGNOSTICS ===", false);
                     } catch (Exception diagEx) {
                         addToBuildLog(project, "WARNING: Diagnostics failed: " + diagEx.getMessage(), false);
@@ -661,12 +672,8 @@ public class ControlApp {
                     // Preserve Java/NMS dynamic injections
                     JavaEnvUtil.applyJavaOverride(env, project.getJdkHome(), buildAutomation::appendTextToLog);
                     env.put("L4J_DEBUG", "1");
-                    if (project.getNmsEnvVar() != null && !project.getNmsEnvVar().isBlank()) {
-                        env.put(project.getNmsEnvVar(), project.getExePath());
-                        logger.info("Set env: " + project.getNmsEnvVar());
-                    } else {
-                        logger.warning("NMS environment variable not configured for project: " + project.getName());
-                    }
+                    String resolvedStartEnvPath = resolveAndInjectEnvVar(env, project);
+                    buildAutomation.appendTextToLog("Resolved " + project.getNmsEnvVar() + " for launch env: " + (resolvedStartEnvPath != null ? resolvedStartEnvPath : "null"));
 
                     // Discard child IO to prevent potential blocking on pipes
                     pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
@@ -1038,6 +1045,84 @@ public class ControlApp {
         }
     }
 
+
+    private boolean isValidDirectory(String p) {
+        try {
+            if (p == null) return false;
+            String s = p.trim();
+            if (s.isEmpty()) return false;
+            File f = new File(s);
+            return f.exists() && f.isDirectory();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // Read persisted env var from registry (User, then Machine) via PowerShell
+    private String getPersistedEnvVarValue(String varName) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command",
+                    "[Environment]::GetEnvironmentVariable('" + varName + "','User')");
+            Process p = pb.start();
+            String out = new String(p.getInputStream().readAllBytes()).trim();
+            p.waitFor();
+            if (!out.isEmpty() && !out.equalsIgnoreCase(varName)) return out;
+        } catch (Exception ignored) { }
+        try {
+            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command",
+                    "[Environment]::GetEnvironmentVariable('" + varName + "','Machine')");
+            Process p = pb.start();
+            String out = new String(p.getInputStream().readAllBytes()).trim();
+            p.waitFor();
+            if (!out.isEmpty() && !out.equalsIgnoreCase(varName)) return out;
+        } catch (Exception ignored) { }
+        return null;
+    }
+
+    /**
+     * Resolve the value to inject for the project's env var into a child process:
+     * 1) Persisted User value if valid dir
+     * 2) Persisted Machine value if valid dir
+     * 3) Current System.getenv snapshot if valid dir
+     * 4) project.getExePath() if valid dir
+     * Returns the chosen path or null if nothing valid.
+     */
+    private String resolveAndInjectEnvVar(Map<String,String> env, ProjectEntity project) {
+        try {
+            String varName = project.getNmsEnvVar();
+            if (varName == null || varName.isBlank()) return null;
+
+            String userVal = getPersistedEnvVarValue(varName); // will check User then Machine internally
+            String machineVal = null;
+            if (userVal == null) {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command",
+                            "[Environment]::GetEnvironmentVariable('" + varName + "','Machine')");
+                    Process p = pb.start();
+                    machineVal = new String(p.getInputStream().readAllBytes()).trim();
+                    p.waitFor();
+                    if (machineVal.isEmpty() || machineVal.equalsIgnoreCase(varName)) machineVal = null;
+                } catch (Exception ignored) {}
+            }
+            String sysSnapshot = System.getenv(varName);
+            String chosen = null;
+            if (isValidDirectory(userVal)) chosen = userVal;
+            else if (isValidDirectory(machineVal)) chosen = machineVal;
+            else if (isValidDirectory(sysSnapshot)) chosen = sysSnapshot;
+            else if (isValidDirectory(project.getExePath())) chosen = project.getExePath();
+
+            if (chosen != null) {
+                env.put(varName, chosen);
+                logger.info("Injected " + varName + "=" + chosen);
+            } else {
+                logger.warning("No valid value found to inject for " + varName);
+            }
+            return chosen;
+        } catch (Exception e) {
+            logger.warning("Failed to resolve/inject env var for child process: " + e.getMessage());
+            return null;
+        }
+    }
 
     public static String getLogDirectoryPath() {
         String path;

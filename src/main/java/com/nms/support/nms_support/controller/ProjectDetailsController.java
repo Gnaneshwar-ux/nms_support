@@ -9,14 +9,18 @@ import javafx.scene.layout.*;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
 import javafx.stage.Window;
+import javafx.scene.paint.Color;
+import org.kordamp.ikonli.javafx.FontIcon;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.lang.reflect.Field;
 
 import javafx.scene.control.Control;
 import com.nms.support.nms_support.service.globalPack.ChangeTrackingService;
@@ -59,6 +63,8 @@ public class ProjectDetailsController {
     @FXML private TextField projectFolderField; // TODO: Add to ProjectEntity if needed
     @FXML private TextField productFolderField; // TODO: Add to ProjectEntity if needed
     @FXML private TextField envVarField;
+    @FXML private Button envVarEditBtn;
+    @FXML private FontIcon envVarEditIcon;
     @FXML private TextField svnUrlField;
     @FXML private Button svnBrowseBtn;
     @FXML private Button replaceProjectBuildBtn;
@@ -76,6 +82,13 @@ public class ProjectDetailsController {
 
     private MainController mainController;
     private ChangeTrackingService changeTrackingService;
+    private javafx.animation.PauseTransition productPathDebounce;
+    private javafx.animation.PauseTransition envVarDebounce;
+
+    // Cache for environment variable reads to avoid repeated PowerShell invocations while typing
+    private String cachedEnvVarName;
+    private String cachedEnvVarValue;
+    private long cachedEnvVarReadAtMs;
     
     public void setMainController(MainController mc){ 
         this.mainController = mc; 
@@ -99,14 +112,34 @@ public class ProjectDetailsController {
             });
         }
 
-        // Add listener to product folder field to notify build automation when it changes
+        // Debounced updates to avoid lag while typing in text fields
+        productPathDebounce = new javafx.animation.PauseTransition(javafx.util.Duration.millis(350));
+        productPathDebounce.setOnFinished(e -> {
+            notifyProductFolderPathChange();
+            updateEnvVarEditIconColor();
+        });
+        envVarDebounce = new javafx.animation.PauseTransition(javafx.util.Duration.millis(350));
+        envVarDebounce.setOnFinished(e -> updateEnvVarEditIconColor());
+
+        // Add listener to product folder field; debounce heavy work to avoid UI lag while typing
         productFolderField.textProperty().addListener((obs, oldValue, newValue) -> {
-            // Only notify if the value actually changed
             if (changeTrackingService != null && 
                 !java.util.Objects.equals(oldValue, newValue)) {
-                notifyProductFolderPathChange();
+                productPathDebounce.stop();
+                productPathDebounce.playFromStart();
             }
         });
+
+        // Keep icon color in sync when env var name changes too (debounced)
+        if (envVarField != null) {
+            envVarField.textProperty().addListener((obs, ov, nv) -> {
+                envVarDebounce.stop();
+                envVarDebounce.playFromStart();
+            });
+        }
+
+        // Initial evaluation
+        updateEnvVarEditIconColor();
     }
 
     /**
@@ -254,6 +287,8 @@ public class ProjectDetailsController {
             }
             envVarField.setText(envVar);
             svnUrlField.setText(safe(project.getSvnRepo()));
+            // Update edit icon color after loading project
+            updateEnvVarEditIconColor();
 
         } catch (Exception e) {
             logger.severe("Error loading project details: " + e.getMessage());
@@ -1612,6 +1647,226 @@ public class ProjectDetailsController {
     private interface ImportDataCopier {
         void copyData(ProjectEntity sourceProject);
     }
+
+    @FXML
+    private void editEnvVarValue() {
+        try {
+            String varName = envVarField != null ? envVarField.getText().trim() : "";
+            if (varName.isEmpty()) {
+                DialogUtil.showAlert(Alert.AlertType.WARNING, "Missing Env Variable", "Please enter/select an environment variable name first.");
+                return;
+            }
+            String currentValue = getActualEnvVarValue(varName);
+            // Fallback to product folder if value is empty
+            if (currentValue == null || currentValue.isEmpty()) {
+                currentValue = productFolderField != null ? productFolderField.getText().trim() : "";
+            }
+
+            EditEnvVarValueDialog dialog = new EditEnvVarValueDialog();
+            Stage parentStage = (Stage) rootScroller.getScene().getWindow();
+
+            dialog.showDialog(parentStage, varName, currentValue).thenAccept(optNewValue -> {
+                if (optNewValue.isPresent()) {
+                    String newVal = optNewValue.get().trim();
+                    if (newVal.isEmpty()) {
+                        Platform.runLater(() -> DialogUtil.showAlert(Alert.AlertType.WARNING, "Invalid Value", "Path cannot be empty."));
+                        return;
+                    }
+                    // Show loading state and disable edit button while updating
+                    Platform.runLater(() -> {
+                        showEnhancedLoadingScreen("Updating environment variable");
+                        if (envVarEditBtn != null) envVarEditBtn.setDisable(true);
+                    });
+                    // Perform update off the FX thread to avoid UI freeze
+                    new Thread(() -> {
+                        boolean ok = setUserEnvVarValue(varName, newVal);
+                        Platform.runLater(() -> {
+                            hideEnhancedLoadingScreen();
+                            if (envVarEditBtn != null) envVarEditBtn.setDisable(false);
+                            if (ok) {
+                                // Patch current JVM's environment map so subsequent System.getenv() calls
+                                // in this process can see the updated value without relaunch.
+                                setProcessEnvVarInCurrentProcess(varName, newVal);
+                                DialogUtil.showAlert(Alert.AlertType.INFORMATION, "Environment Variable Updated",
+                                        String.format("%s has been set to:\n%s\n\nNew Command Prompt windows will pick up this change.", varName, newVal));
+                            } else {
+                                DialogUtil.showAlert(Alert.AlertType.ERROR, "Update Failed",
+                                        "Failed to update the environment variable. Please try again with Administrator privileges.");
+                            }
+                            updateEnvVarEditIconColor();
+                        });
+                    }, "env-var-update").start();
+                }
+            });
+        } catch (Exception e) {
+            logger.severe("Error editing env var value: " + e.getMessage());
+            DialogUtil.showAlert(Alert.AlertType.ERROR, "Error", "Failed to edit environment variable: " + e.getMessage());
+        }
+    }
+
+    private void updateEnvVarEditIconColor() {
+        if (envVarEditIcon == null || productFolderField == null || envVarField == null) return;
+        try {
+            String varName = envVarField.getText() != null ? envVarField.getText().trim() : "";
+            String productPath = productFolderField.getText() != null ? productFolderField.getText().trim() : "";
+            if (varName.isEmpty() || productPath.isEmpty()) {
+                envVarEditIcon.setIconColor(Color.web("#374151")); // default icon color
+                return;
+            }
+            String val = getActualEnvVarValue(varName);
+            // If cannot read, keep neutral color
+            if (val == null || val.trim().isEmpty()) {
+                envVarEditIcon.setIconColor(Color.web("#374151"));
+                return;
+            }
+            String n1 = normalizePath(productPath);
+            String n2 = normalizePath(val);
+            if (n1.equalsIgnoreCase(n2)) {
+                envVarEditIcon.setIconColor(Color.web("#374151")); // default
+            } else {
+                envVarEditIcon.setIconColor(Color.ORANGE);
+            }
+        } catch (Exception ex) {
+            envVarEditIcon.setIconColor(Color.web("#374151"));
+        }
+    }
+
+    private String normalizePath(String p) {
+        if (p == null) return "";
+        String s = p.trim().replace('/', '\\');
+        if (s.endsWith("\\")) s = s.substring(0, s.length()-1);
+        return s;
+    }
+
+    private String escapeForPowerShell(String s) {
+        if (s == null) return "";
+        // Single-quote escape for PowerShell single-quoted strings
+        return s.replace("'", "''");
+    }
+
+    /**
+     * Best-effort patch of the current JVM's process environment so that
+     * subsequent System.getenv() calls in THIS running app can see updated values
+     * without restarting the JavaFX app.
+     * Note: This relies on internal ProcessEnvironment fields and may not work
+     * on all Java versions. Safe to ignore failures.
+     */
+    @SuppressWarnings("unchecked")
+    private void setProcessEnvVarInCurrentProcess(String key, String value) {
+        try {
+            // For Oracle/OpenJDK on Windows:
+            Class<?> pe = Class.forName("java.lang.ProcessEnvironment");
+            Field theEnvironment = pe.getDeclaredField("theEnvironment");
+            theEnvironment.setAccessible(true);
+            Map<String, String> env = (Map<String, String>) theEnvironment.get(null);
+            env.put(key, value);
+            // Case-insensitive map on Windows
+            Field ciEnv = pe.getDeclaredField("theCaseInsensitiveEnvironment");
+            ciEnv.setAccessible(true);
+            Map<String, String> cienv = (Map<String, String>) ciEnv.get(null);
+            cienv.put(key, value);
+            logger.info("Patched current process environment for key=" + key);
+            return;
+        } catch (Throwable ignored) {
+            // Fallback for other JVMs: try to modify the unmodifiable map's backing
+        }
+        try {
+            Map<String, String> env = System.getenv();
+            Class<?> cl = env.getClass();
+            Field m = cl.getDeclaredField("m");
+            m.setAccessible(true);
+            Map<String, String> mod = (Map<String, String>) m.get(env);
+            mod.put(key, value);
+            logger.info("Patched System.getenv() backing map for key=" + key);
+        } catch (Throwable t) {
+            logger.warning("Failed to patch current process environment: " + t.getMessage());
+        }
+    }
+
+    private String getActualEnvVarValue(String varName) {
+        // Fast-path: return cached value if we recently resolved the same var (3s TTL)
+        long now = System.currentTimeMillis();
+        if (cachedEnvVarName != null
+                && cachedEnvVarName.equalsIgnoreCase(varName)
+                && (now - cachedEnvVarReadAtMs) < 3000) {
+            return cachedEnvVarValue;
+        }
+
+        String resolved = null;
+
+        // Prefer PowerShell to read current persisted value (User scope), then Machine
+        try {
+            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command",
+                    "[Environment]::GetEnvironmentVariable('" + varName + "','User')");
+            Process p = pb.start();
+            String out = new String(p.getInputStream().readAllBytes()).trim();
+            p.waitFor();
+            if (!out.isEmpty() && !out.equalsIgnoreCase(varName)) {
+                resolved = out;
+            }
+        } catch (Exception ignored) { }
+
+        if (resolved == null) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command",
+                        "[Environment]::GetEnvironmentVariable('" + varName + "','Machine')");
+                Process p = pb.start();
+                String out = new String(p.getInputStream().readAllBytes()).trim();
+                p.waitFor();
+                if (!out.isEmpty() && !out.equalsIgnoreCase(varName)) {
+                    resolved = out;
+                }
+            } catch (Exception ignored) { }
+        }
+
+        if (resolved == null) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/c", "echo", "%" + varName + "%");
+                Process p = pb.start();
+                String out = new String(p.getInputStream().readAllBytes()).trim();
+                p.waitFor();
+                if (!out.isEmpty() && !out.equals("%" + varName + "%")) {
+                    resolved = out;
+                }
+            } catch (Exception ignored) { }
+        }
+
+        if (resolved == null) {
+            resolved = System.getenv(varName); // fallback snapshot
+        }
+
+        // Update cache
+        cachedEnvVarName = varName;
+        cachedEnvVarValue = resolved;
+        cachedEnvVarReadAtMs = now;
+
+        return resolved;
+    }
+
+    private boolean setUserEnvVarValue(String varName, String value) {
+        // Try PowerShell first (typically faster), fall back to setx
+        try {
+            String ps = String.format("[Environment]::SetEnvironmentVariable('%s','%s','User')",
+                    escapeForPowerShell(varName), escapeForPowerShell(value));
+            ProcessBuilder pb = new ProcessBuilder("powershell", "-NoProfile", "-Command", ps);
+            Process p = pb.start();
+            int exit = p.waitFor();
+            if (exit == 0) {
+                return true;
+            }
+            logger.warning("PowerShell SetEnvironmentVariable exit code: " + exit + " - falling back to setx");
+        } catch (Exception e) {
+            logger.warning("PowerShell SetEnvironmentVariable failed: " + e.getMessage() + " - falling back to setx");
+        }
+        try {
+            String command = String.format("setx %s \"%s\"", varName, value);
+            ProcessBuilder pb2 = new ProcessBuilder("cmd.exe", "/c", command);
+            Process p2 = pb2.start();
+            int exit2 = p2.waitFor();
+            return exit2 == 0;
+        } catch (Exception e) {
+            logger.severe("setx failed: " + e.getMessage());
+            return false;
+        }
+    }
 }
-
-

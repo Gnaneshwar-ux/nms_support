@@ -23,6 +23,7 @@ import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.StackPane;
 import javafx.geometry.Pos;
+import javafx.geometry.Insets;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.input.KeyCode;
@@ -33,6 +34,11 @@ import javafx.stage.Stage;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,6 +72,7 @@ public class MainController implements Initializable {
     public Button addButton;
     public Button delButton;
     public Button editProjectButton;
+    public Button clineButton;
     @FXML
     public Tab dataStoreTab;
     public Button openVpnButton;
@@ -144,6 +151,9 @@ public class MainController implements Initializable {
         editProjectButton.setOnAction(event -> editProject());
         if (infoButton != null) {
             infoButton.setOnAction(event -> showInfoDialog());
+        }
+        if (clineButton != null) {
+            clineButton.setOnAction(event -> openClineWorkspace());
         }
         reloadProjectNamesCB();
         
@@ -1668,6 +1678,226 @@ public class MainController implements Initializable {
     }
     
     /**
+     * Opens VS Code workspace "AI (Cline)" for current project with project/product/decompiled folders
+     * Also ensures a per-project workflow file exists under Documents/Cline/Workflows and offers to edit it.
+     */
+    private void openClineWorkspace() {
+        try {
+            ProjectEntity project = getSelectedProject();
+            if (project == null) {
+                DialogUtil.showError("No Project Selected", "Please select a project to open the AI (Cline) workspace.");
+                return;
+            }
+
+            String projectName = project.getName() != null ? project.getName().trim() : "";
+            if (projectName.isEmpty()) {
+                DialogUtil.showError("Invalid Project", "Selected project has no name.");
+                return;
+            }
+
+            // Resolve candidate folders
+            String projectFolder = project.getProjectFolderPath(); // project root (without /jconfig)
+            String productFolder = project.getExePath();           // product folder
+            String decompiledFolder = com.nms.support.nms_support.service.globalPack.JarDecompilerService.getExtractionDirectory(projectName);
+
+            java.util.List<String> workspaceFolders = new java.util.ArrayList<>();
+            if (projectFolder != null && !projectFolder.isEmpty() && new File(projectFolder).exists()) {
+                workspaceFolders.add(projectFolder);
+            }
+            if (productFolder != null && !productFolder.isEmpty() && new File(productFolder).exists()) {
+                workspaceFolders.add(productFolder);
+            }
+            if (decompiledFolder != null && !decompiledFolder.isEmpty() && new File(decompiledFolder).exists()) {
+                workspaceFolders.add(decompiledFolder);
+            }
+
+            if (workspaceFolders.isEmpty()) {
+                DialogUtil.showError("No Folders Found", "Could not resolve any valid folders to include in the workspace.\nPlease configure project and product paths first.");
+                return;
+            }
+
+            // Base directories for workspace and workflows
+            Path documentsDir = Paths.get(System.getProperty("user.home"), "Documents");
+            Path nmsDataDir = documentsDir.resolve("nms_support_data");
+            Path workspacesDir = nmsDataDir.resolve("vscode_workspaces");
+            Path workflowsDir = documentsDir.resolve("Cline").resolve("Workflows");
+            ensureDir(workspacesDir);
+            ensureDir(workflowsDir);
+            
+            // Workspace file path
+            Path workspacePath = workspacesDir.resolve(projectName + ".code-workspace");
+            String workspaceJson = buildWorkspaceJson(workspaceFolders, projectName);
+            Files.write(workspacePath, workspaceJson.getBytes(StandardCharsets.UTF_8),
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+
+            // Workflow file path and initial content
+            String workflowBase = projectName.toLowerCase(java.util.Locale.ROOT);
+            Path workflowFile = workflowsDir.resolve(workflowBase + ".workflow.md");
+            String initialWorkflow = getDefaultWorkflowContent(project, projectFolder, productFolder,
+                    (decompiledFolder != null && new File(decompiledFolder).exists()) ? decompiledFolder : "Not generated yet");
+
+            if (!Files.exists(workflowFile)) {
+                Files.write(workflowFile, initialWorkflow.getBytes(StandardCharsets.UTF_8),
+                        StandardOpenOption.CREATE_NEW);
+            } else {
+                // If exists but empty, seed it
+                if (Files.size(workflowFile) == 0) {
+                    Files.write(workflowFile, initialWorkflow.getBytes(StandardCharsets.UTF_8),
+                            StandardOpenOption.TRUNCATE_EXISTING);
+                }
+            }
+
+
+            // Launch VS Code: open workspace and the workflow file
+            String vsCodePath = com.nms.support.nms_support.service.globalPack.JarDecompilerService.findVSCodeExecutable();
+            java.util.List<String> cmd = new java.util.ArrayList<>();
+            if (vsCodePath != null) {
+                cmd.add(vsCodePath);
+            } else {
+                // fallback to PATH 'code'
+                cmd.add("code");
+            }
+            cmd.add(workspacePath.toString());
+            cmd.add(workflowFile.toString()); // open workflow by default
+
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.start();
+            logger.info("Opened VS Code workspace: " + workspacePath + " with workflow file: " + workflowFile);
+
+        } catch (Exception e) {
+            logger.severe("Error opening Cline workspace: " + e.getMessage());
+            DialogUtil.showError("Error", "Failed to open AI (Cline) workspace:\n" + e.getMessage());
+        }
+    }
+
+    private String buildWorkspaceJson(java.util.List<String> folderPaths, String displayName) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\n");
+        sb.append("  \"folders\": [\n");
+        for (int i = 0; i < folderPaths.size(); i++) {
+            String p = folderPaths.get(i).replace("\\", "/");
+            sb.append("    { \"path\": \"").append(p).append("\" }");
+            if (i < folderPaths.size() - 1) sb.append(",");
+            sb.append("\n");
+        }
+        sb.append("  ],\n");
+        sb.append("  \"settings\": {\n");
+        // Optional: VS Code UX tweaks for Java projects
+        sb.append("    \"files.exclude\": {\"**/.git\": true, \"**/.idea\": true, \"**/target\": true},\n");
+        sb.append("    \"java.configuration.checkProjectSettingsExclusions\": false\n");
+        sb.append("  }\n");
+        sb.append("}\n");
+        return sb.toString();
+    }
+
+    private Path ensureDir(Path dir) throws IOException {
+        if (!Files.exists(dir)) {
+            Files.createDirectories(dir);
+        }
+        return dir;
+    }
+
+    private String getDefaultWorkflowContent(ProjectEntity project, String projectFolder, String productFolder, String decompiledFolder) {
+        String name = (project != null && project.getName() != null) ? project.getName() : "Project";
+        String envVar = (project != null && project.getNmsEnvVar() != null && !project.getNmsEnvVar().trim().isEmpty())
+                ? project.getNmsEnvVar().trim()
+                : "N/A";
+        String projPath = (projectFolder != null && !projectFolder.isEmpty()) ? projectFolder : "N/A";
+        String prodJavaPath = "N/A";
+        if (productFolder != null && !productFolder.isEmpty()) {
+            prodJavaPath = productFolder + java.io.File.separator + "java";
+        }
+        String jarPath = (decompiledFolder != null && !decompiledFolder.isEmpty()) ? decompiledFolder : "N/A";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("## Oracle NMS JBot Framework – Project Structure and Workflow\n\n");
+        sb.append("The Oracle NMS JBot framework is built on top of the Spring Framework. The user interface is defined using XML and properties files, following a structured, configuration-driven approach.\n\n");
+        sb.append("---\n\n");
+        sb.append("## Project Folder\n\n");
+        sb.append("**Path:** `").append(projPath).append("`\n\n");
+        sb.append("This folder contains all **project-specific customizations**, including:\n\n");
+        sb.append("* XML configuration files\n");
+        sb.append("* Properties files\n");
+        sb.append("* Java command code for custom commands\n\n");
+        sb.append("Only this folder is intended for implementing changes.\n\n");
+        sb.append("Any SQL-related customizations specific to the project are maintained under the `sql` directory and apply to the Oracle database layer.\n\n");
+        sb.append("This is the **only location where modifications should be made** for project requirements.\n\n");
+        sb.append("---\n\n");
+        sb.append("## Product Folder\n\n");
+        sb.append("**Path:** `").append(prodJavaPath).append("`\n\n");
+        sb.append("This folder contains the **base product code**, including default XML and properties configurations provided by the Oracle NMS product.\n\n");
+        sb.append("Project-level configurations in the Project Folder override the corresponding files in this Product Folder to support project-specific behavior.\n\n");
+        sb.append("---\n\n");
+        sb.append("## Decompiled JAR\n\n");
+        sb.append("**Path:** `").append(jarPath).append("`\n\n");
+        sb.append("This represents the decompiled backend Java client code responsible for:\n\n");
+        sb.append("* Parsing XML configurations\n");
+        sb.append("* Executing commands\n");
+        sb.append("* Launching the UI\n");
+        sb.append("* Communicating with the WebLogic server for data exchange\n\n");
+        sb.append("The decompiled JAR contains:\n\n");
+        sb.append("* Data source classes\n");
+        sb.append("* Command implementations\n");
+        sb.append("* Application initialization and launch logic\n\n");
+        sb.append("If `cesejb.jar` is extracted, the corresponding WebLogic server-side code is also available.\n\n");
+        sb.append("This code is **for reference and analysis only** and must not be modified.\n\n");
+        sb.append("---\n\n");
+        sb.append("## Debugging Process\n\n");
+        sb.append("1. Start by inspecting the **Project Folder**.\n\n");
+        sb.append("   * If an XML file is present here, JBot will **ignore the corresponding XML** from the Product Folder.\n");
+        sb.append("2. For properties files, JBot loads a **merged (concatenated) version** of Product and Project configurations.\n");
+        sb.append("3. If a configuration is not found in the Project Folder, review the **Product Folder** to understand the base behavior.\n");
+        sb.append("4. Always analyze and explain behavior by **prioritizing project-level overrides** over product defaults.\n\n");
+        sb.append("---\n\n");
+        sb.append("## Code and Configuration Guidelines\n\n");
+        sb.append("* All changes must be made **only in the Project Folder**.\n");
+        sb.append("* Do not modify Product Folder or decompiled JAR code.\n");
+        sb.append("* Always follow existing code patterns; do not estimate or infer XML structure by comparing it with HTML or other formats.\n");
+        sb.append("* XML structure and validation rules are defined in the XSD:\n\n");
+        sb.append("  * ").append(prodJavaPath.equals("N/A") ? "<Product path>/product/global/jbot.xsd" : prodJavaPath.replace("\\", "/") + "/product/global/jbot.xsd").append("\n");
+        sb.append("* Properties files typically contain:\n\n");
+        sb.append("  * Labels\n");
+        sb.append("  * Colors\n");
+        sb.append("  * Queries\n");
+        sb.append("  * UI mappings and other configuration parameters\n\n");
+        sb.append("---\n\n");
+        sb.append("## Build and Runtime Behavior\n\n");
+        sb.append("* Running `ant build` from `").append(projPath).append("` invokes `jconfig`, which merges configurations using the mapped environment variable `").append(envVar).append("`.\n");
+        sb.append("* Merge behavior:\n\n");
+        sb.append("  * **XML files**: Project XML completely **replaces** the corresponding Product XML.\n");
+        sb.append("  * **Properties files**: Product and Project properties are **concatenated**.\n\n");
+        sb.append("    * Project properties **override only the keys they define**.\n");
+        sb.append("    * Any parameters not overridden continue to be loaded from the Product properties files.\n");
+        sb.append("* The final merged output is generated under:\n\n");
+        sb.append("  * `").append(prodJavaPath.equals("N/A") ? "<Product path>" : prodJavaPath).append("/working`\n");
+        sb.append("* The application loads all configurations and code **at runtime** from this `working` directory.\n\n");
+        sb.append("---\n\n");
+        sb.append("This approach ensures clean separation between product defaults and project customizations, while allowing selective overrides without duplicating the entire configuration.\n");
+        return sb.toString();
+    }
+
+    private Optional<String> promptEditLargeText(String title, String header, String initial) {
+        Dialog<String> dialog = new Dialog<>();
+        dialog.setTitle(title);
+        dialog.setHeaderText(header);
+        IconUtils.setStageIcon((Stage) dialog.getDialogPane().getScene().getWindow());
+        ButtonType saveBtn = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(saveBtn, ButtonType.CANCEL);
+
+        TextArea ta = new TextArea(initial != null ? initial : "");
+        ta.setWrapText(true);
+        ta.setPrefSize(800, 500);
+
+        VBox box = new VBox(10, ta);
+        box.setPadding(new javafx.geometry.Insets(10));
+        dialog.getDialogPane().setContent(box);
+
+        dialog.setResultConverter(btn -> btn == saveBtn ? ta.getText() : null);
+        Optional<String> res = dialog.showAndWait();
+        return res;
+    }
+
+    /**
      * Shows the information dialog with version and shortcuts
      */
     private void showInfoDialog() {
@@ -1683,4 +1913,3 @@ public class MainController implements Initializable {
 
 
 }
-

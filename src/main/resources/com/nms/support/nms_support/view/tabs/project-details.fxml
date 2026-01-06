@@ -126,6 +126,12 @@
                             </graphic>
                             <tooltip><Tooltip text="Search Env Variable" /></tooltip>
                         </Button>
+                        <Button fx:id="envVarEditBtn" styleClass="icon-btn" onAction="#editEnvVarValue">
+                            <graphic>
+                                <FontIcon fx:id="envVarEditIcon" iconLiteral="fa-pencil" iconSize="16" />
+                            </graphic>
+                            <tooltip><Tooltip text="Edit Env Variable value (path)" /></tooltip>
+                        </Button>
                     </HBox>
                     <Label styleClass="field-label" text="SVN URL" />
                     <HBox spacing="6">
