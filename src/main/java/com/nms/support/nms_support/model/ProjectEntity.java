@@ -48,6 +48,30 @@ public class ProjectEntity {
     // Server zip file tracking for cleanup
     private List<ServerZipFile> serverZipFiles;
 
+    // Callback to request immediate persistence (not serialized)
+    @JsonIgnore
+    private transient SaveCallback saveCallback;
+
+    // Functional interface for persistence callback
+    public interface SaveCallback {
+        void onSaveRequested();
+    }
+
+    public void setSaveCallback(SaveCallback saveCallback) {
+        this.saveCallback = saveCallback;
+    }
+
+    private void requestImmediateSave() {
+        SaveCallback cb = this.saveCallback;
+        if (cb != null) {
+            try {
+                cb.onSaveRequested();
+            } catch (Exception ignored) {
+                // Swallow to avoid breaking caller flows
+            }
+        }
+    }
+
     public List<String> getTypes(String app) {
         if (types.containsKey(app)) return types.get(app);
         return null;
@@ -391,6 +415,8 @@ public class ProjectEntity {
         }
         ServerZipFile zipFile = new ServerZipFile(path, purpose, System.currentTimeMillis());
         serverZipFiles.add(zipFile);
+        // Persist immediately on add
+        requestImmediateSave();
     }
     
     /**
@@ -399,6 +425,8 @@ public class ProjectEntity {
     public synchronized void removeServerZipFile(String path) {
         if (serverZipFiles != null) {
             serverZipFiles.removeIf(zip -> zip.getPath().equals(path));
+            // Persist immediately on remove
+            requestImmediateSave();
         }
     }
     

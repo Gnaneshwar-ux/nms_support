@@ -924,6 +924,7 @@ public class MainController implements Initializable {
                                     }
                                 } catch (IOException e) {
                                     logger.severe("Error loading jar decompiler tab: " + e.getMessage());
+                                    LoggerUtil.error(e);
                                 }
                             });
                         }

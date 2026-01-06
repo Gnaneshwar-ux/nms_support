@@ -425,6 +425,7 @@ public class SFTPDownloadAndUnzip {
         
         // CRITICAL: Track immediately in project entity so it's recorded even if cancelled
         project.addServerZipFile(remoteZipFilePath, "Java download - " + (ssh.getPurpose() != null ? ssh.getPurpose() : "default"));
+
         LoggerUtil.getLogger().info("✓ Tracked zip file in project entity: " + remoteZipFilePath);
         LoggerUtil.getLogger().info("⚠️ Note: Project data will be auto-saved by SetupService after operation completes");
         

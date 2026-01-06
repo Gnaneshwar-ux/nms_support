@@ -34,6 +34,30 @@ public class ProjectManager implements IManager {
 
     }
 
+    // Attach immediate-save callback to a single project
+    private void attachSaveCallback(ProjectEntity project) {
+        if (project != null) {
+            project.setSaveCallback(() -> {
+                try {
+                    // Persist projects.json immediately when zip list changes
+                    saveData();
+                } catch (Exception ignored) {
+                    // Avoid propagating any persistence issues to callers
+                }
+            });
+        }
+    }
+
+    // Attach callbacks for all projects currently loaded
+    private void attachCallbacksForAllProjects() {
+        List<ProjectEntity> projects = projectWrapper != null ? projectWrapper.getProjects() : null;
+        if (projects != null) {
+            for (ProjectEntity p : projects) {
+                attachSaveCallback(p);
+            }
+        }
+    }
+
     private void ensureFileExists(File source) {
         try {
             File parentDir = source.getParentFile();
@@ -69,6 +93,8 @@ public class ProjectManager implements IManager {
             e.printStackTrace();
             projectWrapper = new ProjectWrapper();
         }
+        // Ensure all loaded projects will save immediately on zip add/remove
+        attachCallbacksForAllProjects();
     }
 
 
@@ -98,6 +124,8 @@ public class ProjectManager implements IManager {
         
         project.setOrder(maxOrder + 1);
         projects.add(project);
+        // Ensure immediate-save wiring for new project
+        attachSaveCallback(project);
     }
 
     public void updateProject(String projectName, ProjectEntity updatedProject) {
@@ -106,6 +134,8 @@ public class ProjectManager implements IManager {
             for (int i = 0; i < projects.size(); i++) {
                 if (projects.get(i).getName().equals(projectName)) {
                     projects.set(i, updatedProject);
+                    // Ensure updated instance has immediate-save wiring
+                    attachSaveCallback(updatedProject);
                     return;
                 }
             }
@@ -147,9 +177,11 @@ public class ProjectManager implements IManager {
             projectWrapper = new ProjectWrapper();
         }
         projectWrapper.setProjects(projects);
+        // Ensure all projects are wired for immediate-save behavior
+        attachCallbacksForAllProjects();
     }
 
-    public boolean saveData() {
+    public synchronized boolean saveData() {
         ObjectMapper objectMapper = new ObjectMapper();
         try {
             if (projectWrapper == null) {
