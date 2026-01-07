@@ -500,6 +500,10 @@ public class MainController implements Initializable {
                 KeyCodeCombination restartAccelerator = new KeyCodeCombination(KeyCode.R, KeyCombination.CONTROL_DOWN);
                 scene.getAccelerators().put(restartAccelerator, this::handleRestartShortcut);
                 
+                // Add Ctrl+E accelerator for editing default Cline workflow template
+                KeyCodeCombination editTemplateAccelerator = new KeyCodeCombination(KeyCode.E, KeyCombination.CONTROL_DOWN);
+                scene.getAccelerators().put(editTemplateAccelerator, this::editDefaultWorkflowTemplate);
+                
                 logger.info("Keyboard accelerators setup completed");
             } else {
                 logger.warning("Cannot setup accelerators - scene not available");
@@ -1074,25 +1078,31 @@ public class MainController implements Initializable {
             dialog.showDialog(parentStage, projectManager, selectedProjectName).thenAccept(result -> {
                 if (result.isPresent()) {
                     String newProjectName = result.get();
-                    try {
-                        // Update the project name in the project manager
-                        ProjectEntity project = projectManager.getProject(selectedProjectName);
-                        if (project != null) {
-                            project.setName(newProjectName);
-                            projectManager.saveData();
-                            
-                            // Refresh the ComboBox and select the updated project
-                            reloadProjectNamesCB();
-                            projectComboBox.setValue(newProjectName);
-                            
-                            logger.info("Successfully updated project name from '" + selectedProjectName + "' to '" + newProjectName + "'");
-                        } else {
-                            DialogUtil.showAlert(Alert.AlertType.ERROR, "Error", "Project not found.");
+                    Platform.runLater(() -> {
+                        try {
+                            // Update the project name in the project manager
+                            ProjectEntity project = projectManager.getProject(selectedProjectName);
+                            if (project != null) {
+                                project.setName(newProjectName);
+                                projectManager.saveData();
+
+                                // Refresh the ComboBox and select the updated project on FX thread
+                                reloadProjectNamesCB();
+                                projectComboBox.setValue(newProjectName);
+
+                                // Ensure tabs and dependent controllers reflect the valid selection
+                                setTabState(newProjectName);
+                                notifyControllersOfProjectChange(newProjectName);
+
+                                logger.info("Successfully updated project name from '" + selectedProjectName + "' to '" + newProjectName + "'");
+                            } else {
+                                DialogUtil.showAlert(Alert.AlertType.ERROR, "Error", "Project not found.");
+                            }
+                        } catch (Exception e) {
+                            logger.severe("Error updating project name: " + e.getMessage());
+                            DialogUtil.showAlert(Alert.AlertType.ERROR, "Error", "Failed to update project name: " + e.getMessage());
                         }
-                    } catch (Exception e) {
-                        logger.severe("Error updating project name: " + e.getMessage());
-                        DialogUtil.showAlert(Alert.AlertType.ERROR, "Error", "Failed to update project name: " + e.getMessage());
-                    }
+                    });
                 }
             }).exceptionally(throwable -> {
                 logger.severe("Error in edit project dialog: " + throwable.getMessage());
@@ -1144,19 +1154,24 @@ public class MainController implements Initializable {
                 
                 // Manually trigger tab state update since listener is disabled
                 Platform.runLater(() -> {
-                    setTabState("None");
-                    // Clear all fields in all tabs
-                    if (projectDetailsController != null) {
-                        projectDetailsController.clearFields();
-                    }
-                    if (buildAutomation != null) {
-                        buildAutomation.clearFields();
-                    }
-                    if (datastoreDumpController != null) {
-                        datastoreDumpController.clearFields();
-                    }
-                    if (jarDecompilerController != null) {
-                        jarDecompilerController.clearFields();
+                    // Only apply 'None' state if it is STILL the current selection
+                    if ("None".equals(projectComboBox.getValue())) {
+                        setTabState("None");
+                        // Clear all fields in all tabs
+                        if (projectDetailsController != null) {
+                            projectDetailsController.clearFields();
+                        }
+                        if (buildAutomation != null) {
+                            buildAutomation.clearFields();
+                        }
+                        if (datastoreDumpController != null) {
+                            datastoreDumpController.clearFields();
+                        }
+                        if (jarDecompilerController != null) {
+                            jarDecompilerController.clearFields();
+                        }
+                    } else {
+                        logger.info("Skipping None-state cleanup; current selection is: " + projectComboBox.getValue());
                     }
                 });
             }
@@ -1733,7 +1748,8 @@ public class MainController implements Initializable {
             // Workflow file path and initial content
             String workflowBase = projectName.toLowerCase(java.util.Locale.ROOT);
             Path workflowFile = workflowsDir.resolve(workflowBase + ".workflow.md");
-            String initialWorkflow = getDefaultWorkflowContent(project, projectFolder, productFolder,
+            String templateContent = getOrCreateDefaultWorkflowTemplate();
+            String initialWorkflow = fillWorkflowPlaceholders(templateContent, project, projectFolder, productFolder,
                     (decompiledFolder != null && new File(decompiledFolder).exists()) ? decompiledFolder : "Not generated yet");
 
             if (!Files.exists(workflowFile)) {
@@ -1848,6 +1864,7 @@ public class MainController implements Initializable {
         sb.append("2. For properties files, JBot loads a **merged (concatenated) version** of Product and Project configurations.\n");
         sb.append("3. If a configuration is not found in the Project Folder, review the **Product Folder** to understand the base behavior.\n");
         sb.append("4. Always analyze and explain behavior by **prioritizing project-level overrides** over product defaults.\n\n");
+        sb.append("5. This workspace contains multiple folders. When searching outside primary folders like `{{PRODUCT_JAVA_PATH}}` and `{{DECOMPILED_FOLDER}}`, use case-insensitive substring searches and nearest-match strategies. Split the query into tokens and search iteratively to improve accuracy.\n\n");
         sb.append("---\n\n");
         sb.append("## Code and Configuration Guidelines\n\n");
         sb.append("* All changes must be made **only in the Project Folder**.\n");
@@ -1860,6 +1877,7 @@ public class MainController implements Initializable {
         sb.append("  * Colors\n");
         sb.append("  * Queries\n");
         sb.append("  * UI mappings and other configuration parameters\n\n");
+        sb.append("* Validate the shell before running commands. Detect whether commands will run in Windows cmd, PowerShell, or Bash, and adapt syntax/flags accordingly (e.g., path separators, quoting, env vars). Prefer portable commands and test with dry-run flags when possible.\n\n");
         sb.append("---\n\n");
         sb.append("## Build and Runtime Behavior\n\n");
         sb.append("* Running `ant build` from `").append(projPath).append("` invokes `jconfig`, which merges configurations using the mapped environment variable `").append(envVar).append("`.\n");
@@ -1872,8 +1890,170 @@ public class MainController implements Initializable {
         sb.append("  * `").append(prodJavaPath.equals("N/A") ? "<Product path>" : prodJavaPath).append("/working`\n");
         sb.append("* The application loads all configurations and code **at runtime** from this `working` directory.\n\n");
         sb.append("---\n\n");
+        sb.append("## AI Model Accuracy Tips\n\n");
+        sb.append("* Provide exact file paths and include short surrounding code/context to anchor searches.\n");
+        sb.append("* State the OS and shell (cmd/PowerShell/Bash) when asking for commands.\n");
+        sb.append("* Search across all folders (Project, {{PRODUCT_JAVA_PATH}}, {{DECOMPILED_FOLDER}}) using case-insensitive substrings and tokenized queries for better recall.\n");
+        sb.append("* Prefer small, incremental changes with explicit acceptance criteria; request diffs/patches when feasible.\n");
+        sb.append("* Include actual error messages, stack traces, and command output to ground fixes.\n");
+        sb.append("* When paths can vary, provide both forward/backslash forms and note environment variables.\n");
+        sb.append("* Encourage verification steps (build/run/tests) after changes to reduce drift.\n\n");
         sb.append("This approach ensures clean separation between product defaults and project customizations, while allowing selective overrides without duplicating the entire configuration.\n");
         return sb.toString();
+    }
+
+    // Default Cline workflow template management (stored under Documents/nms_support_data)
+    private Path getDefaultWorkflowTemplatePath() {
+        Path documentsDir = Paths.get(System.getProperty("user.home"), "Documents");
+        Path nmsDataDir = documentsDir.resolve("nms_support_data");
+        return nmsDataDir.resolve("cline_default_workflow.md");
+    }
+
+    private String getOrCreateDefaultWorkflowTemplate() {
+        try {
+            Path documentsDir = Paths.get(System.getProperty("user.home"), "Documents");
+            Path nmsDataDir = documentsDir.resolve("nms_support_data");
+            ensureDir(nmsDataDir);
+            Path templatePath = getDefaultWorkflowTemplatePath();
+            if (!Files.exists(templatePath)) {
+                String template = generateDefaultWorkflowTemplateWithPlaceholders();
+                Files.write(templatePath, template.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
+            }
+            byte[] bytes = Files.readAllBytes(templatePath);
+            return new String(bytes, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            logger.warning("Error ensuring default workflow template: " + e.getMessage());
+            // Fallback to built-in template
+            return generateDefaultWorkflowTemplateWithPlaceholders();
+        }
+    }
+
+    private String generateDefaultWorkflowTemplateWithPlaceholders() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("## Oracle NMS JBot Framework – Project Structure and Workflow\n\n");
+        sb.append("The Oracle NMS JBot framework is built on top of the Spring Framework. The user interface is defined using XML and properties files, following a structured, configuration-driven approach.\n\n");
+        sb.append("---\n\n");
+        sb.append("## Project Folder\n\n");
+        sb.append("**Path:** `{{PROJECT_FOLDER}}`\n\n");
+        sb.append("This folder contains all **project-specific customizations**, including:\n\n");
+        sb.append("* XML configuration files\n");
+        sb.append("* Properties files\n");
+        sb.append("* Java command code for custom commands\n\n");
+        sb.append("Only this folder is intended for implementing changes.\n\n");
+        sb.append("Any SQL-related customizations specific to the project are maintained under the `sql` directory and apply to the Oracle database layer.\n\n");
+        sb.append("This is the **only location where modifications should be made** for project requirements.\n\n");
+        sb.append("---\n\n");
+        sb.append("## Product Folder\n\n");
+        sb.append("**Path:** `{{PRODUCT_JAVA_PATH}}`\n\n");
+        sb.append("This folder contains the **base product code**, including default XML and properties configurations provided by the Oracle NMS product.\n\n");
+        sb.append("Project-level configurations in the Project Folder override the corresponding files in this Product Folder to support project-specific behavior.\n\n");
+        sb.append("---\n\n");
+        sb.append("## Decompiled JAR\n\n");
+        sb.append("**Path:** `{{DECOMPILED_FOLDER}}`\n\n");
+        sb.append("This represents the decompiled backend Java client code responsible for:\n\n");
+        sb.append("* Parsing XML configurations\n");
+        sb.append("* Executing commands\n");
+        sb.append("* Launching the UI\n");
+        sb.append("* Communicating with the WebLogic server for data exchange\n\n");
+        sb.append("The decompiled JAR contains:\n\n");
+        sb.append("* Data source classes\n");
+        sb.append("* Command implementations\n");
+        sb.append("* Application initialization and launch logic\n\n");
+        sb.append("If `cesejb.jar` is extracted, the corresponding WebLogic server-side code is also available.\n\n");
+        sb.append("This code is **for reference and analysis only** and must not be modified.\n\n");
+        sb.append("---\n\n");
+        sb.append("## Debugging Process\n\n");
+        sb.append("1. Start by inspecting the **Project Folder**.\n\n");
+        sb.append("   * If an XML file is present here, JBot will **ignore the corresponding XML** from the Product Folder.\n");
+        sb.append("2. For properties files, JBot loads a **merged (concatenated) version** of Product and Project configurations.\n");
+        sb.append("3. If a configuration is not found in the Project Folder, review the **Product Folder** to understand the base behavior.\n");
+        sb.append("4. Always analyze and explain behavior by **prioritizing project-level overrides** over product defaults.\n\n");
+        sb.append("5. This workspace contains multiple folders. When searching outside primary folders like `{{PRODUCT_JAVA_PATH}}` and `{{DECOMPILED_FOLDER}}`, use case-insensitive substring searches and nearest-match strategies. Split the query into tokens and search iteratively to improve accuracy.\n\n");
+        sb.append("---\n\n");
+        sb.append("## Code and Configuration Guidelines\n\n");
+        sb.append("* All changes must be made **only in the Project Folder**.\n");
+        sb.append("* Do not modify Product Folder or decompiled JAR code.\n");
+        sb.append("* Always follow existing code patterns; do not estimate or infer XML structure by comparing it with HTML or other formats.\n");
+        sb.append("* XML structure and validation rules are defined in the XSD:\n\n");
+        sb.append("  * {{JBOT_XSD_PATH}}\n");
+        sb.append("* Properties files typically contain:\n\n");
+        sb.append("  * Labels\n");
+        sb.append("  * Colors\n");
+        sb.append("  * Queries\n");
+        sb.append("  * UI mappings and other configuration parameters\n\n");
+        sb.append("* Validate the shell before running commands. Detect whether commands will run in Windows cmd, PowerShell, or Bash, and adapt syntax/flags accordingly (e.g., path separators, quoting, env vars). Prefer portable commands and test with dry-run flags when possible.\n\n");
+        sb.append("---\n\n");
+        sb.append("## Build and Runtime Behavior\n\n");
+        sb.append("* Running `ant build` from `{{PROJECT_FOLDER}}` invokes `jconfig`, which merges configurations using the mapped environment variable `{{NMS_ENV_VAR}}`.\n");
+        sb.append("* Merge behavior:\n\n");
+        sb.append("  * **XML files**: Project XML completely **replaces** the corresponding Product XML.\n");
+        sb.append("  * **Properties files**: Product and Project properties are **concatenated**.\n\n");
+        sb.append("    * Project properties **override only the keys they define**.\n");
+        sb.append("    * Any parameters not overridden continue to be loaded from the Product properties files.\n\n");
+        sb.append("* The final merged output is generated under:\n\n");
+        sb.append("  * {{WORKING_DIR}}\n");
+        sb.append("* The application loads all configurations and code **at runtime** from this `working` directory.\n\n");
+        sb.append("---\n\n");
+        sb.append("## AI Model Accuracy Tips\n\n");
+        sb.append("* Provide exact file paths and include short surrounding code/context to anchor searches.\n");
+        sb.append("* State the OS and shell (cmd/PowerShell/Bash) when asking for commands.\n");
+        sb.append("* Search across all folders (Project, {{PRODUCT_JAVA_PATH}}, {{DECOMPILED_FOLDER}}) using case-insensitive substrings and tokenized queries for better recall.\n");
+        sb.append("* Prefer small, incremental changes with explicit acceptance criteria; request diffs/patches when feasible.\n");
+        sb.append("* Include actual error messages, stack traces, and command output to ground fixes.\n");
+        sb.append("* When paths can vary, provide both forward/backslash forms and note environment variables.\n");
+        sb.append("* Encourage verification steps (build/run/tests) after changes to reduce drift.\n\n");
+        sb.append("This approach ensures clean separation between product defaults and project customizations, while allowing selective overrides without duplicating the entire configuration.\n");
+        return sb.toString();
+    }
+
+    private String fillWorkflowPlaceholders(String template, ProjectEntity project, String projectFolder, String productFolder, String decompiledFolder) {
+        String name = (project != null && project.getName() != null) ? project.getName() : "Project";
+        String envVar = (project != null && project.getNmsEnvVar() != null && !project.getNmsEnvVar().trim().isEmpty())
+                ? project.getNmsEnvVar().trim()
+                : "N/A";
+        String projPath = (projectFolder != null && !projectFolder.isEmpty()) ? projectFolder : "N/A";
+        String prodJavaPath = "N/A";
+        if (productFolder != null && !productFolder.isEmpty()) {
+            prodJavaPath = productFolder + java.io.File.separator + "java";
+        }
+        String jarPath = (decompiledFolder != null && !decompiledFolder.isEmpty()) ? decompiledFolder : "N/A";
+        String jbotXsd = prodJavaPath.equals("N/A") ? "<Product path>/product/global/jbot.xsd" : prodJavaPath.replace("\\", "/") + "/product/global/jbot.xsd";
+        String workingDir = (prodJavaPath.equals("N/A") ? "<Product path>" : prodJavaPath) + "/working";
+
+        String filled = template;
+        filled = filled.replace("{{PROJECT_NAME}}", name);
+        filled = filled.replace("{{PROJECT_FOLDER}}", projPath);
+        filled = filled.replace("{{PRODUCT_JAVA_PATH}}", prodJavaPath);
+        filled = filled.replace("{{DECOMPILED_FOLDER}}", jarPath);
+        filled = filled.replace("{{NMS_ENV_VAR}}", envVar);
+        filled = filled.replace("{{JBOT_XSD_PATH}}", jbotXsd);
+        filled = filled.replace("{{WORKING_DIR}}", workingDir);
+        return filled;
+    }
+
+    private void editDefaultWorkflowTemplate() {
+        try {
+            // Ensure template exists and then open it with preferred editor
+            getOrCreateDefaultWorkflowTemplate();
+            Path templatePath = getDefaultWorkflowTemplatePath();
+            boolean opened = false;
+            if (!opened) {
+                opened = tryOpenWithVSCode(templatePath.toString());
+            }
+            if (!opened) {
+                opened = tryOpenWithNotepadPlusPlus(templatePath.toString());
+            }
+            if (!opened) {
+                opened = tryOpenWithNotepad(templatePath.toString());
+            }
+            if (!opened) {
+                DialogUtil.showError("Cannot Open Template",
+                        "Unable to open the default workflow template with any available editor.");
+            }
+        } catch (Exception e) {
+            logger.severe("Error opening default workflow template: " + e.getMessage());
+            DialogUtil.showError("Error", "Failed to open default workflow template:\n" + e.getMessage());
+        }
     }
 
     private Optional<String> promptEditLargeText(String title, String header, String initial) {

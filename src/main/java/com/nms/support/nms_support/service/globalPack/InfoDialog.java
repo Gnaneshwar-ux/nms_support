@@ -86,6 +86,7 @@ public class InfoDialog {
         addShortcutRow(shortcutsGrid, 3, "Ctrl + D", "Open command prompt at JConfig path");
         addShortcutRow(shortcutsGrid, 4, "Ctrl + Shift + L", "Open OracleNMS log directory");
         addShortcutRow(shortcutsGrid, 5, "Ctrl + R", "Restart application (Application Management tab)");
+        addShortcutRow(shortcutsGrid, 6, "Ctrl + E", "Edit default Cline workflow template");
         
         shortcutsSection.getChildren().addAll(shortcutsTitle, shortcutsGrid);
         
@@ -205,4 +206,3 @@ public class InfoDialog {
         dialogStage.showAndWait();
     }
 }
-
