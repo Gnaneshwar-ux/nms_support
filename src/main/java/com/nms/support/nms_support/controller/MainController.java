@@ -1750,7 +1750,7 @@ public class MainController implements Initializable {
             Path workflowFile = workflowsDir.resolve(workflowBase + ".workflow.md");
             String templateContent = getOrCreateDefaultWorkflowTemplate();
             String initialWorkflow = fillWorkflowPlaceholders(templateContent, project, projectFolder, productFolder,
-                    (decompiledFolder != null && new File(decompiledFolder).exists()) ? decompiledFolder : "Not generated yet");
+                    (decompiledFolder != null && new File(decompiledFolder).exists()) ? decompiledFolder : "Not generated");
 
             if (!Files.exists(workflowFile)) {
                 Files.write(workflowFile, initialWorkflow.getBytes(StandardCharsets.UTF_8),
@@ -1813,94 +1813,7 @@ public class MainController implements Initializable {
         return dir;
     }
 
-    private String getDefaultWorkflowContent(ProjectEntity project, String projectFolder, String productFolder, String decompiledFolder) {
-        String name = (project != null && project.getName() != null) ? project.getName() : "Project";
-        String envVar = (project != null && project.getNmsEnvVar() != null && !project.getNmsEnvVar().trim().isEmpty())
-                ? project.getNmsEnvVar().trim()
-                : "N/A";
-        String projPath = (projectFolder != null && !projectFolder.isEmpty()) ? projectFolder : "N/A";
-        String prodJavaPath = "N/A";
-        if (productFolder != null && !productFolder.isEmpty()) {
-            prodJavaPath = productFolder + java.io.File.separator + "java";
-        }
-        String jarPath = (decompiledFolder != null && !decompiledFolder.isEmpty()) ? decompiledFolder : "N/A";
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("## Oracle NMS JBot Framework – Project Structure and Workflow\n\n");
-        sb.append("The Oracle NMS JBot framework is built on top of the Spring Framework. The user interface is defined using XML and properties files, following a structured, configuration-driven approach.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Project Folder\n\n");
-        sb.append("**Path:** `").append(projPath).append("`\n\n");
-        sb.append("This folder contains all **project-specific customizations**, including:\n\n");
-        sb.append("* XML configuration files\n");
-        sb.append("* Properties files\n");
-        sb.append("* Java command code for custom commands\n\n");
-        sb.append("Only this folder is intended for implementing changes.\n\n");
-        sb.append("Any SQL-related customizations specific to the project are maintained under the `sql` directory and apply to the Oracle database layer.\n\n");
-        sb.append("This is the **only location where modifications should be made** for project requirements.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Product Folder\n\n");
-        sb.append("**Path:** `").append(prodJavaPath).append("`\n\n");
-        sb.append("This folder contains the **base product code**, including default XML and properties configurations provided by the Oracle NMS product.\n\n");
-        sb.append("Project-level configurations in the Project Folder override the corresponding files in this Product Folder to support project-specific behavior.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Decompiled JAR\n\n");
-        sb.append("**Path:** `").append(jarPath).append("`\n\n");
-        sb.append("This represents the decompiled backend Java client code responsible for:\n\n");
-        sb.append("* Parsing XML configurations\n");
-        sb.append("* Executing commands\n");
-        sb.append("* Launching the UI\n");
-        sb.append("* Communicating with the WebLogic server for data exchange\n\n");
-        sb.append("The decompiled JAR contains:\n\n");
-        sb.append("* Data source classes\n");
-        sb.append("* Command implementations\n");
-        sb.append("* Application initialization and launch logic\n\n");
-        sb.append("If `cesejb.jar` is extracted, the corresponding WebLogic server-side code is also available.\n\n");
-        sb.append("This code is **for reference and analysis only** and must not be modified.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Debugging Process\n\n");
-        sb.append("1. Start by inspecting the **Project Folder**.\n\n");
-        sb.append("   * If an XML file is present here, JBot will **ignore the corresponding XML** from the Product Folder.\n");
-        sb.append("2. For properties files, JBot loads a **merged (concatenated) version** of Product and Project configurations.\n");
-        sb.append("3. If a configuration is not found in the Project Folder, review the **Product Folder** to understand the base behavior.\n");
-        sb.append("4. Always analyze and explain behavior by **prioritizing project-level overrides** over product defaults.\n\n");
-        sb.append("5. This workspace contains multiple folders. When searching outside primary folders like `{{PRODUCT_JAVA_PATH}}` and `{{DECOMPILED_FOLDER}}`, use case-insensitive substring searches and nearest-match strategies. Split the query into tokens and search iteratively to improve accuracy.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Code and Configuration Guidelines\n\n");
-        sb.append("* All changes must be made **only in the Project Folder**.\n");
-        sb.append("* Do not modify Product Folder or decompiled JAR code.\n");
-        sb.append("* Always follow existing code patterns; do not estimate or infer XML structure by comparing it with HTML or other formats.\n");
-        sb.append("* XML structure and validation rules are defined in the XSD:\n\n");
-        sb.append("  * ").append(prodJavaPath.equals("N/A") ? "<Product path>/product/global/jbot.xsd" : prodJavaPath.replace("\\", "/") + "/product/global/jbot.xsd").append("\n");
-        sb.append("* Properties files typically contain:\n\n");
-        sb.append("  * Labels\n");
-        sb.append("  * Colors\n");
-        sb.append("  * Queries\n");
-        sb.append("  * UI mappings and other configuration parameters\n\n");
-        sb.append("* Validate the shell before running commands. Detect whether commands will run in Windows cmd, PowerShell, or Bash, and adapt syntax/flags accordingly (e.g., path separators, quoting, env vars). Prefer portable commands and test with dry-run flags when possible.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Build and Runtime Behavior\n\n");
-        sb.append("* Running `ant build` from `").append(projPath).append("` invokes `jconfig`, which merges configurations using the mapped environment variable `").append(envVar).append("`.\n");
-        sb.append("* Merge behavior:\n\n");
-        sb.append("  * **XML files**: Project XML completely **replaces** the corresponding Product XML.\n");
-        sb.append("  * **Properties files**: Product and Project properties are **concatenated**.\n\n");
-        sb.append("    * Project properties **override only the keys they define**.\n");
-        sb.append("    * Any parameters not overridden continue to be loaded from the Product properties files.\n");
-        sb.append("* The final merged output is generated under:\n\n");
-        sb.append("  * `").append(prodJavaPath.equals("N/A") ? "<Product path>" : prodJavaPath).append("/working`\n");
-        sb.append("* The application loads all configurations and code **at runtime** from this `working` directory.\n\n");
-        sb.append("---\n\n");
-        sb.append("## AI Model Accuracy Tips\n\n");
-        sb.append("* Provide exact file paths and include short surrounding code/context to anchor searches.\n");
-        sb.append("* State the OS and shell (cmd/PowerShell/Bash) when asking for commands.\n");
-        sb.append("* Search across all folders (Project, {{PRODUCT_JAVA_PATH}}, {{DECOMPILED_FOLDER}}) using case-insensitive substrings and tokenized queries for better recall.\n");
-        sb.append("* Prefer small, incremental changes with explicit acceptance criteria; request diffs/patches when feasible.\n");
-        sb.append("* Include actual error messages, stack traces, and command output to ground fixes.\n");
-        sb.append("* When paths can vary, provide both forward/backslash forms and note environment variables.\n");
-        sb.append("* Encourage verification steps (build/run/tests) after changes to reduce drift.\n\n");
-        sb.append("This approach ensures clean separation between product defaults and project customizations, while allowing selective overrides without duplicating the entire configuration.\n");
-        return sb.toString();
-    }
 
     // Default Cline workflow template management (stored under Documents/nms_support_data)
     private Path getDefaultWorkflowTemplatePath() {
@@ -1929,82 +1842,166 @@ public class MainController implements Initializable {
     }
 
     private String generateDefaultWorkflowTemplateWithPlaceholders() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("## Oracle NMS JBot Framework – Project Structure and Workflow\n\n");
-        sb.append("The Oracle NMS JBot framework is built on top of the Spring Framework. The user interface is defined using XML and properties files, following a structured, configuration-driven approach.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Project Folder\n\n");
-        sb.append("**Path:** `{{PROJECT_FOLDER}}`\n\n");
-        sb.append("This folder contains all **project-specific customizations**, including:\n\n");
-        sb.append("* XML configuration files\n");
-        sb.append("* Properties files\n");
-        sb.append("* Java command code for custom commands\n\n");
-        sb.append("Only this folder is intended for implementing changes.\n\n");
-        sb.append("Any SQL-related customizations specific to the project are maintained under the `sql` directory and apply to the Oracle database layer.\n\n");
-        sb.append("This is the **only location where modifications should be made** for project requirements.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Product Folder\n\n");
-        sb.append("**Path:** `{{PRODUCT_JAVA_PATH}}`\n\n");
-        sb.append("This folder contains the **base product code**, including default XML and properties configurations provided by the Oracle NMS product.\n\n");
-        sb.append("Project-level configurations in the Project Folder override the corresponding files in this Product Folder to support project-specific behavior.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Decompiled JAR\n\n");
-        sb.append("**Path:** `{{DECOMPILED_FOLDER}}`\n\n");
-        sb.append("This represents the decompiled backend Java client code responsible for:\n\n");
-        sb.append("* Parsing XML configurations\n");
-        sb.append("* Executing commands\n");
-        sb.append("* Launching the UI\n");
-        sb.append("* Communicating with the WebLogic server for data exchange\n\n");
-        sb.append("The decompiled JAR contains:\n\n");
-        sb.append("* Data source classes\n");
-        sb.append("* Command implementations\n");
-        sb.append("* Application initialization and launch logic\n\n");
-        sb.append("If `cesejb.jar` is extracted, the corresponding WebLogic server-side code is also available.\n\n");
-        sb.append("This code is **for reference and analysis only** and must not be modified.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Debugging Process\n\n");
-        sb.append("1. Start by inspecting the **Project Folder**.\n\n");
-        sb.append("   * If an XML file is present here, JBot will **ignore the corresponding XML** from the Product Folder.\n");
-        sb.append("2. For properties files, JBot loads a **merged (concatenated) version** of Product and Project configurations.\n");
-        sb.append("3. If a configuration is not found in the Project Folder, review the **Product Folder** to understand the base behavior.\n");
-        sb.append("4. Always analyze and explain behavior by **prioritizing project-level overrides** over product defaults.\n\n");
-        sb.append("5. This workspace contains multiple folders. When searching outside primary folders like `{{PRODUCT_JAVA_PATH}}` and `{{DECOMPILED_FOLDER}}`, use case-insensitive substring searches and nearest-match strategies. Split the query into tokens and search iteratively to improve accuracy.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Code and Configuration Guidelines\n\n");
-        sb.append("* All changes must be made **only in the Project Folder**.\n");
-        sb.append("* Do not modify Product Folder or decompiled JAR code.\n");
-        sb.append("* Always follow existing code patterns; do not estimate or infer XML structure by comparing it with HTML or other formats.\n");
-        sb.append("* XML structure and validation rules are defined in the XSD:\n\n");
-        sb.append("  * {{JBOT_XSD_PATH}}\n");
-        sb.append("* Properties files typically contain:\n\n");
-        sb.append("  * Labels\n");
-        sb.append("  * Colors\n");
-        sb.append("  * Queries\n");
-        sb.append("  * UI mappings and other configuration parameters\n\n");
-        sb.append("* Validate the shell before running commands. Detect whether commands will run in Windows cmd, PowerShell, or Bash, and adapt syntax/flags accordingly (e.g., path separators, quoting, env vars). Prefer portable commands and test with dry-run flags when possible.\n\n");
-        sb.append("---\n\n");
-        sb.append("## Build and Runtime Behavior\n\n");
-        sb.append("* Running `ant build` from `{{PROJECT_FOLDER}}` invokes `jconfig`, which merges configurations using the mapped environment variable `{{NMS_ENV_VAR}}`.\n");
-        sb.append("* Merge behavior:\n\n");
-        sb.append("  * **XML files**: Project XML completely **replaces** the corresponding Product XML.\n");
-        sb.append("  * **Properties files**: Product and Project properties are **concatenated**.\n\n");
-        sb.append("    * Project properties **override only the keys they define**.\n");
-        sb.append("    * Any parameters not overridden continue to be loaded from the Product properties files.\n\n");
-        sb.append("* The final merged output is generated under:\n\n");
-        sb.append("  * {{WORKING_DIR}}\n");
-        sb.append("* The application loads all configurations and code **at runtime** from this `working` directory.\n\n");
-        sb.append("---\n\n");
-        sb.append("## AI Model Accuracy Tips\n\n");
-        sb.append("* Provide exact file paths and include short surrounding code/context to anchor searches.\n");
-        sb.append("* State the OS and shell (cmd/PowerShell/Bash) when asking for commands.\n");
-        sb.append("* Search across all folders (Project, {{PRODUCT_JAVA_PATH}}, {{DECOMPILED_FOLDER}}) using case-insensitive substrings and tokenized queries for better recall.\n");
-        sb.append("* Prefer small, incremental changes with explicit acceptance criteria; request diffs/patches when feasible.\n");
-        sb.append("* Include actual error messages, stack traces, and command output to ground fixes.\n");
-        sb.append("* When paths can vary, provide both forward/backslash forms and note environment variables.\n");
-        sb.append("* Encourage verification steps (build/run/tests) after changes to reduce drift.\n\n");
-        sb.append("This approach ensures clean separation between product defaults and project customizations, while allowing selective overrides without duplicating the entire configuration.\n");
+                try {
+            java.io.InputStream is = getClass().getResourceAsStream("/templates/cline_default_workflow.md");
+            if (is != null) {
+                byte[] b = is.readAllBytes();
+                return new String(b, java.nio.charset.StandardCharsets.UTF_8);
+            }
+        } catch (Exception e) {
+            logger.fine("Packaged workflow template not found, using inline default");
+        }
+StringBuilder sb = new StringBuilder();
+
+        sb.append("## Oracle NMS JBot Framework â€“ Project Structure and Workflow\n");
+        sb.append("The Oracle NMS JBot framework follows a configuration-driven UI defined via XML and properties files. ");
+        sb.append("Project-specific overrides supersede product defaults when present, and properties are merged so project-defined keys override product values while non-overridden keys are inherited.\n\n");
+
+        sb.append("---\n");
+        sb.append("## Project Folder\n");
+        sb.append("Path: {{PROJECT_FOLDER}}\n\n");
+
+        sb.append("Purpose:\n");
+        sb.append("- Holds all project-specific customizations:\n");
+        sb.append("  - XML configuration\n");
+        sb.append("  - Properties files\n");
+        sb.append("  - Java command code for custom commands\n");
+        sb.append("  - SQL scripts for project-specific database customizations (under `sql`)\n");
+        sb.append("- All edits must be made here (do not modify the product folder or decompiled jars).\n");
+        sb.append("- To override a product XML, copy the product XML into the corresponding project path and edit it there. ");
+        sb.append("The project copy will be used instead of the product one [3].\n\n");
+
+        sb.append("Analysis scope:\n");
+        sb.append("- While edits are confined to the Project Folder, always analyze behavior using inputs from all folders ");
+        sb.append("(Project, Product, and Decompiled JARs) to understand effective runtime behavior.\n\n");
+
+        sb.append("---\n");
+        sb.append("## Product Folder\n");
+        sb.append("Path: {{PRODUCT_JAVA_PATH}}\n\n");
+
+        sb.append("Purpose:\n");
+        sb.append("- Contains base product code and default XML/properties shipped with NMS.\n");
+        sb.append("- Serves as the reference implementation for all tools and dialogs.\n");
+        sb.append("- When a project version of an XML exists in the project folder, the project XML supersedes the product XML [3].\n");
+        sb.append("- Product and project properties are merged; project keys override product values while any non-overridden keys ");
+        sb.append("remain sourced from the product properties [6].\n\n");
+
+        sb.append("---\n");
+        sb.append("## Decompiled JAR\n");
+        sb.append("Path: {{DECOMPILED_FOLDER}}\n\n");
+
+        sb.append("Purpose:\n");
+        sb.append("- Reference copy of backend Java client/server-side logic for analysis only:\n");
+        sb.append("  - XML parsing and command execution flows\n");
+        sb.append("  - UI initialization/launch sequences\n");
+        sb.append("  - Data source and command implementations\n");
+        sb.append("  - If `cesejb.jar` is included, it provides server-side EJB/client interaction references\n");
+        sb.append("- Do not modify this code. Use it to:\n");
+        sb.append("  - Trace how a dialog loads its XML and data sources\n");
+        sb.append("  - Confirm command names, parameters, and error handling\n");
+        sb.append("  - Map properties keys to UI widgets and behaviors\n\n");
+
+        sb.append("---\n");
+        sb.append("## Merge and Resolution Rules (effective behavior)\n");
+        sb.append("- XML override:\n");
+        sb.append("  - If a project XML exists, it supersedes the product XML for that component/dialog. ");
+        sb.append("Typical workflow is to copy the product XML into the project path and then edit the project copy [3].\n");
+        sb.append("- Properties merge:\n");
+        sb.append("  - Product and project properties are concatenated into a generated/merged output. ");
+        sb.append("Project values override the same keys from product; keys not defined by the project continue to come from product [6].\n");
+        sb.append("- Build/install merges:\n");
+        sb.append("  - The standard NMS process merges project configuration with product configuration and places the results ");
+        sb.append("into the runtime/working area used by the applications [2]. Use this merged output for validation and debugging.\n\n");
+
+        sb.append("---\n");
+        sb.append("## Debugging Process\n");
+        sb.append("1. Inspect the Project Folder first:\n");
+        sb.append("   - For a given dialog or tool, check whether a project XML exists. If it does, that file supersedes the product XML [3].\n");
+        sb.append("   - Check project properties for overridden keys affecting labels, queries, behaviors, or feature flags [6].\n");
+        sb.append("2. Review the Product Folder for baseline behavior:\n");
+        sb.append("   - When there is no project XML, the product XML defines the behavior.\n");
+        sb.append("   - Compare product vs. project properties to see which keys the project overrides vs. which are inherited [6].\n");
+        sb.append("3. Consult the Decompiled JAR for execution flow:\n");
+        sb.append("   - Confirm how the framework locates and loads XML/properties, the data sources used, and command invocation paths.\n");
+        sb.append("   - Use class and method names to align stack traces with configuration.\n");
+        sb.append("4. Validate the merged runtime output in {{WORKING_DIR}}:\n");
+        sb.append("   - Confirm which version of each XML is present (project vs. product).\n");
+        sb.append("   - Inspect generated/merged properties to verify the final values taking effect (project overrides present; ");
+        sb.append("product defaults retained for non-overridden keys) [6].\n");
+        sb.append("5. Search strategy across all folders:\n");
+        sb.append("   - Use case-insensitive substring searches and tokenized queries.\n");
+        sb.append("   - Correlate dialog names, widget IDs, command IDs, and properties keys across project, product, and decompiled code.\n\n");
+
+        sb.append("---\n");
+        sb.append("## Code and Configuration Guidelines\n");
+        sb.append("- Edits:\n");
+        sb.append("  - Make changes only in the Project Folder.\n");
+        sb.append("  - To override product XML, copy it into the project path and edit the project file [3].\n");
+        sb.append("  - Add or change only the properties keys you need; rely on product defaults for the rest [6].\n");
+        sb.append("- XML structure:\n");
+        sb.append("  - Follow the XSD for structure/validation: {{JBOT_XSD_PATH}}\n");
+        sb.append("  - Do not infer XML structure from non-XML formats.\n");
+        sb.append("- Properties files typically include:\n");
+        sb.append("  - Labels, colors, queries, UI mappings, feature flags, and other parameters [6].\n");
+        sb.append("- Cross-platform commands:\n");
+        sb.append("  - When you share commands or scripts, note the shell (cmd/PowerShell/Bash) and adapt quoting/paths/flags accordingly.\n\n");
+
+        sb.append("---\n");
+        sb.append("## Build and Runtime Behavior\n");
+        sb.append("- Build/install step:\n");
+        sb.append("  - The project configuration is merged with product configuration and installed to the working/runtime area ");
+        sb.append("used by clients/servers [2]. Inspect this area to validate the effective configuration.\n");
+        sb.append("- Merge specifics:\n");
+        sb.append("  - XML: project file supersedes product when present [3].\n");
+        sb.append("  - Properties: merged; project values override corresponding product keys; non-overridden keys are inherited from product [6].\n");
+        sb.append("- Final runtime source:\n");
+        sb.append("  - The application loads configurations from the merged output in:\n");
+        sb.append("    - {{WORKING_DIR}}\n\n");
+
+        sb.append("---\n");
+        sb.append("## Localization and Properties Resolution Tips\n");
+        sb.append("- Properties resolution honors locale-specific files before falling back to more general ones ");
+        sb.append("(for example: tool_lang_locale.properties, tool_lang.properties, then tool.properties) [6].\n");
+        sb.append("- Keep project properties minimalâ€”override only what you need. Validate final generated properties ");
+        sb.append("to confirm your overrides are effective [6].\n\n");
+
+        sb.append("---\n");
+        sb.append("## Troubleshooting Checklist\n");
+        sb.append("- Which XML is in effect?\n");
+        sb.append("  - Look in {{WORKING_DIR}} to confirm whether the project copy exists for the dialog ");
+        sb.append("(if present, it supersedes product) [3].\n");
+        sb.append("- Are your properties overrides loading?\n");
+        sb.append("  - Open the generated/merged properties to confirm your keys are present and overriding as expected [6].\n");
+        sb.append("- Unexpected product behavior persisting?\n");
+        sb.append("  - Check for missing project XML (product XML still active), or for keys not overridden in project properties [6].\n");
+        sb.append("- Dialog/data issues:\n");
+        sb.append("  - Trace the data source and command flow in {{DECOMPILED_FOLDER}}; verify the expected data source names ");
+        sb.append("and command IDs are defined and referenced.\n");
+        sb.append("- Comparing baseline vs. project:\n");
+        sb.append("  - Diff the product XML/properties against project versions to isolate meaningful changes ");
+        sb.append("(avoid duplicating unchanged product content in the project).\n");
+        sb.append("- Introducing a new override:\n");
+        sb.append("  - Copy the relevant product XML into the project path, then edit the project copy [3]. ");
+        sb.append("Add only required properties keys in the project file(s) [6].\n\n");
+
+        sb.append("---\n");
+        sb.append("## AI Model Accuracy Tips\n");
+        sb.append("- Provide exact file paths, dialog names, widget IDs, and short code snippets to anchor searches.\n");
+        sb.append("- Include OS and shell when asking for commands (cmd/PowerShell/Bash).\n");
+        sb.append("- Search across all folders (Project, {{PRODUCT_JAVA_PATH}}, and {{DECOMPILED_FOLDER}}) ");
+        sb.append("using case-insensitive, tokenized queries for recall.\n");
+        sb.append("- Prefer small, incremental changes with explicit acceptance criteria; share diffs/patches when feasible.\n");
+        sb.append("- Include actual error messages, stack traces, and command output to ground fixes.\n");
+        sb.append("- When paths vary, provide both forward/backslash forms if helpful.\n\n");
+
+        sb.append("This approach enables precise analysis across project, product, and code references, ");
+        sb.append("while keeping all edits confined to the project folder. It leverages NMSâ€™s standard override/merge model: ");
+        sb.append("project XML supersedes product XML, and properties files merge with project keys overriding product values [3][6], ");
+        sb.append("with merged outputs used by runtime after install/build steps [2].\n");
+
         return sb.toString();
     }
+
 
     private String fillWorkflowPlaceholders(String template, ProjectEntity project, String projectFolder, String productFolder, String decompiledFolder) {
         String name = (project != null && project.getName() != null) ? project.getName() : "Project";
@@ -2020,6 +2017,38 @@ public class MainController implements Initializable {
         String jbotXsd = prodJavaPath.equals("N/A") ? "<Product path>/product/global/jbot.xsd" : prodJavaPath.replace("\\", "/") + "/product/global/jbot.xsd";
         String workingDir = (prodJavaPath.equals("N/A") ? "<Product path>" : prodJavaPath) + "/working";
 
+        // DB details (null/empty safe)
+        String dbHost = (project != null && project.getDbHost() != null && !project.getDbHost().trim().isEmpty())
+                ? project.getDbHost().trim() : "N/A";
+        String dbPort = (project != null && project.getDbPort() > 0)
+                ? String.valueOf(project.getDbPort()) : "N/A";
+        String dbUser = (project != null && project.getDbUser() != null && !project.getDbUser().trim().isEmpty())
+                ? project.getDbUser().trim() : "N/A";
+        String dbPassword = (project != null && project.getDbPassword() != null && !project.getDbPassword().trim().isEmpty())
+                ? project.getDbPassword().trim() : "N/A";
+        String dbSid = (project != null && project.getDbSid() != null && !project.getDbSid().trim().isEmpty())
+                ? project.getDbSid().trim() : "N/A";
+
+        // Compose JDBC URL and SQLcl connect string when we have enough pieces
+        String oracleJdbcUrl = "N/A";
+        String sqlclConnect = "N/A";
+        boolean hasDbCore = !"N/A".equals(dbHost) && !"N/A".equals(dbPort) && !"N/A".equals(dbSid);
+        if (hasDbCore) {
+            boolean looksLikeService = dbSid.contains("/") || dbSid.contains(".") || dbSid.contains(" ");
+            if (looksLikeService) {
+                oracleJdbcUrl = String.format("jdbc:oracle:thin:@//%s:%s/%s", dbHost, dbPort, dbSid);
+            } else {
+                oracleJdbcUrl = String.format("jdbc:oracle:thin:@%s:%s:%s", dbHost, dbPort, dbSid);
+            }
+            if (!"N/A".equals(dbUser) && !"N/A".equals(dbPassword)) {
+                if (looksLikeService) {
+                    sqlclConnect = String.format("%s/%s@//%s:%s/%s", dbUser, dbPassword, dbHost, dbPort, dbSid);
+                } else {
+                    sqlclConnect = String.format("%s/%s@%s:%s:%s", dbUser, dbPassword, dbHost, dbPort, dbSid);
+                }
+            }
+        }
+
         String filled = template;
         filled = filled.replace("{{PROJECT_NAME}}", name);
         filled = filled.replace("{{PROJECT_FOLDER}}", projPath);
@@ -2028,6 +2057,14 @@ public class MainController implements Initializable {
         filled = filled.replace("{{NMS_ENV_VAR}}", envVar);
         filled = filled.replace("{{JBOT_XSD_PATH}}", jbotXsd);
         filled = filled.replace("{{WORKING_DIR}}", workingDir);
+        // DB placeholders
+        filled = filled.replace("{{DB_HOST}}", dbHost);
+        filled = filled.replace("{{DB_PORT}}", dbPort);
+        filled = filled.replace("{{DB_SID}}", dbSid);
+        filled = filled.replace("{{DB_USER}}", dbUser);
+        filled = filled.replace("{{DB_PASSWORD}}", dbPassword);
+        filled = filled.replace("{{ORACLE_JDBC_URL}}", oracleJdbcUrl);
+        filled = filled.replace("{{SQLCL_CONNECT_STRING}}", sqlclConnect);
         return filled;
     }
 
