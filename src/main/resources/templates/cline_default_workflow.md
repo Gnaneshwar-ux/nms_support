@@ -128,6 +128,12 @@ Purpose:
 
 ---
 ## Build and Runtime Behavior
+- Build and Validation (XML Syntax Safety Check)
+- Allowed anytime – no confirmation required
+- Purpose: Validate XML syntax and configuration correctness early. 
+- Command: 'ant config'
+- Execution directory: {{PROJECT_FOLDER}}/jconfig/
+- Safe to run: Before edits, After edits and Repeatedly during debugging
 - Build/install step:
   - The project configuration is merged with product configuration and installed to the working/runtime area used by clients/servers [2]. Inspect this area to validate the effective configuration.
 - Merge specifics:
