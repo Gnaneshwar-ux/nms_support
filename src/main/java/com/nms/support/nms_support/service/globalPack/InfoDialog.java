@@ -60,7 +60,12 @@ public class InfoDialog {
         versionLabel.setFont(javafx.scene.text.Font.font("Inter", javafx.scene.text.FontWeight.MEDIUM, 12));
         versionLabel.setStyle("-fx-text-fill: #64748b;");
         
-        titleSection.getChildren().addAll(titleLabel, versionLabel);
+        // Developer credit
+        Label devLabel = new Label("Developed By Gnaneshwar Gurram");
+        devLabel.setFont(javafx.scene.text.Font.font("Inter", javafx.scene.text.FontWeight.NORMAL, 10));
+        devLabel.setStyle("-fx-text-fill: #94a3b8;");
+        
+        titleSection.getChildren().addAll(titleLabel, versionLabel, devLabel);
         
         // Create separator
         Separator separator = new Separator();
