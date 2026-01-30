@@ -57,12 +57,12 @@ public class InfoDialog {
         // Get version information
         String version = AppDetails.getApplicationVersion();
         Label versionLabel = new Label("Version: " + version);
-        versionLabel.setFont(javafx.scene.text.Font.font("Inter", javafx.scene.text.FontWeight.MEDIUM, 12));
+        versionLabel.setFont(javafx.scene.text.Font.font("Inter", javafx.scene.text.FontWeight.MEDIUM, 14));
         versionLabel.setStyle("-fx-text-fill: #64748b;");
         
         // Developer credit
-        Label devLabel = new Label("Developed By Gnaneshwar Gurram");
-        devLabel.setFont(javafx.scene.text.Font.font("Inter", javafx.scene.text.FontWeight.NORMAL, 10));
+        Label devLabel = new Label("Forged by Gnaneshwar Gurram | Stewarded by Visnu Anumolu");
+        devLabel.setFont(javafx.scene.text.Font.font("Inter", javafx.scene.text.FontWeight.NORMAL, 12));
         devLabel.setStyle("-fx-text-fill: #94a3b8;");
         
         titleSection.getChildren().addAll(titleLabel, versionLabel, devLabel);
