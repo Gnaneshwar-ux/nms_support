@@ -49,6 +49,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import java.util.LinkedHashMap;
+import java.util.Set;
+import java.util.HashSet;
+
 import static com.nms.support.nms_support.service.globalPack.DialogUtil.showProjectSetupDialog;
 import static com.nms.support.nms_support.service.globalPack.SVNAutomationTool.deleteFolderContents;
 
@@ -1741,7 +1747,7 @@ public class MainController implements Initializable {
             
             // Workspace file path
             Path workspacePath = workspacesDir.resolve(projectName + ".code-workspace");
-            String workspaceJson = buildWorkspaceJson(workspaceFolders, projectName);
+            String workspaceJson = buildOrMergeWorkspaceJson(workspacePath, workspaceFolders);
             Files.write(workspacePath, workspaceJson.getBytes(StandardCharsets.UTF_8),
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
@@ -1806,6 +1812,111 @@ public class MainController implements Initializable {
         return sb.toString();
     }
 
+    // New: Build or merge VS Code workspace JSON preserving user folders and settings
+    private String buildOrMergeWorkspaceJson(Path workspacePath, java.util.List<String> requiredFolderPaths) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+
+            // Use LinkedHashMap to preserve key order when writing back
+            LinkedHashMap<String, Object> root;
+            if (Files.exists(workspacePath)) {
+                try {
+                    root = mapper.readValue(Files.readAllBytes(workspacePath), new TypeReference<LinkedHashMap<String, Object>>() {});
+                } catch (Exception e) {
+                    // If existing file is malformed, start fresh but do NOT block the flow
+                    logger.warning("Existing workspace JSON malformed, recreating: " + e.getMessage());
+                    root = new LinkedHashMap<>();
+                }
+            } else {
+                root = new LinkedHashMap<>();
+            }
+
+            // Ensure folders array exists
+            java.util.List<LinkedHashMap<String, Object>> folders;
+            Object foldersObj = root.get("folders");
+            if (foldersObj instanceof java.util.List) {
+                folders = new java.util.ArrayList<>();
+                for (Object o : (java.util.List<?>) foldersObj) {
+                    if (o instanceof java.util.Map) {
+                        folders.add(new LinkedHashMap<>((java.util.Map<String, Object>) o));
+                    }
+                }
+            } else {
+                folders = new java.util.ArrayList<>();
+            }
+
+            // Build a set of normalized existing folder paths to avoid duplicates (Windows: case-insensitive)
+            Set<String> existing = new HashSet<>();
+            for (LinkedHashMap<String, Object> f : folders) {
+                Object p = f.get("path");
+                if (p instanceof String) {
+                    existing.add(normalizePath((String) p));
+                }
+            }
+
+            // Add required folders if not present
+            for (String fp : requiredFolderPaths) {
+                String norm = normalizePath(fp);
+                if (!existing.contains(norm)) {
+                    LinkedHashMap<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("path", toForwardSlashes(fp));
+                    folders.add(entry);
+                    existing.add(norm);
+                }
+            }
+
+            root.put("folders", folders);
+
+            // Merge minimal default settings only when absent; never remove/overwrite user settings
+            LinkedHashMap<String, Object> settings;
+            Object settingsObj = root.get("settings");
+            if (settingsObj instanceof java.util.Map) {
+                settings = new LinkedHashMap<>((java.util.Map<String, Object>) settingsObj);
+            } else {
+                settings = new LinkedHashMap<>();
+            }
+
+            // Only add defaults if they don't exist already
+            if (!settings.containsKey("files.exclude")) {
+                LinkedHashMap<String, Object> filesExclude = new LinkedHashMap<>();
+                filesExclude.put("**/.git", true);
+                filesExclude.put("**/.idea", true);
+                filesExclude.put("**/target", true);
+                settings.put("files.exclude", filesExclude);
+            }
+            settings.putIfAbsent("java.configuration.checkProjectSettingsExclusions", false);
+
+            root.put("settings", settings);
+
+            // Pretty print back to string
+            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root);
+        } catch (Exception e) {
+            logger.warning("Failed to build/merge workspace JSON: " + e.getMessage());
+            // As a fail-safe, return a minimal workspace containing the required folders
+            StringBuilder sb = new StringBuilder();
+            sb.append("{\n");
+            sb.append("  \"folders\": [\n");
+            for (int i = 0; i < requiredFolderPaths.size(); i++) {
+                String p = toForwardSlashes(requiredFolderPaths.get(i));
+                sb.append("    { \"path\": \"").append(p).append("\" }");
+                if (i < requiredFolderPaths.size() - 1) sb.append(",");
+                sb.append("\n");
+            }
+            sb.append("  ]\n");
+            sb.append("}\n");
+            return sb.toString();
+        }
+    }
+
+    private String normalizePath(String p) {
+        // VS Code stores workspace paths as given; for comparison use lowercase and forward slashes
+        return toForwardSlashes(p).toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private String toForwardSlashes(String p) {
+        return p.replace("\\", "/");
+    }
+
     private Path ensureDir(Path dir) throws IOException {
         if (!Files.exists(dir)) {
             Files.createDirectories(dir);
@@ -1851,7 +1962,7 @@ public class MainController implements Initializable {
         } catch (Exception e) {
             logger.fine("Packaged workflow template not found, using inline default");
         }
-StringBuilder sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
 
         sb.append("## Oracle NMS JBot Framework â€“ Project Structure and Workflow\n");
         sb.append("The Oracle NMS JBot framework follows a configuration-driven UI defined via XML and properties files. ");
@@ -1998,6 +2109,16 @@ StringBuilder sb = new StringBuilder();
         sb.append("while keeping all edits confined to the project folder. It leverages NMSâ€™s standard override/merge model: ");
         sb.append("project XML supersedes product XML, and properties files merge with project keys overriding product values [3][6], ");
         sb.append("with merged outputs used by runtime after install/build steps [2].\n");
+        
+        // ---
+        sb.append("---\\n");
+        sb.append("## User-added Workspace Folders\\n");
+        sb.append("Use this space to document any additional folders you've included in the VS Code workspace beyond Project/Product/Decompiled.\\n");
+        sb.append("For each folder, describe its purpose so the AI respects it and doesn't attempt to remove or modify it.\\n\\n");
+        sb.append("- Folder path: <path>\\n");
+        sb.append("- Purpose: <why it's included>\\n");
+        sb.append("- Notes: <read-only? scripts? data? any special instructions>\\n\\n");
+        sb.append("Add as many entries as needed.\\n");
 
         return sb.toString();
     }

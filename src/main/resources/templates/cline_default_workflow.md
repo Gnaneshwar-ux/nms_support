@@ -176,3 +176,14 @@ Edits
 - Prefer small, incremental changes with explicit acceptance criteria; share diffs/patches.
 - Ground fixes with actual errors, stack traces, and command output when available.
 - Keep responses concise and structured to reduce tokens while preserving accuracy.
+
+---
+## User-added Workspace Folders
+Use this space to document any additional folders you've included in the VS Code workspace beyond Project/Product/Decompiled.
+For each folder, describe its purpose so the AI respects it and doesn't attempt to remove or modify it.
+
+- Folder path: <path>
+- Purpose: <why it's included>
+- Notes: <read-only? scripts? data? any special instructions>
+
+Add as many entries as needed.
