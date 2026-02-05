@@ -2135,7 +2135,7 @@ public class MainController implements Initializable {
             prodJavaPath = productFolder + java.io.File.separator + "java";
         }
         String jarPath = (decompiledFolder != null && !decompiledFolder.isEmpty()) ? decompiledFolder : "N/A";
-        String jbotXsd = prodJavaPath.equals("N/A") ? "<Product path>/product/global/jbot.xsd" : prodJavaPath.replace("\\", "/") + "/product/global/jbot.xsd";
+        String jbotXsd = prodJavaPath.equals("N/A") ? "<Product path>/product/global/xml/jbot.xsd" : prodJavaPath.replace("\\", "/") + "/product/global/xml/jbot.xsd";
         String workingDir = (prodJavaPath.equals("N/A") ? "<Product path>" : prodJavaPath) + "/working";
 
         // DB details (null/empty safe)
