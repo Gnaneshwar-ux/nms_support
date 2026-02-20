@@ -3,11 +3,16 @@
     <toolchain>
         <type>jdk</type>
         <provides>
-            <version>22</version>
+            <!-- Toolchain JDK used to run javac. We compile with -source/-target 22 in the POM,
+                 but the *toolchain* itself must match an installed JDK on the current machine. -->
+            <version>25</version>
             <vendor>any</vendor>
         </provides>
         <configuration>
-            <jdkHome>C:\Users\Akshita\.jdks\openjdk-25.0.1</jdkHome>
+            <!-- Use a user-home relative path so the project works for any developer/CI agent -->
+            <!-- Maven toolchains does NOT expand ${user.home} inside toolchains.xml reliably on Windows.
+                 Use an absolute path (or copy this file and adjust per machine). -->
+            <jdkHome>C:\Users\Gnaneshwar\.jdks\openjdk-25.0.2</jdkHome>
         </configuration>
     </toolchain>
 </toolchains>

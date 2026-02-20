@@ -12,11 +12,16 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.version>5.10.0</junit.version>
+        <!-- If you upgrade JDK, change java.version (and toolchains config) and re-import Maven. -->
+        <java.version>25</java.version>
+
+        <!-- JavaFX does NOT have to match the JDK exactly. Using a non-existent/unreleased JavaFX version
+             (e.g., 25) will break dependency resolution. Keep this on a known-good JavaFX release unless
+             you have confirmed the version exists in Maven Central. -->
         <javafx.version>22.0.1</javafx.version>
-        <java.version>22</java.version>
         <main.class>com.nms.support.nms_support.FakeMain</main.class>
-        <maven.compiler.source>22</maven.compiler.source>
-        <maven.compiler.target>22</maven.compiler.target>
+        <!-- Prefer a single source of truth for the compiler level -->
+        <maven.compiler.release>${java.version}</maven.compiler.release>
     </properties>
     <repositories>
         <repository>
@@ -243,7 +248,7 @@
                 <configuration>
                     <toolchains>
                         <jdk>
-                            <version>22</version>
+                            <version>${java.version}</version>
                             <vendor>any</vendor>
                         </jdk>
                     </toolchains>
@@ -274,8 +279,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
-                    <source>22</source>
-                    <target>22</target>
+                    <release>${maven.compiler.release}</release>
                     <compilerArgs>
                         <arg>-Xlint:all</arg>
                     </compilerArgs>
@@ -289,7 +293,10 @@
                 <version>0.0.8</version>
                 <configuration>
                     <mainClass>${main.class}</mainClass>
-                    <commandlineArgs>--add-modules javafx.controls,javafx.fxml</commandlineArgs>
+                    <!-- Note: XML comments cannot contain a double-hyphen sequence.
+                         We pass module flags as JVM args (not main() args).
+                    -->
+                    <commandlineArgs/>
                 </configuration>
             </plugin>
             <plugin>
@@ -400,8 +407,25 @@
                         <configuration>
                             <target>
                                 <echo message="Unpacking JD-Core libraries..."/>
-                                <unzip src="${project.basedir}/libs/jd-core-1.1.3.jar" dest="${project.build.outputDirectory}" overwrite="true"/>
-                                <unzip src="${project.basedir}/libs/jd-gui-1.6.6.jar" dest="${project.build.outputDirectory}" overwrite="true"/>
+                                <!-- IMPORTANT:
+                                     Do NOT unzip module-info.class from embedded libraries.
+                                     If module-info.class lands in target/classes, javac can treat the whole
+                                     output as a named module (we saw it become org.objectweb.asm), breaking
+                                     compilation with errors like:
+                                       "package javafx.* is not visible ... module org.objectweb.asm does not read it".
+                                -->
+                                <unzip src="${project.basedir}/libs/jd-core-1.1.3.jar" dest="${project.build.outputDirectory}" overwrite="true">
+                                    <patternset>
+                                        <exclude name="module-info.class"/>
+                                        <exclude name="META-INF/versions/**/module-info.class"/>
+                                    </patternset>
+                                </unzip>
+                                <unzip src="${project.basedir}/libs/jd-gui-1.6.6.jar" dest="${project.build.outputDirectory}" overwrite="true">
+                                    <patternset>
+                                        <exclude name="module-info.class"/>
+                                        <exclude name="META-INF/versions/**/module-info.class"/>
+                                    </patternset>
+                                </unzip>
                                 <echo message="JD-Core libraries unpacked successfully"/>
                             </target>
                         </configuration>
