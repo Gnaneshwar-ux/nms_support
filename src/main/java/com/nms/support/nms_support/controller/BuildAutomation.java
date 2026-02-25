@@ -1042,37 +1042,66 @@ public class BuildAutomation implements Initializable {
         try {
             DirectoryChooser chooser = new DirectoryChooser();
             chooser.setTitle("Select JDK Home (contains bin/java.exe)");
-            // Choose a sensible default directory
+            // Choose a sensible default directory:
+            // 1) If field already has a valid path, open there
+            // 2) Else try: C:\Program Files\Java
+            // 3) Else try: C:\
             File initial = null;
+
+            // 1) Current field value
             try {
-                // 1) Current value if valid directory
                 if (jdkPathField != null && jdkPathField.getText() != null) {
-                    File current = new File(jdkPathField.getText().trim());
-                    if (current.exists() && current.isDirectory()) initial = current;
-                    // If user typed bin/java.exe or bin, go up to JDK home
-                    else if (current.isFile() && current.getName().equalsIgnoreCase("java.exe") && current.getParentFile() != null && current.getParentFile().getParentFile() != null) {
-                        initial = current.getParentFile().getParentFile();
-                    } else if (current.isDirectory() && current.getName().equalsIgnoreCase("bin") && current.getParentFile() != null) {
-                        initial = current.getParentFile();
-                    }
-                }
-                // 2) Common install locations
-                if (initial == null) {
-                    String[] candidates = new String[] {
-                            System.getenv("ProgramFiles") + File.separator + "Java",
-                            System.getenv("ProgramFiles(x86)") + File.separator + "Java",
-                            System.getenv("ProgramFiles") + File.separator + "Eclipse Adoptium",
-                            System.getProperty("user.home") + File.separator + ".jdks",
-                            System.getProperty("user.home") + File.separator + "scoop" + File.separator + "apps" + File.separator + "jdk"
-                    };
-                    for (String c : candidates) {
-                        if (c != null) {
-                            File f = new File(c);
-                            if (f.exists() && f.isDirectory()) { initial = f; break; }
+                    String raw = jdkPathField.getText().trim();
+                    if (!raw.isEmpty()) {
+                        File current = new File(raw);
+
+                        // If user typed bin/java.exe -> go up to JDK home
+                        if (current.isFile()
+                                && current.getName().equalsIgnoreCase("java.exe")
+                                && current.getParentFile() != null
+                                && current.getParentFile().getParentFile() != null) {
+                            initial = current.getParentFile().getParentFile();
+                        }
+                        // If user typed <jdk>\bin -> go up to JDK home
+                        else if (current.isDirectory()
+                                && current.getName().equalsIgnoreCase("bin")
+                                && current.getParentFile() != null) {
+                            initial = current.getParentFile();
+                        }
+                        // If user typed JDK home dir
+                        else if (current.exists() && current.isDirectory()) {
+                            initial = current;
                         }
                     }
                 }
-            } catch (Exception ignore) { }
+            } catch (Exception ignore) {
+            }
+
+            // 2) Default to Program Files\Java
+            if (initial == null) {
+                try {
+                    String programFiles = System.getenv("ProgramFiles");
+                    if (programFiles != null && !programFiles.trim().isEmpty()) {
+                        File pfJava = new File(programFiles, "Java");
+                        if (pfJava.exists() && pfJava.isDirectory()) {
+                            initial = pfJava;
+                        }
+                    }
+                } catch (Exception ignore) {
+                }
+            }
+
+            // 3) Fallback to C:\
+            if (initial == null) {
+                try {
+                    File cRoot = new File("C:\\");
+                    if (cRoot.exists() && cRoot.isDirectory()) {
+                        initial = cRoot;
+                    }
+                } catch (Exception ignore) {
+                }
+            }
+
             if (initial != null) {
                 try { chooser.setInitialDirectory(initial); } catch (Exception ignore) { }
             }

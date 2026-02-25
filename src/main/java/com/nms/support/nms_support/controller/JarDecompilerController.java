@@ -19,6 +19,7 @@ import java.net.URL;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.logging.Logger;
+import javax.lang.model.SourceVersion;
 
 /**
  * Controller for the Jar Decompiler tab
@@ -49,6 +50,14 @@ public class JarDecompilerController implements Initializable {
     
     // Main controller reference
     private MainController mainController;
+
+    private static boolean isProjectNameValid(String name) {
+        if (name == null || name.trim().isEmpty()) return false;
+        String trimmed = name.trim();
+        if (trimmed.indexOf('$') >= 0) return false;
+        if (!SourceVersion.isIdentifier(trimmed)) return false;
+        return !SourceVersion.isKeyword(trimmed);
+    }
     
     @Override
     public void initialize(URL location, ResourceBundle resources) {
@@ -328,7 +337,13 @@ public class JarDecompilerController implements Initializable {
             
             Optional<String> result = dialog.showAndWait();
             if (result.isPresent() && !result.get().trim().isEmpty()) {
-                currentProjectName = result.get().trim();
+                String candidate = result.get().trim();
+                if (!isProjectNameValid(candidate)) {
+                    DialogUtil.showAlert(Alert.AlertType.WARNING, "Invalid Project Name",
+                            "Invalid project name. Allowed: letters, digits, '_' only. Must start with a letter or '_'. No spaces/special symbols.");
+                    return;
+                }
+                currentProjectName = candidate;
             } else {
                 return;
             }

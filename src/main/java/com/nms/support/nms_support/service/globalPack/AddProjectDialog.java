@@ -11,6 +11,7 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
 
+import javax.lang.model.SourceVersion;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
@@ -20,9 +21,13 @@ import java.util.logging.Logger;
  */
 public class AddProjectDialog {
     private static final Logger logger = LoggerUtil.getLogger();
+
+    private static final String PROJECT_NAME_RULES =
+            "Allowed: letters, digits, '_' only. Must start with a letter or '_'. No spaces/special symbols.";
     
     private final Stage dialogStage;
     private TextField projectNameField;
+    private Label noteLabel;
     private Button okButton;
     private Button cancelButton;
     private CompletableFuture<Optional<String>> resultFuture;
@@ -90,18 +95,15 @@ public class AddProjectDialog {
                     "-fx-border-color: #3b82f6; " +
                     "-fx-border-width: 2;");
             } else {
-                projectNameField.setStyle(
-                    "-fx-background-color: #ffffff; " +
-                    "-fx-border-color: #d1d5db; " +
-                    "-fx-border-width: 1; " +
-                    "-fx-border-radius: 6; " +
-                    "-fx-background-radius: 6; " +
-                    "-fx-padding: 12 16; " +
-                    "-fx-min-height: 44; " +
-                    "-fx-text-fill: #374151;"
-                );
+                // border is controlled by validation; no-op here
             }
         });
+
+        // Static note label (keeps dialog stable; no dynamic sizing)
+        noteLabel = new Label(PROJECT_NAME_RULES);
+        noteLabel.setWrapText(true);
+        noteLabel.setFont(javafx.scene.text.Font.font("Inter", javafx.scene.text.FontWeight.NORMAL, 12));
+        noteLabel.setStyle("-fx-text-fill: #6b7280;");
         
         // Create buttons with proper styling
         cancelButton = new Button("Cancel");
@@ -146,7 +148,7 @@ public class AddProjectDialog {
         
         // Create input container with proper spacing
         VBox inputContainer = new VBox(8);
-        inputContainer.getChildren().addAll(descriptionLabel, projectNameField);
+        inputContainer.getChildren().addAll(descriptionLabel, projectNameField, noteLabel);
         
         // Add all components to root with proper spacing
         rootContainer.getChildren().addAll(titleLabel, inputContainer, buttonBox);
@@ -157,6 +159,9 @@ public class AddProjectDialog {
         
         // Set up button actions
         setupButtonActions();
+
+        // Setup inline validation (disable OK until valid)
+        setupInlineValidation();
         
         // Set up keyboard shortcuts
         setupKeyboardShortcuts();
@@ -231,40 +236,71 @@ public class AddProjectDialog {
     private void setupButtonActions() {
         okButton.setOnAction(e -> {
             String projectName = projectNameField.getText().trim();
-            if (!projectName.isEmpty()) {
-                resultFuture.complete(Optional.of(projectName));
-                dialogStage.close();
-            } else {
-                // Show validation feedback
-                projectNameField.setStyle(projectNameField.getStyle() + 
-                    "-fx-border-color: #ef4444; " +
-                    "-fx-border-width: 2;");
-                
-                // Reset border after a short delay
-                Platform.runLater(() -> {
-                    try {
-                        Thread.sleep(2000);
-                    } catch (InterruptedException ignored) {}
-                    Platform.runLater(() -> {
-                        projectNameField.setStyle(
-                            "-fx-background-color: #ffffff; " +
-                            "-fx-border-color: #d1d5db; " +
-                            "-fx-border-width: 1; " +
-                            "-fx-border-radius: 6; " +
-                            "-fx-background-radius: 6; " +
-                            "-fx-padding: 12 16; " +
-                            "-fx-min-height: 44; " +
-                            "-fx-text-fill: #374151;"
-                        );
-                    });
-                });
-            }
+
+            // Button is disabled when invalid; keep a final guard anyway.
+            if (!isProjectNameValid(projectName)) return;
+
+            resultFuture.complete(Optional.of(projectName));
+            dialogStage.close();
         });
         
         cancelButton.setOnAction(e -> {
             resultFuture.complete(Optional.empty());
             dialogStage.close();
         });
+    }
+
+    private void setupInlineValidation() {
+        // Initial state
+        validateAndUpdateUI(projectNameField.getText());
+
+        projectNameField.textProperty().addListener((obs, oldVal, newVal) -> validateAndUpdateUI(newVal));
+    }
+
+    private void validateAndUpdateUI(String text) {
+        String raw = text == null ? "" : text;
+        String candidate = raw.trim();
+
+        // Treat empty as neutral (disabled button, default border)
+        if (candidate.isEmpty()) {
+            okButton.setDisable(true);
+            setTextFieldBorder(projectNameField, "#d1d5db", 1);
+            return;
+        }
+
+        boolean valid = isProjectNameValid(candidate);
+        okButton.setDisable(!valid);
+
+        if (valid) {
+            setTextFieldBorder(projectNameField, "#16a34a", 2);
+        } else {
+            setTextFieldBorder(projectNameField, "#ef4444", 2);
+        }
+    }
+
+    /**
+     * Java-identifier style validation (no spaces/special symbols).
+     * Disallows '$' even though Java allows it.
+     */
+    private boolean isProjectNameValid(String name) {
+        if (name == null || name.trim().isEmpty()) return false;
+        String trimmed = name.trim();
+        if (trimmed.indexOf('$') >= 0) return false;
+        if (!SourceVersion.isIdentifier(trimmed)) return false;
+        return !SourceVersion.isKeyword(trimmed);
+    }
+
+    private void setTextFieldBorder(TextField field, String color, int width) {
+        field.setStyle(
+                "-fx-background-color: #ffffff; " +
+                        "-fx-border-color: " + color + "; " +
+                        "-fx-border-width: " + width + "; " +
+                        "-fx-border-radius: 6; " +
+                        "-fx-background-radius: 6; " +
+                        "-fx-padding: 12 16; " +
+                        "-fx-min-height: 44; " +
+                        "-fx-text-fill: #374151;"
+        );
     }
     
     private void setupKeyboardShortcuts() {

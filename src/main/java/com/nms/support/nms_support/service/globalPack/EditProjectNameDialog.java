@@ -11,6 +11,7 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 
+import javax.lang.model.SourceVersion;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Logger;
@@ -20,6 +21,9 @@ import java.util.logging.Logger;
  */
 public class EditProjectNameDialog {
     private static final Logger logger = LoggerUtil.getLogger();
+
+    private static final String PROJECT_NAME_RULES =
+            "Allowed: letters, digits, '_' only. Must start with a letter or '_'. No spaces/special symbols.";
     
     private Stage dialogStage;
     private ProjectManager projectManager;
@@ -29,6 +33,7 @@ public class EditProjectNameDialog {
     // UI components
     private Label titleLabel;
     private TextField projectNameField;
+    private Label noteLabel;
     private Button updateButton;
     private Button cancelButton;
     
@@ -61,9 +66,11 @@ public class EditProjectNameDialog {
             dialogStage.setTitle("Edit Project Name");
             dialogStage.setScene(new Scene(root));
             dialogStage.setResizable(false);
+
+            // Let the stage size itself to the content to avoid button overflow.
+            dialogStage.sizeToScene();
             dialogStage.setMinWidth(380);
-            dialogStage.setMinHeight(220);
-            dialogStage.setMaxHeight(240);
+            dialogStage.setMinHeight(240);
             
             // Set the standard dialog icon
             IconUtils.setStageIcon(dialogStage);
@@ -122,6 +129,11 @@ public class EditProjectNameDialog {
         
         // Select all text for easy editing
         projectNameField.selectAll();
+
+        // Static note label (keeps dialog stable)
+        noteLabel = new Label(PROJECT_NAME_RULES);
+        noteLabel.setWrapText(true);
+        noteLabel.setStyle("-fx-text-fill: #6b7280; -fx-font-size: 12px;");
         
         // Create compact buttons
         cancelButton = new Button("Cancel");
@@ -163,7 +175,7 @@ public class EditProjectNameDialog {
         buttonBox.getChildren().addAll(cancelButton, updateButton);
         
         // Add all components to root
-        rootContainer.getChildren().addAll(titleLabel, projectNameField, buttonBox);
+        rootContainer.getChildren().addAll(titleLabel, projectNameField, noteLabel, buttonBox);
         
         return rootContainer;
     }
@@ -177,6 +189,9 @@ public class EditProjectNameDialog {
         
         // Handle enter key to update
         projectNameField.setOnAction(event -> updateProjectName());
+
+        // Inline validation while typing
+        setupInlineValidation();
         
         // Handle escape key
         dialogStage.getScene().setOnKeyPressed(event -> {
@@ -184,6 +199,47 @@ public class EditProjectNameDialog {
                 cancelDialog();
             }
         });
+    }
+
+    private void setupInlineValidation() {
+        validateAndUpdateUI(projectNameField.getText());
+        projectNameField.textProperty().addListener((obs, oldVal, newVal) -> validateAndUpdateUI(newVal));
+    }
+
+    private void validateAndUpdateUI(String text) {
+        String raw = text == null ? "" : text;
+        String candidate = raw.trim();
+
+        if (candidate.isEmpty()) {
+            updateButton.setDisable(true);
+            setTextFieldBorder(projectNameField, "#d1d5db", 1);
+            return;
+        }
+
+        boolean valid = isProjectNameValid(candidate);
+        if (!valid) {
+            updateButton.setDisable(true);
+            setTextFieldBorder(projectNameField, "#ef4444", 2);
+            return;
+        }
+
+        // valid
+        boolean changed = currentProjectName != null && !candidate.equals(currentProjectName);
+        updateButton.setDisable(!changed);
+        setTextFieldBorder(projectNameField, "#16a34a", 2);
+    }
+
+    private void setTextFieldBorder(TextField field, String color, int width) {
+        field.setStyle(
+                "-fx-background-color: #ffffff; " +
+                        "-fx-border-color: " + color + "; " +
+                        "-fx-border-width: " + width + "; " +
+                        "-fx-border-radius: 6; " +
+                        "-fx-background-radius: 6; " +
+                        "-fx-padding: 10 12; " +
+                        "-fx-min-height: 40; " +
+                        "-fx-font-weight: bold;"
+        );
     }
     
     /**
@@ -273,10 +329,8 @@ public class EditProjectNameDialog {
     private void updateProjectName() {
         String newProjectName = projectNameField.getText().trim();
         
-        if (newProjectName.isEmpty()) {
-            DialogUtil.showAlert(Alert.AlertType.WARNING, "Invalid Name", "Project name cannot be empty.");
-            return;
-        }
+        // Button is disabled when invalid; keep a final guard.
+        if (!isProjectNameValid(newProjectName)) return;
         
         if (newProjectName.equals(currentProjectName)) {
             // No change, just close
@@ -304,5 +358,17 @@ public class EditProjectNameDialog {
         logger.info("Edit project name dialog cancelled");
         resultFuture.complete(Optional.empty());
         dialogStage.close();
+    }
+
+    /**
+     * Java-identifier style validation (no spaces/special symbols).
+     * Disallows '$' even though Java allows it.
+     */
+    private boolean isProjectNameValid(String name) {
+        if (name == null || name.trim().isEmpty()) return false;
+        String trimmed = name.trim();
+        if (trimmed.indexOf('$') >= 0) return false;
+        if (!SourceVersion.isIdentifier(trimmed)) return false;
+        return !SourceVersion.isKeyword(trimmed);
     }
 }
