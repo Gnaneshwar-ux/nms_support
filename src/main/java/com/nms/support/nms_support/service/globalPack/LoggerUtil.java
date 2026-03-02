@@ -3,6 +3,9 @@ package com.nms.support.nms_support.service.globalPack;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.FileHandler;
 import java.util.logging.Level;
@@ -25,8 +28,11 @@ public class LoggerUtil {
                 consoleHandler.setLevel(Level.ALL);
 
                 // Create a FileHandler
-                String user = System.getProperty("user.name");
-                String logPath = "C:\\Users\\" + user +"\\Documents\\nms_support_data\\nms_support.log";
+                Path logDir = Paths.get(System.getProperty("user.home"), "Documents", "nms_support_data");
+                if (!Files.exists(logDir)) {
+                    Files.createDirectories(logDir);
+                }
+                String logPath = logDir.resolve("nms_support.log").toString();
                 FileHandler fileHandler = new FileHandler(logPath, false); // 'true' to append to the existing file
                 fileHandler.setLevel(Level.ALL);
                 fileHandler.setFormatter(new SimpleFormatter());

@@ -147,10 +147,10 @@ public class MainController implements Initializable {
         showSplashOverlay();
         
         // Initialize managers
-        String user = System.getProperty("user.name");
-        projectManager = new ProjectManager("C:\\Users\\" + user + "\\Documents\\nms_support_data\\projects.json");
-        logManager = new LogManager("C:\\Users\\" + user + "\\Documents\\nms_support_data\\logs.json");
-        vpnManager = new VpnManager("C:\\Users\\" + user + "\\Documents\\nms_support_data\\vpn.json");
+        Path dataDir = getNmsSupportDataDir();
+        projectManager = new ProjectManager(dataDir.resolve("projects.json").toString());
+        logManager = new LogManager(dataDir.resolve("logs.json").toString());
+        vpnManager = new VpnManager(dataDir.resolve("vpn.json").toString());
 
         addButton.setOnAction(event -> addProject());
         delButton.setOnAction(event -> removeProject());
@@ -1915,6 +1915,10 @@ public class MainController implements Initializable {
 
     private String toForwardSlashes(String p) {
         return p.replace("\\", "/");
+    }
+
+    private Path getNmsSupportDataDir() {
+        return Paths.get(System.getProperty("user.home"), "Documents", "nms_support_data");
     }
 
     private Path ensureDir(Path dir) throws IOException {

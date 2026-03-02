@@ -7,6 +7,10 @@ import com.nms.support.nms_support.model.ProjectWrapper;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -85,13 +89,17 @@ public class ProjectManager implements IManager {
     public void initManager(File source) {
         ObjectMapper objectMapper = new ObjectMapper();
         try {
+            if (source.length() == 0) {
+                projectWrapper = new ProjectWrapper();
+                return;
+            }
             projectWrapper = objectMapper.readValue(source, ProjectWrapper.class);
             if (projectWrapper == null) {
                 projectWrapper = new ProjectWrapper();
             }
         } catch (IOException e) {
             e.printStackTrace();
-            projectWrapper = new ProjectWrapper();
+            projectWrapper = tryRecoverFromBackup(objectMapper, source);
         }
         // Ensure all loaded projects will save immediately on zip add/remove
         attachCallbacksForAllProjects();
@@ -194,8 +202,31 @@ public class ProjectManager implements IManager {
                 projects = removeDuplicateProjects(projects);
                 projectWrapper.setProjects(projects);
             }
-            
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(this.source, projectWrapper);
+
+            Path sourcePath = this.source.toPath();
+            Path parentDir = sourcePath.getParent();
+            if (parentDir != null && !Files.exists(parentDir)) {
+                Files.createDirectories(parentDir);
+            }
+
+            Path tempPath = parentDir.resolve(sourcePath.getFileName().toString() + ".tmp");
+            Path backupPath = parentDir.resolve(sourcePath.getFileName().toString() + ".bak");
+
+            // Write to temp first
+            objectMapper.writerWithDefaultPrettyPrinter().writeValue(tempPath.toFile(), projectWrapper);
+
+            // Rotate existing source to backup
+            if (Files.exists(sourcePath)) {
+                Files.copy(sourcePath, backupPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            // Replace source with temp atomically when possible
+            try {
+                Files.move(tempPath, sourcePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException atomicEx) {
+                Files.move(tempPath, sourcePath, StandardCopyOption.REPLACE_EXISTING);
+            }
+
             return  true;
         } catch (IOException e) {
             e.printStackTrace();
@@ -354,5 +385,32 @@ public class ProjectManager implements IManager {
         }
         
         return new ArrayList<>(uniqueProjects.values());
+    }
+
+    private ProjectWrapper tryRecoverFromBackup(ObjectMapper objectMapper, File source) {
+        try {
+            Path sourcePath = source.toPath();
+            Path parentDir = sourcePath.getParent();
+            if (parentDir == null) {
+                return new ProjectWrapper();
+            }
+
+            // Preserve unreadable/corrupted file for analysis
+            if (Files.exists(sourcePath) && Files.size(sourcePath) > 0) {
+                String corruptName = source.getName() + ".corrupt." + System.currentTimeMillis();
+                Files.copy(sourcePath, parentDir.resolve(corruptName), StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            Path backupPath = parentDir.resolve(source.getName() + ".bak");
+            if (Files.exists(backupPath) && Files.size(backupPath) > 0) {
+                ProjectWrapper recovered = objectMapper.readValue(backupPath.toFile(), ProjectWrapper.class);
+                if (recovered != null) {
+                    return recovered;
+                }
+            }
+        } catch (Exception ignored) {
+            // Fall back to empty wrapper when recovery fails
+        }
+        return new ProjectWrapper();
     }
 }
