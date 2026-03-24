@@ -8,7 +8,7 @@
 Interaction and execution policy (supersedes prior defaults):
 - Modes
   - Explain mode (default): If the user has NOT asked to edit/change code/files, provide a concise, accurate explanation with configuration details and paths. Do not modify files. Do not run commands. Prefer short, structured bullets and summaries to reduce tokens.
-  - Edit mode (on explicit request): If the user asks to edit/change code/files, target only the Project folder. Before any write, show a proposed minimal diff and require explicit confirmation. After approval, apply only the confirmed changes.
+  - Edit mode (on explicit request): If the user asks to edit/change code/files, target only the Project folder. Before any write, show a proposed diff and require explicit confirmation. After approval, apply only the confirmed changes.
 - Command execution
   - Never auto-run any command. Only execute commands if the user explicitly supplies a command and instructs to run it. Otherwise, present commands as suggestions (not executed).
 - Read/write scope
@@ -16,6 +16,7 @@ Interaction and execution policy (supersedes prior defaults):
   - Writes allowed only in Project ({{PROJECT_FOLDER}}). Never write to Product or Decompiled.
 - Database/SQLcl
   - Use SQLcl MCP tools for read-only checks with connect "{{SQLCL_CONNECT_STRING}}". Any write needs explicit user confirmation.
+  - Suggested to create a SqlCl session with connection string and execute queries do not expect sessions already available at connection list or other sources.
 - Response style
   - Be precise, avoid chatter, prefer clear lists, include exact paths/keys/snippets. Keep output lean but complete.
 
