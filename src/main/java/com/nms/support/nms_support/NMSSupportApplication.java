@@ -2,6 +2,8 @@ package com.nms.support.nms_support;
 
 
 import com.nms.support.nms_support.service.globalPack.IconUtils;
+import com.nms.support.nms_support.service.globalPack.LoggerUtil;
+import com.nms.support.nms_support.service.globalPack.SingleInstanceService;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.fxml.FXMLLoader;
@@ -17,6 +19,12 @@ public class NMSSupportApplication extends Application {
     @Override
     public void start(Stage stage) throws IOException {
         try {
+            if (!SingleInstanceService.initializeAsPrimaryInstance()) {
+                SingleInstanceService.notifyExistingInstance();
+                Platform.exit();
+                return;
+            }
+
             System.out.println("Starting NMS Support Application...");
             
             // Set stage icon
@@ -49,6 +57,7 @@ public class NMSSupportApplication extends Application {
             stage.setTitle("NMS DevTools");
             stage.setScene(scene);
             stage.setMaximized(true);
+            SingleInstanceService.registerPrimaryStage(stage);
             
             // Show stage
             stage.show();
@@ -71,6 +80,7 @@ public class NMSSupportApplication extends Application {
         } catch (Exception e) {
             System.err.println("Error starting application: " + e.getMessage());
             e.printStackTrace();
+            LoggerUtil.error(new Exception(e));
             throw e;
         }
 
@@ -78,6 +88,7 @@ public class NMSSupportApplication extends Application {
     
     @Override
     public void stop() {
+        SingleInstanceService.shutdown();
         Platform.exit();
         System.exit(0);
     }

@@ -4,20 +4,38 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nms.support.nms_support.model.LogEntity;
 import com.nms.support.nms_support.model.ProjectEntity;
 import com.nms.support.nms_support.model.ProjectWrapper;
+import com.nms.support.nms_support.service.globalPack.LoggerUtil;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Logger;
 
 public class ProjectManager implements IManager {
+
+    private static final Logger logger = LoggerUtil.getLogger();
+
+    private ProjectWrapper projectWrapper;
+    private LogManager logManager;
+    private final File source;
+
+    public ProjectManager(String sourcePath) {
+        this.source = new File(sourcePath);
+        ensureParentDirectoryExists(this.source);
+        initManager(this.source);
+    }
 
     public ProjectWrapper getProjectWrapper() {
         return projectWrapper;
@@ -27,61 +45,35 @@ public class ProjectManager implements IManager {
         return logManager;
     }
 
-    private ProjectWrapper projectWrapper;
-    private LogManager logManager;
-    private File source;
-
-    public ProjectManager(String sourcePath) {
-        this.source = new File(sourcePath);
-        ensureFileExists(this.source);
-        initManager(this.source);
-
-    }
-
-    // Attach immediate-save callback to a single project
     private void attachSaveCallback(ProjectEntity project) {
         if (project != null) {
             project.setSaveCallback(() -> {
                 try {
-                    // Persist projects.json immediately when zip list changes
                     saveData();
                 } catch (Exception ignored) {
-                    // Avoid propagating any persistence issues to callers
+                    // Avoid propagating persistence failures to callers.
                 }
             });
         }
     }
 
-    // Attach callbacks for all projects currently loaded
     private void attachCallbacksForAllProjects() {
         List<ProjectEntity> projects = projectWrapper != null ? projectWrapper.getProjects() : null;
         if (projects != null) {
-            for (ProjectEntity p : projects) {
-                attachSaveCallback(p);
+            for (ProjectEntity project : projects) {
+                attachSaveCallback(project);
             }
         }
     }
 
-    private void ensureFileExists(File source) {
-        try {
-            File parentDir = source.getParentFile();
-            if (parentDir != null && !parentDir.exists()) {
-                if (parentDir.mkdirs()) {
-                    System.out.println("Directory created: " + parentDir.getAbsolutePath());
-                } else {
-                    System.out.println("Failed to create directory: " + parentDir.getAbsolutePath());
-                }
+    private void ensureParentDirectoryExists(File source) {
+        File parentDir = source.getParentFile();
+        if (parentDir != null && !parentDir.exists()) {
+            if (parentDir.mkdirs()) {
+                logger.info("Directory created: " + parentDir.getAbsolutePath());
+            } else {
+                logger.warning("Failed to create directory: " + parentDir.getAbsolutePath());
             }
-
-            if (!source.exists()) {
-                if (source.createNewFile()) {
-                    System.out.println("File created: " + source.getAbsolutePath());
-                } else {
-                    System.out.println("Failed to create file: " + source.getAbsolutePath());
-                }
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
         }
     }
 
@@ -89,39 +81,51 @@ public class ProjectManager implements IManager {
     public void initManager(File source) {
         ObjectMapper objectMapper = new ObjectMapper();
         try {
-            if (source.length() == 0) {
+            if (!source.exists()) {
                 projectWrapper = new ProjectWrapper();
+                saveData();
+                attachCallbacksForAllProjects();
                 return;
             }
+
+            if (source.length() == 0) {
+                logger.warning("projects.json is zero bytes. Attempting recovery from backup.");
+                projectWrapper = tryRecoverFromBackup(objectMapper, source);
+                if (projectWrapper == null) {
+                    projectWrapper = new ProjectWrapper();
+                }
+                saveData();
+                attachCallbacksForAllProjects();
+                return;
+            }
+
             projectWrapper = objectMapper.readValue(source, ProjectWrapper.class);
             if (projectWrapper == null) {
                 projectWrapper = new ProjectWrapper();
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.warning("Failed to read projects.json, attempting recovery: " + e.getMessage());
             projectWrapper = tryRecoverFromBackup(objectMapper, source);
+            if (projectWrapper == null) {
+                projectWrapper = new ProjectWrapper();
+            }
         }
-        // Ensure all loaded projects will save immediately on zip add/remove
+
         attachCallbacksForAllProjects();
     }
 
-
-    // Project management methods
     public void addProject(ProjectEntity project) {
         List<ProjectEntity> projects = projectWrapper.getProjects();
         if (projects == null) {
             projects = new ArrayList<>();
             projectWrapper.setProjects(projects);
         }
-        
-        // Set order to be the highest (most recent) - projects with higher order appear first
-        // Use a more reliable ordering system that resets periodically to prevent overflow
+
         int maxOrder = projects.stream()
                 .mapToInt(ProjectEntity::getOrder)
                 .max()
                 .orElse(-1);
-        
-        // If we're getting close to Integer.MAX_VALUE, reset all orders to prevent overflow
+
         if (maxOrder > Integer.MAX_VALUE - 1000) {
             resetProjectOrders();
             maxOrder = projects.stream()
@@ -129,10 +133,9 @@ public class ProjectManager implements IManager {
                     .max()
                     .orElse(-1);
         }
-        
+
         project.setOrder(maxOrder + 1);
         projects.add(project);
-        // Ensure immediate-save wiring for new project
         attachSaveCallback(project);
     }
 
@@ -142,7 +145,6 @@ public class ProjectManager implements IManager {
             for (int i = 0; i < projects.size(); i++) {
                 if (projects.get(i).getName().equals(projectName)) {
                     projects.set(i, updatedProject);
-                    // Ensure updated instance has immediate-save wiring
                     attachSaveCallback(updatedProject);
                     return;
                 }
@@ -172,9 +174,7 @@ public class ProjectManager implements IManager {
     public List<ProjectEntity> getProjects() {
         List<ProjectEntity> projects = projectWrapper != null ? projectWrapper.getProjects() : new ArrayList<>();
         if (projects != null) {
-            // Remove duplicates based on project name to prevent data corruption
             projects = removeDuplicateProjects(projects);
-            // Sort by order in descending order (highest order first - most recent first)
             projects.sort(Comparator.comparingInt(ProjectEntity::getOrder).reversed());
         }
         return projects;
@@ -185,56 +185,62 @@ public class ProjectManager implements IManager {
             projectWrapper = new ProjectWrapper();
         }
         projectWrapper.setProjects(projects);
-        // Ensure all projects are wired for immediate-save behavior
         attachCallbacksForAllProjects();
     }
 
     public synchronized boolean saveData() {
         ObjectMapper objectMapper = new ObjectMapper();
+        Path sourcePath = this.source.toPath();
         try {
             if (projectWrapper == null) {
                 projectWrapper = new ProjectWrapper();
             }
-            
-            // Clean up any duplicate projects before saving
+
             List<ProjectEntity> projects = projectWrapper.getProjects();
             if (projects != null) {
                 projects = removeDuplicateProjects(projects);
                 projectWrapper.setProjects(projects);
             }
 
-            Path sourcePath = this.source.toPath();
             Path parentDir = sourcePath.getParent();
             if (parentDir != null && !Files.exists(parentDir)) {
                 Files.createDirectories(parentDir);
             }
 
-            Path tempPath = parentDir.resolve(sourcePath.getFileName().toString() + ".tmp");
-            Path backupPath = parentDir.resolve(sourcePath.getFileName().toString() + ".bak");
+            Path tempPath = parentDir.resolve(sourcePath.getFileName() + ".tmp");
+            Path backupPath = parentDir.resolve(sourcePath.getFileName() + ".bak");
 
-            // Write to temp first
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(tempPath.toFile(), projectWrapper);
+            logger.info("Saving projects.json to " + sourcePath);
 
-            // Rotate existing source to backup
-            if (Files.exists(sourcePath)) {
-                Files.copy(sourcePath, backupPath, StandardCopyOption.REPLACE_EXISTING);
+            try (RandomAccessFile lockFile = new RandomAccessFile(sourcePath.toFile(), "rw");
+                 FileChannel lockChannel = lockFile.getChannel();
+                 FileLock lock = lockChannel.lock()) {
+
+                objectMapper.writerWithDefaultPrettyPrinter().writeValue(tempPath.toFile(), projectWrapper);
+
+                try (FileChannel tempChannel = FileChannel.open(tempPath, StandardOpenOption.WRITE)) {
+                    tempChannel.force(true);
+                }
+
+                if (Files.exists(sourcePath) && Files.size(sourcePath) > 0) {
+                    Files.copy(sourcePath, backupPath, StandardCopyOption.REPLACE_EXISTING);
+                }
+
+                try {
+                    Files.move(tempPath, sourcePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (AtomicMoveNotSupportedException ex) {
+                    Files.move(tempPath, sourcePath, StandardCopyOption.REPLACE_EXISTING);
+                }
             }
 
-            // Replace source with temp atomically when possible
-            try {
-                Files.move(tempPath, sourcePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException atomicEx) {
-                Files.move(tempPath, sourcePath, StandardCopyOption.REPLACE_EXISTING);
-            }
-
-            return  true;
+            return true;
         } catch (IOException e) {
+            logger.severe("Failed to save projects.json: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
     }
 
-    // Delegate log operations to LogManager
     public void addLog(LogEntity log) {
         logManager.addLog(log);
     }
@@ -248,84 +254,64 @@ public class ProjectManager implements IManager {
     }
 
     public ProjectEntity getProjectByName(String projectName) {
-        if(getProjects()!=null) {
-            for (ProjectEntity pe : getProjects()) {
-                if (pe.getName().equals(projectName)) {
-                    return pe;
+        if (getProjects() != null) {
+            for (ProjectEntity projectEntity : getProjects()) {
+                if (projectEntity.getName().equals(projectName)) {
+                    return projectEntity;
                 }
             }
         }
         return null;
     }
 
-    /**
-     * Gets a project by name (alias for getProjectByName for consistency)
-     */
     public ProjectEntity getProject(String projectName) {
         return getProjectByName(projectName);
     }
 
-    /**
-     * Checks if a project with the given name exists
-     */
     public boolean projectExists(String projectName) {
         return getProjectByName(projectName) != null;
     }
-    
-    /**
-     * Reorders projects based on the provided list of project names
-     * @param projectNamesInOrder List of project names in the desired order
-     */
+
     public void reorderProjects(List<String> projectNamesInOrder) {
         List<ProjectEntity> projects = projectWrapper.getProjects();
         if (projects == null || projectNamesInOrder == null) {
             return;
         }
-        
-        // Create a map for quick lookup
-        java.util.Map<String, ProjectEntity> projectMap = new java.util.HashMap<>();
+
+        Map<String, ProjectEntity> projectMap = new HashMap<>();
         for (ProjectEntity project : projects) {
             projectMap.put(project.getName(), project);
         }
-        
-        // Update order based on the provided list (first item gets highest order)
+
         for (int i = 0; i < projectNamesInOrder.size(); i++) {
             String projectName = projectNamesInOrder.get(i);
             ProjectEntity project = projectMap.get(projectName);
             if (project != null) {
-                // Higher order means appears first (most recent)
                 project.setOrder(projectNamesInOrder.size() - i);
             }
         }
     }
-    
-    /**
-     * Moves a project to the top (most recent position)
-     * @param projectName Name of the project to move to top
-     */
+
     public void moveProjectToTop(String projectName) {
         List<ProjectEntity> projects = projectWrapper.getProjects();
         if (projects == null) {
             return;
         }
-        
-        // Remove duplicates first to prevent issues
+
         projects = removeDuplicateProjects(projects);
         projectWrapper.setProjects(projects);
-        
+
         ProjectEntity targetProject = null;
         int maxOrder = -1;
-        
-        // Find the target project and current max order
+
         for (ProjectEntity project : projects) {
             if (project.getName().equals(projectName)) {
                 targetProject = project;
             }
             maxOrder = Math.max(maxOrder, project.getOrder());
         }
-        
+
         if (targetProject != null) {
-            // Check if we need to reset orders to prevent overflow
             if (maxOrder > Integer.MAX_VALUE - 1000) {
                 resetProjectOrders();
                 maxOrder = projects.stream()
@@ -336,46 +322,31 @@ public class ProjectManager implements IManager {
             targetProject.setOrder(maxOrder + 1);
         }
     }
-    
-    /**
-     * Resets all project orders to prevent integer overflow
-     * Maintains relative order but uses smaller numbers
-     */
+
     private void resetProjectOrders() {
         List<ProjectEntity> projects = projectWrapper.getProjects();
         if (projects == null || projects.isEmpty()) {
             return;
         }
-        
-        // Sort projects by current order to maintain relative order
+
         projects.sort(Comparator.comparingInt(ProjectEntity::getOrder).reversed());
-        
-        // Reset orders starting from 0
         for (int i = 0; i < projects.size(); i++) {
             projects.get(i).setOrder(i);
         }
     }
-    
-    /**
-     * Removes duplicate projects based on project name, keeping the one with the highest order
-     * This prevents data corruption and duplicate entries
-     * @param projects List of projects to deduplicate
-     * @return Deduplicated list of projects
-     */
+
     private List<ProjectEntity> removeDuplicateProjects(List<ProjectEntity> projects) {
         if (projects == null || projects.isEmpty()) {
             return projects;
         }
-        
+
         Map<String, ProjectEntity> uniqueProjects = new HashMap<>();
-        
         for (ProjectEntity project : projects) {
             String projectName = project.getName();
             if (projectName != null && !projectName.trim().isEmpty()) {
                 if (!uniqueProjects.containsKey(projectName)) {
                     uniqueProjects.put(projectName, project);
                 } else {
-                    // Keep the project with the higher order (more recent)
                     ProjectEntity existingProject = uniqueProjects.get(projectName);
                     if (project.getOrder() > existingProject.getOrder()) {
                         uniqueProjects.put(projectName, project);
@@ -383,7 +354,7 @@ public class ProjectManager implements IManager {
                 }
             }
         }
-        
+
         return new ArrayList<>(uniqueProjects.values());
     }
 
@@ -395,8 +366,7 @@ public class ProjectManager implements IManager {
                 return new ProjectWrapper();
             }
 
-            // Preserve unreadable/corrupted file for analysis
-            if (Files.exists(sourcePath) && Files.size(sourcePath) > 0) {
+            if (Files.exists(sourcePath)) {
                 String corruptName = source.getName() + ".corrupt." + System.currentTimeMillis();
                 Files.copy(sourcePath, parentDir.resolve(corruptName), StandardCopyOption.REPLACE_EXISTING);
             }
@@ -405,11 +375,12 @@ public class ProjectManager implements IManager {
             if (Files.exists(backupPath) && Files.size(backupPath) > 0) {
                 ProjectWrapper recovered = objectMapper.readValue(backupPath.toFile(), ProjectWrapper.class);
                 if (recovered != null) {
+                    logger.warning("Recovered projects.json from backup: " + backupPath);
                     return recovered;
                 }
             }
         } catch (Exception ignored) {
-            // Fall back to empty wrapper when recovery fails
+            // Fall back to empty wrapper when recovery fails.
         }
         return new ProjectWrapper();
     }
