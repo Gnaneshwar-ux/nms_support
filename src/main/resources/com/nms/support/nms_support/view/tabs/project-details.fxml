@@ -48,7 +48,7 @@
                                 <TextField fx:id="ldapUserField" />
                             </VBox>
                             <VBox spacing="6" HBox.hgrow="ALWAYS">
-                                <Label styleClass="field-label" text="Target User" />
+                                <Label styleClass="field-label" text="NMS Target User" />
                                 <TextField fx:id="targetUserField" />
                             </VBox>
                         </HBox>

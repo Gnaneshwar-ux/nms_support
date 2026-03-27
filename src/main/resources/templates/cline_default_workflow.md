@@ -4,6 +4,7 @@
 - Product (Java root): {{PRODUCT_JAVA_PATH}}
 - Decompiled: {{DECOMPILED_FOLDER}}
 - Runtime (merged): {{WORKING_DIR}}
+- Server Name: {{SERVER_NAME}}
 
 Interaction and execution policy (supersedes prior defaults):
 - Modes
@@ -14,9 +15,10 @@ Interaction and execution policy (supersedes prior defaults):
 - Read/write scope
   - Read allowed across Project, Product, Decompiled, and merged runtime folders.
   - Writes allowed only in Project ({{PROJECT_FOLDER}}). Never write to Product or Decompiled.
-- Database/SQLcl
-  - Use SQLcl MCP tools for read-only checks with connect "{{SQLCL_CONNECT_STRING}}". Any write needs explicit user confirmation.
-  - Suggested to create a SqlCl session with connection string and execute queries do not expect sessions already available at connection list or other sources.
+- Database/NMS_MCP
+  - Use the `nms-mcp` server for Oracle DB read-only checks, preferably through `oracle_connect`, `review_sql`, and `execute_sql`.
+  - Create DB sessions explicitly with the needed user credentials; do not assume sessions already exist.
+  - Plain read-only `SELECT` queries may be safe, but anything beyond obvious read-only access should be reviewed first and explicitly confirmed.
 - Response style
   - Be precise, avoid chatter, prefer clear lists, include exact paths/keys/snippets. Keep output lean but complete.
 
@@ -31,19 +33,59 @@ Oracle DB placeholders
 - Host: {{DB_HOST}} | Port: {{DB_PORT}} | SID: {{DB_SID}}
 - User: {{DB_USER}} | Password: {{DB_PASSWORD}}
 - JDBC URL: {{ORACLE_JDBC_URL}}
-- SQLcl connect: {{SQLCL_CONNECT_STRING}}
+- Suggested connect string: {{SQLCL_CONNECT_STRING}}
 Note: If using service name, use user/password@//host:port/service.
 
-SQLcl MCP usage (pseudocode)
-- server_name: sqlcl; tool: execute/query
-- args: { "connect": "{{SQLCL_CONNECT_STRING}}", "sql": "SELECT COUNT(*) FROM SOME_TABLE" }
-- Policy: read-only by default; any DDL/DML requires explicit user confirmation.
+NMS_MCP Oracle DB usage (pseudocode)
+- server_name: nms-mcp; tool: oracle_connect
+- args: { "username": "{{DB_USER}}", "password": "{{DB_PASSWORD}}", "connectString": "{{DB_HOST}}:{{DB_PORT}}/{{DB_SID}}" }
+- server_name: nms-mcp; tool: execute_sql
+- args: { "dbSessionId": "<session-id>", "sql": "SELECT COUNT(*) FROM SOME_TABLE" }
+- Policy: read-only by default; any DDL/DML or non-obvious SQL requires explicit user confirmation.
+- Troubleshooting note:
+  - If NMS server logs show query failures, missing tables/views, synonym errors, or permission issues for read-only/write users, inspect the `.nmsrc` file on the NMS server to discover available database users.
+  - You can also validate access using `ISQL` and `ISQL -admin` interactive shells on the server.
+  - Suggested workflow: create database connections through NMS_MCP for the relevant users and test queries with the appropriate account.
+  - In many development environments, database usernames and passwords are often the same, but always verify from server configuration before use.
+
+## Log Analysis and debugging info - {{SERVER_NAME}}
+Use NMS-MCP server to communicate with ssh or sql querying
+While working with server at any point question raises just prompt to developer and get confirmed don't run anything without clarity or proper confirmations
+
+Oracle NMS Application logs available at local %temp%/OracleNMS/
+
+Weblogic Host: {{WEBLOGIC_HOST}}
+Login: {{LDAP_USER}} + sudo su - gbuora
+Logs: This host may have multiple managed servers running. Find all the servers; if a match is found with the server name provided by the user, logs will usually be like {{SERVER_NAME}}.out and {{SERVER_NAME}}.log.
+Example: /home/nmsadmin/Oracle/Middleware/Oracle_Home/user_projects/domains/nms/servers/nms_1/logs/nms_1.out
+
+NMS Host: {{NMS_HOST}}:{{NMS_PORT}}
+Login: {{LDAP_USER}} + sudo {{NMS_TARGET_USER}}
+Logs: This server contains daemon services like isis, JMS, genpublisher, etc. It may also contain multiple projects with different users. If a target user is provided, use that; otherwise list the users folder prompt to confirm or select by the developer. Usually logs are available at ~/logs/, $NMS_HOME/logs/
+Example: /home/nmsadmin/logs
+
+Database Host: {{DB_HOST}}:{{DB_PORT}}
+Login: {{LDAP_USER}} + sudo su - gbuora
+DB schema Credentials: {{DB_USER}}/{{DB_PASSWORD}}
+SID: {{DB_SID}}
+Logs: This is the host where the actual database is hosted. It is mainly used to initialize database/schema setup, data export/import, and godatapump scripts. It is also commonly used for sysdba access and session management via sqlplus / as sysdba.
+Additional DB diagnostics:
+- Check `.nmsrc` on the NMS server for available DB users and environment-specific connection details.
+- If application errors mention missing tables, views, or synonyms, test the same query with alternate users from `.nmsrc`.
+- For access troubleshooting, prefer creating multiple NMS_MCP DB connections and verify which user has the required privileges.
+
+BiPublisher: {{BIPUBLISHER}}
+Login: {{LDAP_USER}} + sudo su - gbuora
+Logs: Contains BiPublisher deployment logs, especially useful for printing failures in application.
+Example: /scratch/gbuora/Oracle/Middleware_BIPUB/Oracle_Home/user_projects/domains/bipub/servers/bi_server1/logs/bipublisher/bipublisher.log
+
+
 
 Typical workflow
 1) If a project XML exists, it supersedes product XML.
 2) Properties: project overrides keys; other keys inherited from product.
 3) Validate effective files in {{WORKING_DIR}} (merged runtime).
-4) If any configuration depends on DB schema or data, retrieve necessary metadata/sample rows using SQLcl (read-only). Require explicit confirmation before any writes.
+4) If any configuration depends on DB schema or data, retrieve necessary metadata/sample rows using NMS_MCP Oracle DB tools (read-only). Require explicit confirmation before any writes.
 5) Respect modes: Explain by default; Edit only on explicit instruction.
 
 Debug checklist
@@ -56,7 +98,7 @@ Update: Editing policy and read scope
 - Read allowed across these folders: Project ({{PROJECT_FOLDER}}), Product ({{PRODUCT_JAVA_PATH}}), Decompiled ({{DECOMPILED_FOLDER}}), and merged runtime ({{WORKING_DIR}}).
 - Edits allowed only in the Project folder.
 - Always show a proposed diff and require explicit user confirmation before applying any edit (including Project files).
-- Use SQLcl MCP tools (execute/query) with connect "{{SQLCL_CONNECT_STRING}}" for read-only checks; any write requires explicit confirmation.
+- Use NMS_MCP Oracle DB tools (`oracle_connect`, `review_sql`, `execute_sql`) for read-only checks; any write requires explicit confirmation.
 - Do not run any commands unless the user explicitly instructs to run a provided command.
 
 ---

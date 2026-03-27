@@ -39,7 +39,7 @@ public class UnifiedSSHService {
             // LDAP Authentication: Use LDAP credentials and switch to target user
             sshUser = project.getLdapUser();
             sshPassword = project.getLdapPassword();
-            targetUser = project.getTargetUser(); // Will be used for sudo su - targetUser
+            targetUser = project.getNmsTargetUser(); // Will be used for sudo su - nmsTargetUser on NMS host flows
             
             LoggerUtil.getLogger().info("Using LDAP authentication for SSH connection (purpose: " + purpose + ")");
             LoggerUtil.getLogger().info("   LDAP User: " + sshUser);
@@ -354,7 +354,7 @@ public class UnifiedSSHService {
         
         if (useLdap) {
             String ldapUser = project.getLdapUser();
-            String targetUser = project.getTargetUser();
+            String targetUser = project.getNmsTargetUser();
             if (targetUser != null && !targetUser.trim().isEmpty()) {
                 return String.format("LDAP (%s) -> sudo su - %s @ %s:%d", ldapUser, targetUser, host, port);
             } else {

@@ -122,7 +122,7 @@ public class SetupService {
                 project.getHost(),
                 project.getHostPort(),
                 project.isUseLdap() ? project.getLdapUser() : project.getHostUser(),
-                project.getTargetUser(),
+                project.getNmsTargetUser(),
                 sshSessionPurpose
             );
         } catch (Exception e) {

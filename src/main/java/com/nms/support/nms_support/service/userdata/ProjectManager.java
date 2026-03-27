@@ -209,10 +209,15 @@ public class ProjectManager implements IManager {
 
             Path tempPath = parentDir.resolve(sourcePath.getFileName() + ".tmp");
             Path backupPath = parentDir.resolve(sourcePath.getFileName() + ".bak");
+            Path lockPath = parentDir.resolve(sourcePath.getFileName() + ".lck");
 
             logger.info("Saving projects.json to " + sourcePath);
 
-            try (RandomAccessFile lockFile = new RandomAccessFile(sourcePath.toFile(), "rw");
+            if (!Files.exists(lockPath)) {
+                Files.createFile(lockPath);
+            }
+
+            try (RandomAccessFile lockFile = new RandomAccessFile(lockPath.toFile(), "rw");
                  FileChannel lockChannel = lockFile.getChannel();
                  FileLock lock = lockChannel.lock()) {
 
@@ -223,7 +228,11 @@ public class ProjectManager implements IManager {
                 }
 
                 if (Files.exists(sourcePath) && Files.size(sourcePath) > 0) {
-                    Files.copy(sourcePath, backupPath, StandardCopyOption.REPLACE_EXISTING);
+                    try {
+                        Files.copy(sourcePath, backupPath, StandardCopyOption.REPLACE_EXISTING);
+                    } catch (IOException backupEx) {
+                        logger.warning("Failed to refresh projects.json backup, continuing save: " + backupEx.getMessage());
+                    }
                 }
 
                 try {

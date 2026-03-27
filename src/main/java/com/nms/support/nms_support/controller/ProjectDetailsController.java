@@ -238,7 +238,7 @@ public class ProjectDetailsController {
             
             // LDAP fields
             ldapUserField.setText(safe(project.getLdapUser()));
-            targetUserField.setText(safe(project.getTargetUser()));
+            targetUserField.setText(safe(project.getNmsTargetUser()));
             ldapPasswordField.setText(safe(project.getLdapPassword()));
             
             // Only adjust visibility based on checkbox status
@@ -362,14 +362,14 @@ public class ProjectDetailsController {
             project.setUseLdap(useLdap);
             if (useLdap) {
                 project.setLdapUser(ldapUserField != null ? ldapUserField.getText().trim() : "");
-                project.setTargetUser(targetUserField != null ? targetUserField.getText().trim() : "");
+                project.setNmsTargetUser(targetUserField != null ? targetUserField.getText().trim() : "");
                 project.setLdapPassword(ldapPasswordField != null ? ldapPasswordField.getText() : "");
             } else {
                 project.setHostUser(hostUserField.getText().trim());
                 project.setHostPass(hostPasswordField.getText());
                 // Clear LDAP fields to avoid stale data if desired
                 project.setLdapUser(safe(ldapUserField != null ? ldapUserField.getText() : null));
-                project.setTargetUser(safe(targetUserField != null ? targetUserField.getText() : null));
+                project.setNmsTargetUser(safe(targetUserField != null ? targetUserField.getText() : null));
                 project.setLdapPassword(safe(ldapPasswordField != null ? ldapPasswordField.getText() : null));
             }
             try {
@@ -1014,7 +1014,7 @@ public class ProjectDetailsController {
         hostUserField.setText(safe(sourceProject.getHostUser()));
         hostPasswordField.setText(safe(sourceProject.getHostPass()));
         ldapUserField.setText(safe(sourceProject.getLdapUser()));
-        targetUserField.setText(safe(sourceProject.getTargetUser()));
+        targetUserField.setText(safe(sourceProject.getNmsTargetUser()));
         ldapPasswordField.setText(safe(sourceProject.getLdapPassword()));
         
         // Set checkbox and visibility

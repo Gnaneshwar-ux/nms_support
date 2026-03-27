@@ -66,7 +66,7 @@ public class ReportGenerator {
             
             if (!success) {
                 String ldapUser = project.getLdapUser();
-                String targetUser = project.getTargetUser();
+                String targetUser = project.getNmsTargetUser();
                 String actualUser = (targetUser != null && !targetUser.trim().isEmpty()) ? targetUser : ldapUser;
                 
                 logger.warning("Command execution failed for user: " + actualUser + 

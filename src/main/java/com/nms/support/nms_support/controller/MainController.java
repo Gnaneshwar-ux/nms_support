@@ -61,6 +61,7 @@ import static com.nms.support.nms_support.service.globalPack.SVNAutomationTool.d
 public class MainController implements Initializable {
 
     private static final Logger logger = LoggerUtil.getLogger();
+    private static final int MIN_WORKFLOW_TEMPLATE_LENGTH = 32;
 
     // Public constructor for FXML loading
     public MainController() {
@@ -79,6 +80,7 @@ public class MainController implements Initializable {
     public Button delButton;
     public Button editProjectButton;
     public Button clineButton;
+    public Button nmsMcpSetupButton;
     @FXML
     public Tab dataStoreTab;
     public Button openVpnButton;
@@ -160,6 +162,9 @@ public class MainController implements Initializable {
         }
         if (clineButton != null) {
             clineButton.setOnAction(event -> openClineWorkspace());
+        }
+        if (nmsMcpSetupButton != null) {
+            nmsMcpSetupButton.setOnAction(event -> openNmsMcpSetupDialog());
         }
         reloadProjectNamesCB();
         
@@ -1716,6 +1721,18 @@ public class MainController implements Initializable {
                 return;
             }
 
+            ClineProjectDetailsDialog detailsDialog = new ClineProjectDetailsDialog();
+            Stage parentStage = (Stage) projectComboBox.getScene().getWindow();
+            Boolean proceed = detailsDialog.showDialog(parentStage, project).join();
+            logger.info("Cline details dialog completed for project '" + projectName + "' with proceed=" + proceed);
+            if (!proceed) {
+                logger.info("Cline workspace open cancelled while collecting project details");
+                return;
+            }
+            if (!projectManager.saveData()) {
+                logger.warning("Project save reported failure before opening Cline workspace; proceeding with current in-memory values.");
+            }
+
             // Resolve candidate folders
             String projectFolder = project.getProjectFolderPath(); // project root (without /jconfig)
             String productFolder = project.getExePath();           // product folder
@@ -1751,22 +1768,41 @@ public class MainController implements Initializable {
             Files.write(workspacePath, workspaceJson.getBytes(StandardCharsets.UTF_8),
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
-            // Workflow file path and initial content
+            // Workflow file path and initial content.
+            // If a project-specific workflow already exists and has content, use it as the base
+            // so project-specific instructions are preserved. If it is missing/empty, fall back
+            // to the default template and regenerate the file.
             String workflowBase = projectName.toLowerCase(java.util.Locale.ROOT);
             Path workflowFile = workflowsDir.resolve(workflowBase + ".workflow.md");
-            String templateContent = getOrCreateDefaultWorkflowTemplate();
+            String templateContent = getProjectWorkflowTemplate(workflowFile);
+            logger.info("Preparing workflow file for project '" + projectName + "' at: " + workflowFile);
             String initialWorkflow = fillWorkflowPlaceholders(templateContent, project, projectFolder, productFolder,
                     (decompiledFolder != null && new File(decompiledFolder).exists()) ? decompiledFolder : "Not generated");
+            logger.info("Generated workflow content length for project '" + projectName + "': " + initialWorkflow.length());
 
+            // Always ensure the project workflow file contains the latest generated content.
+            // This also fixes cases where the file exists but is empty/blank/BOM-only.
             if (!Files.exists(workflowFile)) {
-                Files.write(workflowFile, initialWorkflow.getBytes(StandardCharsets.UTF_8),
-                        StandardOpenOption.CREATE_NEW);
+                logger.info("Workflow file does not exist. Creating new file: " + workflowFile);
+                Files.writeString(workflowFile, initialWorkflow, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
             } else {
-                // If exists but empty, seed it
-                if (Files.size(workflowFile) == 0) {
-                    Files.write(workflowFile, initialWorkflow.getBytes(StandardCharsets.UTF_8),
-                            StandardOpenOption.TRUNCATE_EXISTING);
+                try {
+                    logger.info("Workflow file already exists. Current size before overwrite: " + Files.size(workflowFile) + " bytes");
+                } catch (Exception sizeEx) {
+                    logger.warning("Unable to determine existing workflow file size before overwrite: " + sizeEx.getMessage());
                 }
+                Files.writeString(workflowFile, initialWorkflow, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING);
+            }
+            try {
+                long finalSize = Files.size(workflowFile);
+                String savedContent = Files.readString(workflowFile, StandardCharsets.UTF_8);
+                String preview = savedContent.replace("\r", "\\r").replace("\n", "\\n");
+                if (preview.length() > 200) {
+                    preview = preview.substring(0, 200) + "...";
+                }
+                logger.info("Workflow file saved successfully. Final size=" + finalSize + " bytes, preview=" + preview);
+            } catch (Exception verifyEx) {
+                logger.warning("Workflow file write verification failed for " + workflowFile + ": " + verifyEx.getMessage());
             }
 
 
@@ -1781,6 +1817,7 @@ public class MainController implements Initializable {
             }
             cmd.add(workspacePath.toString());
             cmd.add(workflowFile.toString()); // open workflow by default
+            logger.info("Launching VS Code with command: " + cmd);
 
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.start();
@@ -1790,6 +1827,25 @@ public class MainController implements Initializable {
             logger.severe("Error opening Cline workspace: " + e.getMessage());
             DialogUtil.showError("Error", "Failed to open AI (Cline) workspace:\n" + e.getMessage());
         }
+    }
+
+    private boolean needsClineDetails(ProjectEntity project) {
+        return isBlank(project.getServerName())
+                || isBlank(project.getHost())
+                || project.getHostPort() <= 0
+                || isBlank(project.getLdapUser())
+                || isBlank(project.getLdapPassword())
+                || isBlank(project.getNmsAppURL())
+                || isBlank(project.getDbHost())
+                || project.getDbPort() <= 0
+                || isBlank(project.getDbUser())
+                || isBlank(project.getDbPassword())
+                || isBlank(project.getDbSid())
+                || isBlank(project.getBiPublisher());
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     private String buildWorkspaceJson(java.util.List<String> folderPaths, String displayName) {
@@ -1942,26 +1998,71 @@ public class MainController implements Initializable {
             Path documentsDir = Paths.get(System.getProperty("user.home"), "Documents");
             Path nmsDataDir = documentsDir.resolve("nms_support_data");
             ensureDir(nmsDataDir);
+
             Path templatePath = getDefaultWorkflowTemplatePath();
+            String packagedTemplate = generateDefaultWorkflowTemplateWithPlaceholders();
+
             if (!Files.exists(templatePath)) {
-                String template = generateDefaultWorkflowTemplateWithPlaceholders();
-                Files.write(templatePath, template.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
+                Files.writeString(templatePath, packagedTemplate, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+                logger.info("Default workflow template did not exist. Created new template at " + templatePath
+                        + " with length=" + packagedTemplate.length());
+                return packagedTemplate;
             }
-            byte[] bytes = Files.readAllBytes(templatePath);
-            return new String(bytes, StandardCharsets.UTF_8);
+
+            String content = Files.readString(templatePath, StandardCharsets.UTF_8);
+            String normalized = content == null ? "" : content.replace("\uFEFF", "").trim();
+            logger.info("Default workflow template current length=" + (content == null ? 0 : content.length())
+                    + ", normalized length=" + normalized.length() + ", path=" + templatePath);
+            if (normalized.length() < MIN_WORKFLOW_TEMPLATE_LENGTH) {
+                logger.warning("Default workflow template is too small/blank. Replacing it from packaged template. Path="
+                        + templatePath + ", normalized length=" + normalized.length());
+                Files.writeString(templatePath, packagedTemplate, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING);
+                return packagedTemplate;
+            }
+
+            return content;
         } catch (Exception e) {
             logger.warning("Error ensuring default workflow template: " + e.getMessage());
-            // Fallback to built-in template
             return generateDefaultWorkflowTemplateWithPlaceholders();
         }
     }
 
+    private String getProjectWorkflowTemplate(Path workflowFile) {
+        try {
+            if (workflowFile != null && Files.exists(workflowFile)) {
+                logger.info("Reading existing project workflow template from: " + workflowFile);
+                String content = Files.readString(workflowFile, StandardCharsets.UTF_8);
+                if (content != null) {
+                    String normalized = content.replace("\uFEFF", "").trim();
+                    logger.info("Existing workflow content length=" + content.length() + ", normalized length=" + normalized.length());
+                    if (normalized.length() >= MIN_WORKFLOW_TEMPLATE_LENGTH) {
+                        logger.info("Using existing project-specific workflow template: " + workflowFile);
+                        return content;
+                    }
+                    logger.warning("Existing workflow file is too small/blank to be treated as a valid template. Falling back to default template: "
+                            + workflowFile + " (normalized length=" + normalized.length() + ")");
+                }
+            } else {
+                logger.info("Project workflow file not found. Falling back to default template. Path=" + workflowFile);
+            }
+        } catch (Exception e) {
+            logger.warning("Error reading project workflow template, falling back to default: " + e.getMessage());
+        }
+        logger.info("Using default workflow template for workflow file: " + workflowFile);
+        return getOrCreateDefaultWorkflowTemplate();
+    }
+
     private String generateDefaultWorkflowTemplateWithPlaceholders() {
-                try {
+        try {
             java.io.InputStream is = getClass().getResourceAsStream("/templates/cline_default_workflow.md");
             if (is != null) {
                 byte[] b = is.readAllBytes();
-                return new String(b, java.nio.charset.StandardCharsets.UTF_8);
+                String packaged = new String(b, java.nio.charset.StandardCharsets.UTF_8);
+                logger.info("Loaded packaged workflow template from resources with length=" + packaged.length());
+                if (packaged.replace("\uFEFF", "").trim().length() >= MIN_WORKFLOW_TEMPLATE_LENGTH) {
+                    return packaged;
+                }
+                logger.warning("Packaged workflow template resource is unexpectedly too small after normalization. Falling back to inline default.");
             }
         } catch (Exception e) {
             logger.fine("Packaged workflow template not found, using inline default");
@@ -2124,7 +2225,9 @@ public class MainController implements Initializable {
         sb.append("- Notes: <read-only? scripts? data? any special instructions>\\n\\n");
         sb.append("Add as many entries as needed.\\n");
 
-        return sb.toString();
+        String inlineTemplate = sb.toString();
+        logger.info("Using inline generated workflow template with length=" + inlineTemplate.length());
+        return inlineTemplate;
     }
 
 
@@ -2153,6 +2256,23 @@ public class MainController implements Initializable {
                 ? project.getDbPassword().trim() : "N/A";
         String dbSid = (project != null && project.getDbSid() != null && !project.getDbSid().trim().isEmpty())
                 ? project.getDbSid().trim() : "N/A";
+        String serverName = (project != null && project.getServerName() != null && !project.getServerName().trim().isEmpty())
+                ? project.getServerName().trim() : "N/A";
+        String weblogicHost = (project != null && project.getWeblogicHost() != null && !project.getWeblogicHost().trim().isEmpty())
+                ? project.getWeblogicHost().trim() : extractHostnameFromUrl(project != null ? project.getNmsAppURL() : null);
+        if (weblogicHost == null || weblogicHost.trim().isEmpty()) weblogicHost = "N/A";
+        String ldapUser = (project != null && project.getLdapUser() != null && !project.getLdapUser().trim().isEmpty())
+                ? project.getLdapUser().trim() : "N/A";
+        String targetUser = (project != null && project.getTargetUser() != null && !project.getTargetUser().trim().isEmpty())
+                ? project.getTargetUser().trim() : "gbuora";
+        String nmsTargetUser = (project != null && project.getNmsTargetUser() != null && !project.getNmsTargetUser().trim().isEmpty())
+                ? project.getNmsTargetUser().trim() : targetUser;
+        String nmsHost = (project != null && project.getHost() != null && !project.getHost().trim().isEmpty())
+                ? project.getHost().trim() : "N/A";
+        String nmsPort = (project != null && project.getHostPort() > 0)
+                ? String.valueOf(project.getHostPort()) : "22";
+        String biPublisher = (project != null && project.getBiPublisher() != null && !project.getBiPublisher().trim().isEmpty())
+                ? project.getBiPublisher().trim() : "N/A";
 
         // Compose JDBC URL and SQLcl connect string when we have enough pieces
         String oracleJdbcUrl = "N/A";
@@ -2190,6 +2310,14 @@ public class MainController implements Initializable {
         filled = filled.replace("{{DB_PASSWORD}}", dbPassword);
         filled = filled.replace("{{ORACLE_JDBC_URL}}", oracleJdbcUrl);
         filled = filled.replace("{{SQLCL_CONNECT_STRING}}", sqlclConnect);
+        filled = filled.replace("{{SERVER_NAME}}", serverName);
+        filled = filled.replace("{{WEBLOGIC_HOST}}", weblogicHost);
+        filled = filled.replace("{{LDAP_USER}}", ldapUser);
+        filled = filled.replace("{{TARGET_USER}}", targetUser);
+        filled = filled.replace("{{NMS_TARGET_USER}}", nmsTargetUser);
+        filled = filled.replace("{{NMS_HOST}}", nmsHost);
+        filled = filled.replace("{{NMS_PORT}}", nmsPort);
+        filled = filled.replace("{{BIPUBLISHER}}", biPublisher);
         return filled;
     }
 
@@ -2250,6 +2378,16 @@ public class MainController implements Initializable {
         } catch (Exception e) {
             logger.severe("Error showing info dialog: " + e.getMessage());
             DialogUtil.showError("Error", "An error occurred while showing information dialog:\n" + e.getMessage());
+        }
+    }
+
+    private void openNmsMcpSetupDialog() {
+        try {
+            Stage parentStage = (Stage) ((nmsMcpSetupButton != null ? nmsMcpSetupButton : clineButton).getScene().getWindow());
+            new NmsMcpSetupDialog().showDialog(parentStage);
+        } catch (Exception e) {
+            logger.severe("Error opening NMS MCP setup dialog: " + e.getMessage());
+            DialogUtil.showError("Error", "Failed to open NMS MCP setup dialog:\n" + e.getMessage());
         }
     }
 

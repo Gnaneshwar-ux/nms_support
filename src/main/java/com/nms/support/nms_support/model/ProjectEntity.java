@@ -25,11 +25,15 @@ public class ProjectEntity {
     private boolean useLdap;
     private String ldapUser;
     private String targetUser;
+    private String nmsTargetUser;
     private String ldapPassword;
     private String dataStoreUser;
     private String nmsAppURL;
     private String nmsEnvVar;
     private String svnRepo;
+    private String serverName;
+    private String weblogicHost;
+    private String biPublisher;
     private String selectedApplication; // Store the previously selected application
     private String jdkHome; // Optional per-project JDK home override
     // Semicolon-separated JAR directories for Jar Decompiler tab (persisted)
@@ -278,6 +282,14 @@ public class ProjectEntity {
         this.targetUser = targetUser;
     }
 
+    public String getNmsTargetUser() {
+        return nmsTargetUser;
+    }
+
+    public void setNmsTargetUser(String nmsTargetUser) {
+        this.nmsTargetUser = nmsTargetUser;
+    }
+
     public String getLdapPassword() {
         return ldapPassword;
     }
@@ -361,6 +373,30 @@ public class ProjectEntity {
 
     public void setSelectedApplication(String selectedApplication) {
         this.selectedApplication = selectedApplication;
+    }
+
+    public String getServerName() {
+        return serverName;
+    }
+
+    public void setServerName(String serverName) {
+        this.serverName = serverName;
+    }
+
+    public String getWeblogicHost() {
+        return weblogicHost;
+    }
+
+    public void setWeblogicHost(String weblogicHost) {
+        this.weblogicHost = weblogicHost;
+    }
+
+    public String getBiPublisher() {
+        return biPublisher;
+    }
+
+    public void setBiPublisher(String biPublisher) {
+        this.biPublisher = biPublisher;
     }
 
     public String getJdkHome() { return jdkHome; }

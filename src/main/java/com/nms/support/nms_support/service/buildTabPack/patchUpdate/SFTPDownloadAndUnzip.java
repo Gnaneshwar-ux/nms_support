@@ -812,7 +812,7 @@ public class SFTPDownloadAndUnzip {
         
         if (useLdap) {
             // LDAP authentication: use target user if available, otherwise LDAP user
-            String targetUser = project.getTargetUser();
+            String targetUser = project.getNmsTargetUser();
             if (targetUser != null && !targetUser.trim().isEmpty()) {
                 userToCheck = targetUser;
             } else {
