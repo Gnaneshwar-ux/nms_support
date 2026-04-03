@@ -8,19 +8,71 @@
 
 Interaction and execution policy (supersedes prior defaults):
 - Modes
-  - Explain mode (default): If the user has NOT asked to edit/change code/files, provide a concise, accurate explanation with configuration details and paths. Do not modify files. Do not run commands. Prefer short, structured bullets and summaries to reduce tokens.
+  - Explain mode (default): If the user has NOT asked to edit/change code/files, provide a concise, accurate explanation with configuration details and paths. Do not modify files. Prefer short, structured bullets and summaries to reduce tokens.
   - Edit mode (on explicit request): If the user asks to edit/change code/files, target only the Project folder. Before any write, show a proposed diff and require explicit confirmation. After approval, apply only the confirmed changes.
-- Command execution
-  - Never auto-run any command. Only execute commands if the user explicitly supplies a command and instructs to run it. Otherwise, present commands as suggestions (not executed).
-- Read/write scope
+- Scope
   - Read allowed across Project, Product, Decompiled, and merged runtime folders.
   - Writes allowed only in Project ({{PROJECT_FOLDER}}). Never write to Product or Decompiled.
-- Database/NMS_MCP
-  - Use the `nms-mcp` server for Oracle DB read-only checks, preferably through `oracle_connect`, `review_sql`, and `execute_sql`.
-  - Create DB sessions explicitly with the needed user credentials; do not assume sessions already exist.
-  - Plain read-only `SELECT` queries may be safe, but anything beyond obvious read-only access should be reviewed first and explicitly confirmed.
 - Response style
   - Be precise, avoid chatter, prefer clear lists, include exact paths/keys/snippets. Keep output lean but complete.
+
+## Oracle NMS MCP – Primary remote diagnostics workflow
+Use `nms-mcp` as the default mechanism for SSH diagnostics and Oracle DB diagnostics.
+
+Decision model
+- For remote evidence gathering, prefer MCP over ad-hoc shell bundling.
+- Treat MCP usage as human-operator diagnostics, not as a shell-script bundler.
+- For local project analysis, do not run commands unless the user explicitly asks.
+- For MCP read-only diagnostics, use MCP normally within its safety/approval flow. Do not self-confirm actions.
+- Any write/change operation on remote systems, or any risky/non-obvious DB action, requires explicit user confirmation.
+
+Preferred MCP tool usage
+- Use `execute_command` for a single one-shot remote command.
+- Use `review_command_batch` and `execute_command_batch` when several related read-only checks are needed on the same host.
+- Use `start_interactive_command` only when the command is genuinely interactive or prompt-driven.
+- For Oracle DB work, prefer `oracle_connect`, `review_sql`, and `execute_sql`.
+- Create DB sessions explicitly with the needed credentials; do not assume a session already exists.
+
+Remote command style rules
+- Prefer small standalone commands over one large bundled shell command.
+- Run checks one by one like a developer would: `smsReport`, then `ps`, then `grep`, then `find`, then `tail`.
+- Avoid giant quoted shell blocks unless absolutely necessary.
+- Keep each command focused on one question.
+- If one read-only command fails, continue with the next related read-only check when safe and useful.
+- Prefer output that is easy to inspect and summarize: `head`, `tail`, `grep -n`, `find ... | sort | tail`, `ps -ef | grep ... | grep -v grep`.
+
+User and sudo behavior
+- First identify the host and runtime owner user before deeper diagnostics.
+- Prefer direct target-user commands such as `sudo -u <targetUser> smsReport`, `sudo -u <targetUser> grep ...`, `sudo -u <targetUser> find ...`, `sudo -u <targetUser> ps ...`.
+- After switching to or using `sudo -u <targetUser>`, do not add `source ~/.bashrc`, `source ~/.profile`, or extra shell setup unless truly required.
+- If sudo credentials are available, MCP may handle sudo password flow internally. Never print secrets.
+
+Confirmation rules
+- Do not ask the user to confirm every small safe read-only command if MCP already allows it.
+- If confirmation is needed, prefer one shared confirmation for a related command batch.
+- When asking for confirmation, show the exact command or command set and a short consequence summary.
+- Never self-confirm.
+
+Credential handling rules
+- Plain users may be supplied as `ldapUser`, `hostUser`, or `dbUser`.
+- Secret fields may be supplied encoded. Prefer encoded secrets when present.
+- Encoded secret field names may include `ldapPasswordEncoded`, `hostPasswordEncoded`, `dbPasswordEncoded`, `passwordEncoded`, or `sudoPasswordEncoded`.
+- Never echo raw or decoded secrets in messages, plans, logs, or results.
+
+Recommended diagnostic flow
+1. Identify context: `hostname`, `whoami`
+2. Confirm service/app state: `smsReport`
+3. Check processes: `ps -ef | grep ... | grep -v grep`
+4. Discover relevant logs: `find <dir> -type f ... | sort | tail -n 20`
+5. Scan logs: `grep -i -n 'ERROR|Exception|ORA-' <file> | tail -n 20`
+6. Check listener/ports if needed: `ss -ltn | grep ...`
+7. Summarize findings and propose the next small standalone command set if the result is inconclusive.
+
+Expected output style for MCP-driven diagnostics
+- Summarize findings clearly.
+- Include which host and user context were used.
+- If something is down, say so directly.
+- If output is inconclusive, propose the next small standalone command set.
 
 Permissions and safety
 - Read allowed across the folders above for analysis.
@@ -35,6 +87,14 @@ Oracle DB placeholders
 - JDBC URL: {{ORACLE_JDBC_URL}}
 - Suggested connect string: {{SQLCL_CONNECT_STRING}}
 Note: If using service name, use user/password@//host:port/service.
+
+Encoded credential placeholders for MCP implementation
+- LDAP User (plain): {{LDAP_USER}}
+- LDAP Password (encoded): {{LDAP_PASSWORD_ENCODED}}
+- Server Host User (plain): {{HOST_USER}}
+- Server Host Password (encoded): {{HOST_PASSWORD_ENCODED}}
+- Database User (plain): {{DB_USER}}
+- Database Password (encoded): {{DB_PASSWORD_ENCODED}}
 
 NMS_MCP Oracle DB usage (pseudocode)
 - server_name: nms-mcp; tool: oracle_connect
@@ -56,17 +116,21 @@ Oracle NMS Application logs available at local %temp%/OracleNMS/
 
 Weblogic Host: {{WEBLOGIC_HOST}}
 Login: {{LDAP_USER}} + sudo su - gbuora
+Encoded login secret for {{LDAP_USER}}: {{LDAP_PASSWORD_ENCODED}}
 Logs: This host may have multiple managed servers running. Find all the servers; if a match is found with the server name provided by the user, logs will usually be like {{SERVER_NAME}}.out and {{SERVER_NAME}}.log.
 Example: /home/nmsadmin/Oracle/Middleware/Oracle_Home/user_projects/domains/nms/servers/nms_1/logs/nms_1.out
 
 NMS Host: {{NMS_HOST}}:{{NMS_PORT}}
 Login: {{LDAP_USER}} + sudo {{NMS_TARGET_USER}}
+Encoded login secret for {{LDAP_USER}}: {{LDAP_PASSWORD_ENCODED}}
+Fallback basic server login: {{HOST_USER}} / {{HOST_PASSWORD_ENCODED}}
 Logs: This server contains daemon services like isis, JMS, genpublisher, etc. It may also contain multiple projects with different users. If a target user is provided, use that; otherwise list the users folder prompt to confirm or select by the developer. Usually logs are available at ~/logs/, $NMS_HOME/logs/
 Example: /home/nmsadmin/logs
 
 Database Host: {{DB_HOST}}:{{DB_PORT}}
 Login: {{LDAP_USER}} + sudo su - gbuora
-DB schema Credentials: {{DB_USER}}/{{DB_PASSWORD}}
+DB schema Credentials: {{DB_USER}}
+DB schema Encoded Password: {{DB_PASSWORD_ENCODED}}
 SID: {{DB_SID}}
 Logs: This is the host where the actual database is hosted. It is mainly used to initialize database/schema setup, data export/import, and godatapump scripts. It is also commonly used for sysdba access and session management via sqlplus / as sysdba.
 Additional DB diagnostics:

@@ -67,7 +67,7 @@ public class NmsMcpSetupDialog {
         root.setPadding(new Insets(10));
         root.setStyle("-fx-background-color: #f8fafc;");
 
-        Label title = new Label("Professional NMS_MCP Setup");
+        Label title = new Label("NMS_MCP Setup");
         title.setFont(Font.font("Inter", FontWeight.BOLD, 18));
         title.setTextFill(Color.web("#0f172a"));
 

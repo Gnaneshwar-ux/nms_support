@@ -31,6 +31,12 @@ import java.util.concurrent.CompletableFuture;
 
 public class ClineProjectDetailsDialog {
 
+    public enum DialogAction {
+        SAVE_AND_OPEN,
+        RELOAD_PROJECT_TEMPLATE_AND_OPEN,
+        CANCEL
+    }
+
     private static final String PANEL_STYLE =
             "-fx-background-color: #ffffff; " +
             "-fx-border-color: #e2e8f0; " +
@@ -83,7 +89,7 @@ public class ClineProjectDetailsDialog {
     private static final String DEFAULTS_FILE_NAME = "cline_defaults.properties";
 
     private final Stage dialogStage = new Stage();
-    private CompletableFuture<Boolean> resultFuture;
+    private CompletableFuture<DialogAction> resultFuture;
 
     private final Map<String, FieldRow> rows = new LinkedHashMap<>();
     private Properties defaults;
@@ -97,7 +103,7 @@ public class ClineProjectDetailsDialog {
         IconUtils.setStageIcon(dialogStage);
     }
 
-    public CompletableFuture<Boolean> showDialog(Window owner, ProjectEntity project) {
+    public CompletableFuture<DialogAction> showDialog(Window owner, ProjectEntity project, Runnable reloadProjectTemplateAndOpenAction) {
         this.resultFuture = new CompletableFuture<>();
         this.defaults = loadDefaults();
         if (owner != null) {
@@ -145,25 +151,35 @@ public class ClineProjectDetailsDialog {
 
         refreshFieldStyles();
 
+        Button forceUpdateAndOpen = new Button("Reload Project Template & Open");
         Button save = new Button("Save & Open");
         Button cancel = new Button("Cancel");
+        forceUpdateAndOpen.setStyle(SECONDARY_BUTTON_STYLE);
         save.setDefaultButton(true);
         save.setStyle(PRIMARY_BUTTON_STYLE);
         cancel.setStyle(SECONDARY_BUTTON_STYLE);
 
         cancel.setOnAction(e -> {
-            resultFuture.complete(false);
+            resultFuture.complete(DialogAction.CANCEL);
+            dialogStage.close();
+        });
+        forceUpdateAndOpen.setOnAction(e -> {
+            persistToProject(project);
+            if (reloadProjectTemplateAndOpenAction != null) {
+                reloadProjectTemplateAndOpenAction.run();
+            }
+            resultFuture.complete(DialogAction.RELOAD_PROJECT_TEMPLATE_AND_OPEN);
             dialogStage.close();
         });
         save.setOnAction(e -> {
             persistToProject(project);
-            resultFuture.complete(true);
+            resultFuture.complete(DialogAction.SAVE_AND_OPEN);
             dialogStage.close();
         });
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox actions = new HBox(12, spacer, cancel, save);
+        HBox actions = new HBox(12, forceUpdateAndOpen, spacer, cancel, save);
         actions.setAlignment(Pos.CENTER_RIGHT);
 
         ScrollPane scrollPane = new ScrollPane(grid);

@@ -41,6 +41,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.ResourceBundle;
@@ -514,6 +515,14 @@ public class MainController implements Initializable {
                 // Add Ctrl+E accelerator for editing default Cline workflow template
                 KeyCodeCombination editTemplateAccelerator = new KeyCodeCombination(KeyCode.E, KeyCombination.CONTROL_DOWN);
                 scene.getAccelerators().put(editTemplateAccelerator, this::editDefaultWorkflowTemplate);
+
+                // Add Ctrl+Shift+E accelerator for force updating and opening default Cline workflow template
+                KeyCodeCombination forceUpdateTemplateAccelerator = new KeyCodeCombination(
+                        KeyCode.E,
+                        KeyCombination.CONTROL_DOWN,
+                        KeyCombination.SHIFT_DOWN
+                );
+                scene.getAccelerators().put(forceUpdateTemplateAccelerator, this::forceUpdateDefaultWorkflowTemplateAndOpen);
                 
                 logger.info("Keyboard accelerators setup completed");
             } else {
@@ -1723,10 +1732,14 @@ public class MainController implements Initializable {
 
             ClineProjectDetailsDialog detailsDialog = new ClineProjectDetailsDialog();
             Stage parentStage = (Stage) projectComboBox.getScene().getWindow();
-            Boolean proceed = detailsDialog.showDialog(parentStage, project).join();
-            logger.info("Cline details dialog completed for project '" + projectName + "' with proceed=" + proceed);
-            if (!proceed) {
+            ClineProjectDetailsDialog.DialogAction action = detailsDialog.showDialog(parentStage, project,
+                    () -> Platform.runLater(this::reloadSelectedProjectWorkflowFromDefaultAndOpen)).join();
+            logger.info("Cline details dialog completed for project '" + projectName + "' with action=" + action);
+            if (action == null || action == ClineProjectDetailsDialog.DialogAction.CANCEL) {
                 logger.info("Cline workspace open cancelled while collecting project details");
+                return;
+            }
+            if (action == ClineProjectDetailsDialog.DialogAction.RELOAD_PROJECT_TEMPLATE_AND_OPEN) {
                 return;
             }
             if (!projectManager.saveData()) {
@@ -2263,6 +2276,8 @@ public class MainController implements Initializable {
         if (weblogicHost == null || weblogicHost.trim().isEmpty()) weblogicHost = "N/A";
         String ldapUser = (project != null && project.getLdapUser() != null && !project.getLdapUser().trim().isEmpty())
                 ? project.getLdapUser().trim() : "N/A";
+        String ldapPassword = (project != null && project.getLdapPassword() != null && !project.getLdapPassword().trim().isEmpty())
+                ? project.getLdapPassword().trim() : "N/A";
         String targetUser = (project != null && project.getTargetUser() != null && !project.getTargetUser().trim().isEmpty())
                 ? project.getTargetUser().trim() : "gbuora";
         String nmsTargetUser = (project != null && project.getNmsTargetUser() != null && !project.getNmsTargetUser().trim().isEmpty())
@@ -2271,8 +2286,15 @@ public class MainController implements Initializable {
                 ? project.getHost().trim() : "N/A";
         String nmsPort = (project != null && project.getHostPort() > 0)
                 ? String.valueOf(project.getHostPort()) : "22";
+        String hostUser = (project != null && project.getHostUser() != null && !project.getHostUser().trim().isEmpty())
+                ? project.getHostUser().trim() : "N/A";
+        String hostPassword = (project != null && project.getHostPass() != null && !project.getHostPass().trim().isEmpty())
+                ? project.getHostPass().trim() : "N/A";
         String biPublisher = (project != null && project.getBiPublisher() != null && !project.getBiPublisher().trim().isEmpty())
                 ? project.getBiPublisher().trim() : "N/A";
+        String encodedLdapPassword = encodeCredentialForTemplate(ldapPassword);
+        String encodedHostPassword = encodeCredentialForTemplate(hostPassword);
+        String encodedDbPassword = encodeCredentialForTemplate(dbPassword);
 
         // Compose JDBC URL and SQLcl connect string when we have enough pieces
         String oracleJdbcUrl = "N/A";
@@ -2313,12 +2335,23 @@ public class MainController implements Initializable {
         filled = filled.replace("{{SERVER_NAME}}", serverName);
         filled = filled.replace("{{WEBLOGIC_HOST}}", weblogicHost);
         filled = filled.replace("{{LDAP_USER}}", ldapUser);
+        filled = filled.replace("{{LDAP_PASSWORD_ENCODED}}", encodedLdapPassword);
         filled = filled.replace("{{TARGET_USER}}", targetUser);
         filled = filled.replace("{{NMS_TARGET_USER}}", nmsTargetUser);
         filled = filled.replace("{{NMS_HOST}}", nmsHost);
         filled = filled.replace("{{NMS_PORT}}", nmsPort);
+        filled = filled.replace("{{HOST_USER}}", hostUser);
+        filled = filled.replace("{{HOST_PASSWORD_ENCODED}}", encodedHostPassword);
         filled = filled.replace("{{BIPUBLISHER}}", biPublisher);
+        filled = filled.replace("{{DB_PASSWORD_ENCODED}}", encodedDbPassword);
         return filled;
+    }
+
+    private String encodeCredentialForTemplate(String value) {
+        if (value == null || value.isBlank() || "N/A".equals(value)) {
+            return "N/A";
+        }
+        return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
     private void editDefaultWorkflowTemplate() {
@@ -2326,6 +2359,83 @@ public class MainController implements Initializable {
             // Ensure template exists and then open it with preferred editor
             getOrCreateDefaultWorkflowTemplate();
             Path templatePath = getDefaultWorkflowTemplatePath();
+            openWorkflowTemplateInEditor(templatePath);
+        } catch (Exception e) {
+            logger.severe("Error opening default workflow template: " + e.getMessage());
+            DialogUtil.showError("Error", "Failed to open default workflow template:\n" + e.getMessage());
+        }
+    }
+
+    private void forceUpdateDefaultWorkflowTemplateAndOpen() {
+        try {
+            Path templatePath = forceRefreshDefaultWorkflowTemplate();
+            openWorkflowTemplateInEditor(templatePath);
+        } catch (Exception e) {
+            logger.severe("Error force updating default workflow template: " + e.getMessage());
+            DialogUtil.showError("Error", "Failed to force update default workflow template:\n" + e.getMessage());
+        }
+    }
+
+    private void reloadSelectedProjectWorkflowFromDefaultAndOpen() {
+        try {
+            ProjectEntity project = getSelectedProject();
+            if (project == null) {
+                DialogUtil.showError("No Project Selected", "Please select a project first.");
+                return;
+            }
+
+            String projectName = project.getName() != null ? project.getName().trim() : "";
+            if (projectName.isEmpty()) {
+                DialogUtil.showError("Invalid Project", "Selected project has no valid name.");
+                return;
+            }
+
+            Path workflowFile = reloadProjectWorkflowFromSystemDefault(project);
+            openWorkflowTemplateInEditor(workflowFile);
+        } catch (Exception e) {
+            logger.severe("Error reloading project workflow template from default: " + e.getMessage());
+            DialogUtil.showError("Error", "Failed to reload project workflow template from default:\n" + e.getMessage());
+        }
+    }
+
+    private Path reloadProjectWorkflowFromSystemDefault(ProjectEntity project) throws IOException {
+        String projectName = project.getName() != null ? project.getName().trim() : "project";
+        String projectFolder = project.getProjectFolderPath();
+        String productFolder = project.getExePath();
+        String decompiledFolder = com.nms.support.nms_support.service.globalPack.JarDecompilerService.getExtractionDirectory(projectName);
+
+        Path workflowsDir = Paths.get(System.getProperty("user.home"), "Documents", "Cline", "Workflows");
+        ensureDir(workflowsDir);
+
+        Path workflowFile = workflowsDir.resolve(projectName.toLowerCase(java.util.Locale.ROOT) + ".workflow.md");
+        String defaultTemplate = getOrCreateDefaultWorkflowTemplate();
+        String refreshedWorkflow = fillWorkflowPlaceholders(
+                defaultTemplate,
+                project,
+                projectFolder,
+                productFolder,
+                (decompiledFolder != null && new File(decompiledFolder).exists()) ? decompiledFolder : "Not generated"
+        );
+        Files.writeString(workflowFile, refreshedWorkflow, StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        logger.info("Reloaded project workflow template from current system default: " + workflowFile);
+        return workflowFile;
+    }
+
+    private Path forceRefreshDefaultWorkflowTemplate() throws IOException {
+        Path documentsDir = Paths.get(System.getProperty("user.home"), "Documents");
+        Path nmsDataDir = documentsDir.resolve("nms_support_data");
+        ensureDir(nmsDataDir);
+        Path templatePath = getDefaultWorkflowTemplatePath();
+        String packagedTemplate = generateDefaultWorkflowTemplateWithPlaceholders();
+        Files.writeString(templatePath, packagedTemplate, StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        logger.info("Force refreshed default workflow template at: " + templatePath);
+        return templatePath;
+    }
+
+    private void openWorkflowTemplateInEditor(Path templatePath) {
+        try {
             boolean opened = false;
             if (!opened) {
                 opened = tryOpenWithVSCode(templatePath.toString());
@@ -2341,8 +2451,7 @@ public class MainController implements Initializable {
                         "Unable to open the default workflow template with any available editor.");
             }
         } catch (Exception e) {
-            logger.severe("Error opening default workflow template: " + e.getMessage());
-            DialogUtil.showError("Error", "Failed to open default workflow template:\n" + e.getMessage());
+            throw new RuntimeException(e);
         }
     }
 

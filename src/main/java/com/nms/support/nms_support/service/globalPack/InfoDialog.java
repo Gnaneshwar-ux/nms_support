@@ -92,6 +92,7 @@ public class InfoDialog {
         addShortcutRow(shortcutsGrid, 4, "Ctrl + Shift + L", "Open OracleNMS log directory");
         addShortcutRow(shortcutsGrid, 5, "Ctrl + R", "Restart application (Application Management tab)");
         addShortcutRow(shortcutsGrid, 6, "Ctrl + E", "Edit default Cline workflow template");
+        addShortcutRow(shortcutsGrid, 7, "Ctrl + Shift + E", "Force update and open system default Cline workflow template");
         
         shortcutsSection.getChildren().addAll(shortcutsTitle, shortcutsGrid);
         
