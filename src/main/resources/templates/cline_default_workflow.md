@@ -1,296 +1,856 @@
-﻿## Oracle NMS JBot – Workflow (Packaged Default, Updated Policies)
+﻿# Oracle NMS Workflow Template for Cline / Codex
 
-- Project: {{PROJECT_FOLDER}}
-- Product (Java root): {{PRODUCT_JAVA_PATH}}
-- Decompiled: {{DECOMPILED_FOLDER}}
-- Runtime (merged): {{WORKING_DIR}}
-- Server Name: {{SERVER_NAME}}
+## Purpose
+Use this template as the default decision and safety layer for Oracle NMS troubleshooting and configuration work across Project, Product, Decompiled, NMS host, WebLogic host, and Oracle DB.
 
-Interaction and execution policy (supersedes prior defaults):
-- Modes
-  - Explain mode (default): If the user has NOT asked to edit/change code/files, provide a concise, accurate explanation with configuration details and paths. Do not modify files. Prefer short, structured bullets and summaries to reduce tokens.
-  - Edit mode (on explicit request): If the user asks to edit/change code/files, target only the Project folder. Before any write, show a proposed diff and require explicit confirmation. After approval, apply only the confirmed changes.
-- Scope
-  - Read allowed across Project, Product, Decompiled, and merged runtime folders.
-  - Writes allowed only in Project ({{PROJECT_FOLDER}}). Never write to Product or Decompiled.
-- Response style
-  - Be precise, avoid chatter, prefer clear lists, include exact paths/keys/snippets. Keep output lean but complete.
+Primary goal:
+- Maximize correctness and evidence quality.
+- Minimize operational risk and unnecessary changes.
+- Keep output concise, structured, and actionable.
 
-## Oracle NMS MCP – Primary remote diagnostics workflow
-Use `nms-mcp` as the default mechanism for SSH diagnostics and Oracle DB diagnostics.
+## Runtime context placeholders
+- Project name: `{{PROJECT_NAME}}`
+- Project folder: `{{PROJECT_FOLDER}}`
+- Product Java root: `{{PRODUCT_JAVA_PATH}}`
+- Decompiled reference: `{{DECOMPILED_FOLDER}}`
+- Merged runtime output: `{{WORKING_DIR}}`
+- NMS env var: `{{NMS_ENV_VAR}}`
+- JBot XSD: `{{JBOT_XSD_PATH}}`
 
-Decision model
-- For remote evidence gathering, prefer MCP over ad-hoc shell bundling.
-- Treat MCP usage as human-operator diagnostics, not as a shell-script bundler.
-- For local project analysis, do not run commands unless the user explicitly asks.
-- For MCP read-only diagnostics, use MCP normally within its safety/approval flow. Do not self-confirm actions.
-- Any write/change operation on remote systems, or any risky/non-obvious DB action, requires explicit user confirmation.
+- Server name: `{{SERVER_NAME}}`
+- WebLogic host: `{{WEBLOGIC_HOST}}`
+- NMS host and port: `{{NMS_HOST}}:{{NMS_PORT}}`
+- Login user: `{{LDAP_USER}}`
+- Login secret (encoded): `{{LDAP_PASSWORD_ENCODED}}`
+- Target user: `{{TARGET_USER}}`
+- NMS target user: `{{NMS_TARGET_USER}}`
+- Host fallback user: `{{HOST_USER}}`
+- Host fallback secret (encoded): `{{HOST_PASSWORD_ENCODED}}`
+- BiPublisher host: `{{BIPUBLISHER}}`
 
-Preferred MCP tool usage
-- Use `execute_command` for a single one-shot remote command.
-- Use `review_command_batch` and `execute_command_batch` when several related read-only checks are needed on the same host.
-- Use `start_interactive_command` only when the command is genuinely interactive or prompt-driven.
-- For Oracle DB work, prefer `oracle_connect`, `review_sql`, and `execute_sql`.
-- Create DB sessions explicitly with the needed credentials; do not assume a session already exists.
+- DB host and port: `{{DB_HOST}}:{{DB_PORT}}`
+- DB SID or service ref: `{{DB_SID}}`
+- DB user: `{{DB_USER}}`
+- DB password (plain, if available): `{{DB_PASSWORD}}`
+- DB password (encoded): `{{DB_PASSWORD_ENCODED}}`
+- JDBC URL: `{{ORACLE_JDBC_URL}}`
+- SQLcl connect string: `{{SQLCL_CONNECT_STRING}}`
 
-Remote command style rules
-- Prefer small standalone commands over one large bundled shell command.
-- Run checks one by one like a developer would: `smsReport`, then `ps`, then `grep`, then `find`, then `tail`.
-- Avoid giant quoted shell blocks unless absolutely necessary.
-- Keep each command focused on one question.
-- If one read-only command fails, continue with the next related read-only check when safe and useful.
-- Prefer output that is easy to inspect and summarize: `head`, `tail`, `grep -n`, `find ... | sort | tail`, `ps -ef | grep ... | grep -v grep`.
+Optional context to discover when missing:
+- NMS home path from runtime/user profile or `.nmsrc` (for example: `<NMS_HOME>`).
+- NMS config directory (for example: `<NMS_CONFIG>`).
+- WebLogic domain home (for example: `<WEBLOGIC_DOMAIN_HOME>`).
+- WebLogic admin URL (for example: `<WEBLOGIC_ADMIN_URL>`).
 
-User and sudo behavior
-- First identify the host and runtime owner user before deeper diagnostics.
-- Prefer direct target-user commands such as `sudo -u <targetUser> smsReport`, `sudo -u <targetUser> grep ...`, `sudo -u <targetUser> find ...`, `sudo -u <targetUser> ps ...`.
-- After switching to or using `sudo -u <targetUser>`, do not add `source ~/.bashrc`, `source ~/.profile`, or extra shell setup unless truly required.
-- If sudo credentials are available, MCP may handle sudo password flow internally. Never print secrets.
+## System architecture snapshot
+Treat Oracle NMS as three linked tiers:
+1. NMS Services tier (Unix service/process layer).
+2. WebLogic tier (Java/EJB/application server layer).
+3. Oracle DB tier (data and privilege layer).
 
-Confirmation rules
-- Do not ask the user to confirm every small safe read-only command if MCP already allows it.
-- If confirmation is needed, prefer one shared confirmation for a related command batch.
-- When asking for confirmation, show the exact command or command set and a short consequence summary.
-- Never self-confirm.
+A fault in one tier can surface in another tier, so always correlate evidence across layers.
 
-Credential handling rules
-- Plain users may be supplied as `ldapUser`, `hostUser`, or `dbUser`.
-- Secret fields may be supplied encoded. Prefer encoded secrets when present.
-- Encoded secret field names may include `ldapPasswordEncoded`, `hostPasswordEncoded`, `dbPasswordEncoded`, `passwordEncoded`, or `sudoPasswordEncoded`.
-- Never echo raw or decoded secrets in messages, plans, logs, or results.
+## Operating modes
+### 1) Explain mode (default)
+Use read-only discovery and explain findings. Do not change files, services, or DB state.
 
-Recommended diagnostic flow
-1. Identify context: `hostname`, `whoami`
-2. Confirm service/app state: `smsReport`
-3. Check processes: `ps -ef | grep ... | grep -v grep`
-4. Discover relevant logs: `find <dir> -type f ... | sort | tail -n 20`
-5. Scan logs: `grep -i -n 'ERROR|Exception|ORA-' <file> | tail -n 20`
-6. Check listener/ports if needed: `ss -ltn | grep ...`
-7. Summarize findings and propose the next small standalone command set if the result is inconclusive.
+### 2) Edit mode (explicit)
+Enabled only when user explicitly asks to modify files.
+Rules:
+- Edit only in `{{PROJECT_FOLDER}}`.
+- Never edit `{{PRODUCT_JAVA_PATH}}` or `{{DECOMPILED_FOLDER}}`.
+- Show proposed diff before applying.
+- Apply only approved edits.
 
-Expected output style for MCP-driven diagnostics
-- Summarize findings clearly.
-- Include which host and user context were used.
-- If something is down, say so directly.
-- If output is inconclusive, propose the next small standalone command set.
+### 3) Execute mode (explicit and risk-aware)
+Enabled only when user explicitly asks to run commands or operations.
+Rules:
+- Prefer read-only checks first.
+- Classify risk severity before execution.
+- Require confirmation for high-impact actions.
 
-Permissions and safety
-- Read allowed across the folders above for analysis.
-- Edits allowed only in the Project folder.
-- Always show proposed diff and get explicit user confirmation before applying any edit (even in Project).
-- Never write to Product or Decompiled folders.
-- Never run commands unless the user explicitly provides and asks to execute them.
+## Decision engine
+Use this routing for every request:
+1. Clarify objective: discovery, explanation, edit, or execution.
+2. Identify scope: Project, Product, Decompiled, NMS host, WebLogic host, DB.
+3. Choose safest path that answers the question.
+4. Gather evidence in small steps, one question per command/query.
+5. Summarize findings and confidence.
+6. If inconclusive, propose the next minimal command set.
 
-Oracle DB placeholders
-- Host: {{DB_HOST}} | Port: {{DB_PORT}} | SID: {{DB_SID}}
-- User: {{DB_USER}} | Password: {{DB_PASSWORD}}
-- JDBC URL: {{ORACLE_JDBC_URL}}
-- Suggested connect string: {{SQLCL_CONNECT_STRING}}
-Note: If using service name, use user/password@//host:port/service.
+Escalation logic:
+- If read-only evidence is enough, stop there.
+- If change is required, present exact change/command and impact.
+- If risk is ambiguous, treat as higher severity and ask before running.
 
-Encoded credential placeholders for MCP implementation
-- LDAP User (plain): {{LDAP_USER}}
-- LDAP Password (encoded): {{LDAP_PASSWORD_ENCODED}}
-- Server Host User (plain): {{HOST_USER}}
-- Server Host Password (encoded): {{HOST_PASSWORD_ENCODED}}
-- Database User (plain): {{DB_USER}}
-- Database Password (encoded): {{DB_PASSWORD_ENCODED}}
+## Discovery priority order
+Use this fixed order unless the user asks otherwise:
+1. Local config in `{{PROJECT_FOLDER}}` and `{{PRODUCT_JAVA_PATH}}`.
+2. Effective merged runtime in `{{WORKING_DIR}}`.
+3. NMS host runtime state and logs.
+4. WebLogic host state and managed-server logs.
+5. Database connectivity, schema/synonym/privilege checks.
 
-NMS_MCP Oracle DB usage (pseudocode)
-- server_name: nms-mcp; tool: oracle_connect
-- args: { "username": "{{DB_USER}}", "password": "{{DB_PASSWORD}}", "connectString": "{{DB_HOST}}:{{DB_PORT}}/{{DB_SID}}" }
-- server_name: nms-mcp; tool: execute_sql
-- args: { "dbSessionId": "<session-id>", "sql": "SELECT COUNT(*) FROM SOME_TABLE" }
-- Policy: read-only by default; any DDL/DML or non-obvious SQL requires explicit user confirmation.
-- Troubleshooting note:
-  - If NMS server logs show query failures, missing tables/views, synonym errors, or permission issues for read-only/write users, inspect the `.nmsrc` file on the NMS server to discover available database users.
-  - You can also validate access using `ISQL` and `ISQL -admin` interactive shells on the server.
-  - Suggested workflow: create database connections through NMS_MCP for the relevant users and test queries with the appropriate account.
-  - In many development environments, database usernames and passwords are often the same, but always verify from server configuration before use.
+## Unknown-detail recovery and source-of-truth map
+Use this section when details are missing, conflicting, or possibly stale.
 
-## Log Analysis and debugging info - {{SERVER_NAME}}
-Use NMS-MCP server to communicate with ssh or sql querying
-While working with server at any point question raises just prompt to developer and get confirmed don't run anything without clarity or proper confirmations
+### NMS server: primary source for DB connection intent and merged project config
+Check:
+- `{{NMS_HOME}}/.nmsrc` (or project-generated `.nmsrc`)
+- wallet/TNS setup created by `nms-env-config`
+- merged runtime config files
 
-Oracle NMS Application logs available at local %temp%/OracleNMS/
+Key DB-related entries to verify in `.nmsrc` and related config:
+- `RDBMS_ADMIN`
+- `RDBMS_HOST`
+- `ORACLE_READ_WRITE_USER`
+- `ORACLE_READ_ONLY_USER`
+- TNS alias and wallet mapping used by `ISQL` and `ISQL -admin`
 
-Weblogic Host: {{WEBLOGIC_HOST}}
-Login: {{LDAP_USER}} + sudo su - gbuora
-Encoded login secret for {{LDAP_USER}}: {{LDAP_PASSWORD_ENCODED}}
-Logs: This host may have multiple managed servers running. Find all the servers; if a match is found with the server name provided by the user, logs will usually be like {{SERVER_NAME}}.out and {{SERVER_NAME}}.log.
-Example: /home/nmsadmin/Oracle/Middleware/Oracle_Home/user_projects/domains/nms/servers/nms_1/logs/nms_1.out
+Interpretation rule:
+- Admin schema is separate from read/write and read-only access schemas.
+- Access schemas are typically synonym-based.
 
-NMS Host: {{NMS_HOST}}:{{NMS_PORT}}
-Login: {{LDAP_USER}} + sudo {{NMS_TARGET_USER}}
-Encoded login secret for {{LDAP_USER}}: {{LDAP_PASSWORD_ENCODED}}
-Fallback basic server login: {{HOST_USER}} / {{HOST_PASSWORD_ENCODED}}
-Logs: This server contains daemon services like isis, JMS, genpublisher, etc. It may also contain multiple projects with different users. If a target user is provided, use that; otherwise list the users folder prompt to confirm or select by the developer. Usually logs are available at ~/logs/, $NMS_HOME/logs/
-Example: /home/nmsadmin/logs
+### NMS server: WebLogic-related project configuration
+Check:
+- `{{NMS_CONFIG}}/jconfig/build.properties`
+- generated runtime configuration files
 
-Database Host: {{DB_HOST}}:{{DB_PORT}}
-Login: {{LDAP_USER}} + sudo su - gbuora
-DB schema Credentials: {{DB_USER}}
-DB schema Encoded Password: {{DB_PASSWORD_ENCODED}}
-SID: {{DB_SID}}
-Logs: This is the host where the actual database is hosted. It is mainly used to initialize database/schema setup, data export/import, and godatapump scripts. It is also commonly used for sysdba access and session management via sqlplus / as sysdba.
-Additional DB diagnostics:
-- Check `.nmsrc` on the NMS server for available DB users and environment-specific connection details.
-- If application errors mention missing tables, views, or synonyms, test the same query with alternate users from `.nmsrc`.
-- For access troubleshooting, prefer creating multiple NMS_MCP DB connections and verify which user has the required privileges.
+High-value keys:
+- `client.url`
+- `config.datasource`
+- `publisher.ejb-user`
+- `config.ws_runas_user`
+- `config.multispeak_runas_user`
+- `weblogic.version`
 
-BiPublisher: {{BIPUBLISHER}}
-Login: {{LDAP_USER}} + sudo su - gbuora
-Logs: Contains BiPublisher deployment logs, especially useful for printing failures in application.
-Example: /scratch/gbuora/Oracle/Middleware_BIPUB/Oracle_Home/user_projects/domains/bipub/servers/bi_server1/logs/bipublisher/bipublisher.log
+Map/CORBA-related parameter family to verify:
+- `WEB_corbaInitRef`
+- `WEB_intersysName`
+- `WEB_mapDirectory`
+- `WEB_mapHttpdPort`
+- `WEB_mapHttpdHost`
+- `WEB_syncMaps`
+- `WEB_tempDirectory`
 
+### DB side: what it can and cannot confirm
+DB can reliably confirm:
+- CORBA naming reference values.
+- read/write vs read-only schema split and synonym intent.
 
+DB cannot reliably confirm:
+- WebLogic managed-server host identity.
+- WebLogic listen address and listen ports.
 
-Typical workflow
-1) If a project XML exists, it supersedes product XML.
-2) Properties: project overrides keys; other keys inherited from product.
-3) Validate effective files in {{WORKING_DIR}} (merged runtime).
-4) If any configuration depends on DB schema or data, retrieve necessary metadata/sample rows using NMS_MCP Oracle DB tools (read-only). Require explicit confirmation before any writes.
-5) Respect modes: Explain by default; Edit only on explicit instruction.
+If NMS-side WebLogic checks fail or are inconclusive:
+1. Switch to WebLogic host directly.
+2. Check `AdminServer` and managed-server processes.
+3. Check domain and managed-server logs.
+4. Check managed-server startup arguments.
 
-Debug checklist
-- Confirm which XML is in effect (Project vs Product) in {{WORKING_DIR}}.
-- Verify merged properties contain intended overrides.
-- Trace data sources/commands in decompiled code for execution flow (read-only).
+Important context:
+- `nms-wls-config create-server` typically automates managed-server creation, JDBC connectivity, JMS, T3, and startup arguments.
+- Therefore WebLogic-domain config is the source of truth for server-name, host, and port details.
+
+### Practical source-of-truth rule
+- NMS server: `.nmsrc` and merged project runtime configuration truth.
+- DB: schema/parameter and access-model truth.
+- WebLogic host: server identity, listen address, and port truth.
+
+### Where-to-look-first decision tree
+1. If DB user/schema/connect details are unknown: start on NMS server (`.nmsrc` + wallet mapping).
+2. If datasource/multispeak/publisher run-as behavior is unknown: inspect `{{NMS_CONFIG}}/jconfig/build.properties` and merged runtime config.
+3. If CORBA/map bindings are unclear: verify `WEB_*` parameter family and DB-side values.
+4. If managed-server host/port/server-name are uncertain: switch to WebLogic host and verify domain/process/log/start-arg truth directly.
+5. If sources conflict: prefer WebLogic host for host/port/server identity, DB for schema/access truth, NMS merged config for project wiring intent.
+
+## Risk model for commands and SQL
+### Severity 1: local/read-only low risk
+Examples:
+- `hostname`, `whoami`
+- `smsReport`
+- `ps -ef | grep ... | grep -v grep`
+- `grep -n`, `tail`, `find ... | sort | tail`
+- read-only SQL against known objects
+
+### Severity 2: read-only broader scope
+Examples:
+- multi-host status checks
+- larger log sweeps
+- metadata-style SQL across broader schemas
+
+### Severity 3: state-adjacent diagnostics
+Examples:
+- cache refresh or reload-like actions
+- heavier diagnostics that may impact performance
+
+### Severity 4: operational change with meaningful blast radius
+Examples:
+- subsystem start/stop
+- redeploy steps
+- environment-level config refresh
+- DB maintenance operations with possible service effect
+
+### Severity 5: disruptive or destructive
+Examples:
+- full restart, failover, rollback
+- DB DDL/DML in production-like systems
+- session kill, purge, mass update, schema object changes
+
+## Confirmation policy
+- Severity 1-2: proceed when user asked for diagnostics.
+- Severity 3: confirm unless user explicitly requested that exact action.
+- Severity 4-5: always require explicit confirmation.
+
+When asking confirmation, include:
+- exact command/query set,
+- target host/user/schema,
+- one-line consequence summary.
+
+Never self-confirm.
+
+## Missing-information protocol
+If critical context is missing, do not guess high-impact actions.
+Collect minimum required context in this order:
+1. Exact host and target user.
+2. Scope of issue (NMS service, WebLogic app, DB, config behavior).
+3. Time window and concrete error text.
+4. Desired outcome (diagnose only, edit, restart, redeploy, DB change).
+
+If still ambiguous, pause and ask for only the missing critical detail.
+
+## NMS MCP-first remote diagnostics policy
+Use `nms-mcp` as primary for remote shell and Oracle DB diagnostics.
+
+Preferred tool selection:
+- Single remote check: `execute_command`
+- Related check set: `review_command_batch` + `execute_command_batch`
+- Interactive-only scenarios: `start_interactive_command`
+- Oracle DB: `oracle_connect` -> `review_sql` -> `execute_sql`
+
+Execution style:
+- Prefer short standalone commands over large bundled shell blocks.
+- Keep each command focused on one diagnostic question.
+- Continue next safe read-only check if one check fails.
+- Prefer inspectable output (`head`, `tail`, `grep -n`, sorted lists).
+
+Credential handling:
+- Use encoded secret fields when provided.
+- Never print raw or decoded secrets.
+- Do not leak secrets in summaries, logs, or plans.
+
+### Oracle NMS documentation tools (MCP)
+These docs tools are part of the existing `nms-mcp` server (not a new MCP server), implemented via `nms-docs.ts` and `index.ts`.
+
+Available tools:
+- `list_nms_guides`
+- `get_nms_guide_pdf`
+
+What these tools do:
+- Scrape the live Oracle NMS docs library for available versions and guide names.
+- Resolve guide PDF URLs automatically from Oracle docs pages.
+- Download and cache PDFs locally.
+- Return local cached PDF paths so AI can read docs without manual browsing/downloading.
+
+Cache location:
+- Default: `C:\Users\<you>\Documents\nms-docs\<version>\*.pdf`
+- Example: `C:\Users\<you>\Documents\nms-docs\251200\G49134.pdf`
+
+Recommended docs workflow:
+1. Call `list_nms_guides` to discover versions and guide names.
+2. Call `get_nms_guide_pdf` with selected `version` and `guide`.
+3. Use returned local file path as the source for reading/searching the guide.
+
+If NMS MCP docs tools are unavailable:
+- Tell the user the NMS MCP setup may be missing or outdated.
+- Recommend configuring/updating NMS MCP from the latest DevTools setup flow.
+- Explain benefit briefly: faster Oracle-guide access, cached PDFs, and better evidence-driven troubleshooting.
+
+## Intelligent troubleshooting flow
+### A) Universal triage
+1. Confirm host and user context.
+2. Confirm service/app health (`smsReport`, process checks).
+3. Locate relevant logs and extract recent errors.
+4. Classify issue: service, config, integration, database, performance.
+5. Branch to a targeted playbook below.
+
+### B) Service-down playbook
+1. Validate daemon/service status.
+2. Inspect process list for missing or defunct processes.
+3. Inspect latest service logs for startup failure signatures.
+4. Check dependency services and ports.
+5. Only then propose restart/redeploy if necessary.
+
+### C) WebLogic/app access playbook
+1. Confirm managed server identity and host.
+2. Check server status and recent `{{SERVER_NAME}}.out` or `{{SERVER_NAME}}.log`.
+3. Validate datasource/JNDI/JMS/SSL mapping for the failing feature.
+4. Correlate app errors with backend service or DB dependency.
+
+### D) ORA-/DB error playbook
+1. Capture exact Oracle error and failing SQL context.
+2. Validate schema, synonym target, object existence, and grants.
+3. Compare behavior with alternate `.nmsrc` users where relevant.
+4. Verify datasource identity uses expected user (RO vs RW).
+5. Propose least-privileged corrective path.
+
+### E) JBot config mismatch playbook
+1. Check if project XML exists for that dialog/tool.
+2. If project XML exists, it supersedes product XML.
+3. Verify property override keys in project properties.
+4. Validate merged runtime result in `{{WORKING_DIR}}`.
+5. Trace code path in `{{DECOMPILED_FOLDER}}` if behavior is still unclear.
+
+## Guarded operational runbooks
+Use these only when user explicitly asks for operational action.
+
+### Redeploy runbook (Severity 4-5)
+1. Confirm target host/user and deployment scope.
+2. Confirm pre-checks: current status, active issues, and recent errors.
+3. Show exact redeploy command sequence and expected effect.
+4. Run only after explicit confirmation.
+5. Validate service and logs immediately after completion.
+
+### Service restart runbook (Severity 5)
+1. Confirm exact service set to stop/start.
+2. Show exact stop and start command set with blast radius.
+3. Approval checkpoint (mandatory): do not execute until explicit user approval for restart.
+4. Execute approved commands only.
+5. Validate post-start status and logs before closing incident.
+
+Example flow (approval required):
+```bash
+# APPROVAL REQUIRED BEFORE ANY SEVERITY 5 ACTION
+# Wait for explicit user approval to run restart commands.
+sms-stop -ais
+# wait until stop is fully complete
+sms-start
+```
+
+### DB session kill runbook (Severity 5)
+1. Confirm exact SID/SERIAL or session identifier.
+2. Show exact SQL statement to kill target session.
+3. Approval checkpoint (mandatory): do not execute until explicit user approval for DB kill.
+4. Execute only the approved target session kill statement.
+5. Recheck session state after execution.
+
+Example flow (approval required):
+```sql
+-- APPROVAL REQUIRED BEFORE ANY SEVERITY 5 ACTION
+-- Wait for explicit user approval before running this command.
+ALTER SYSTEM KILL SESSION 'sid,serial#';
+```
+
+## Local configuration structure and merge
+Core directories:
+- `{{PROJECT_FOLDER}}` for project overrides and customizations.
+- `{{PRODUCT_JAVA_PATH}}` for base product defaults.
+- `{{DECOMPILED_FOLDER}}` for read-only reference logic.
+- `{{WORKING_DIR}}` for effective merged runtime behavior.
+
+High-value file patterns:
+- XML definitions: `{{PROJECT_FOLDER}}/**/*.xml`
+- Properties overrides: `{{PROJECT_FOLDER}}/**/*.properties`
+- Project SQL: `{{PROJECT_FOLDER}}/sql/*.sql`
+
+Merge behavior:
+- XML: project overrides product when project XML exists.
+- Properties: merged, with project keys taking precedence.
+- Runtime truth: validate effective output under `{{WORKING_DIR}}`.
+
+Validation order:
+1. Check project override presence.
+2. Check product baseline.
+3. Confirm behavior path in decompiled references.
+4. Validate effective files and keys in merged runtime.
+
+## Oracle NMS JBot resolution rules
+- XML override rule: project XML supersedes product XML when present.
+- Properties merge rule: project keys override product keys; missing keys inherit from product.
+- Effective runtime truth lives in merged output at `{{WORKING_DIR}}`.
+- Decompiled artifacts are read-only references for runtime flow tracing.
+
+Safe edit guidance:
+- Edit only project files in `{{PROJECT_FOLDER}}`.
+- Keep overrides minimal and targeted.
+- Follow schema from `{{JBOT_XSD_PATH}}`.
+- Validate merged output after changes.
+
+Localization resolution tip:
+- Resolve locale-specific properties before generic fallback:
+  - `tool_lang_locale.properties`
+  - `tool_lang.properties`
+  - `tool.properties`
+
+## Host reference quick guide
+### NMS host
+- Host: `{{NMS_HOST}}:{{NMS_PORT}}`
+- Login pattern: `{{LDAP_USER}}` then `sudo su - {{NMS_TARGET_USER}}` (or approved target user)
+- Note: Target user is not required to switch if file or log reading is the only performing.Command execution require to switch target user.
+- Typical logs: `~/logs`, runtime logs under NMS service directories
+
+### WebLogic host
+- Host: `{{WEBLOGIC_HOST}}`
+- Login pattern: `{{LDAP_USER}}` then `sudo su - {{TARGET_USER}}` (or approved target user)
+- Note: Target user is not required to switch if file or log reading is the only performing.Command execution require to switch target user.
+- Typical logs include managed server `.out` and `.log` matching `{{SERVER_NAME}}`
+- Validate per-server domain path before deep log scan
+
+### DB host
+- Host: `{{DB_HOST}}:{{DB_PORT}}`
+- Login pattern: `{{LDAP_USER}}` then `sudo su - {{TARGET_USER}}` (or approved target user)
+- Note: Target user is not required to switch if file or log reading is the only performing.Command execution require to switch target user.
+- SID/service ref: `{{DB_SID}}`
+- Preferred app schema user: `{{DB_USER}}`
+- Connection reference:
+  - JDBC: `{{ORACLE_JDBC_URL}}`
+  - SQLcl: `{{SQLCL_CONNECT_STRING}}`
+
+### BiPublisher
+- Host: `{{BIPUBLISHER}}`
+- Use for print/report deployment diagnostics when relevant
+
+## WebLogic discovery and direct fallback rule
+Primary discovery from NMS side:
+- inspect NMS runtime config and `.nmsrc`-linked settings for app server mapping.
+
+Direct discovery on WebLogic host:
+- `ps -ef | grep weblogic`
+- list managed servers under domain `servers/` folder when available.
+
+Fallback rule:
+- if NMS-side commands cannot reliably confirm WebLogic state, trust direct host checks over inferred NMS status.
+
+## NMS startup/stop behavior cues
+- `sms-start` starts service groups from configured system definition.
+- `sms-stop` stops clients/services in controlled sequence.
+- `sms-start -f <file>` may use alternate service definitions.
+- After stop operations, inspect process state before any restart if hung/defunct processes are suspected.
+
+## Database intelligence checklist
+When DB behavior is part of the issue, verify in this order:
+1. Active schema/user used by failing component.
+2. Object ownership and synonym chain.
+3. Grants/privileges for intended operation.
+4. RO/RW datasource mapping correctness.
+5. NLS or environment mismatches.
+
+If failures mention missing tables/views/synonyms:
+- inspect `.nmsrc` for alternate valid users,
+- test same read-only SQL with candidate users,
+- identify least-privileged valid account.
+
+Common schema role pattern to keep in mind:
+- Admin schema: object ownership and setup/patch operations.
+- RW application schema: daily DML and operational access.
+- RO schema: restricted read-only access for safe querying.
+- Integration schemas: minimal privilege and task-specific synonym access.
+
+## DB access methods and example read-only SQL
+Common access paths:
+- `ISQL` for application-level checks.
+- `ISQL -admin` for controlled admin-level checks.
+- `sqlplus / as sysdba` only when explicitly approved and necessary.
+
+Example read-only queries:
+```sql
+SELECT username FROM all_users;
+SELECT * FROM all_synonyms WHERE owner = '{{DB_USER}}';
+SELECT * FROM user_tables;
+SELECT 1 FROM dual;
+```
+
+## Recommended read-only command patterns
+Use examples as references and adapt per host.
+
+Context:
+- `hostname`
+- `whoami`
+
+Service health:
+- `smsReport`
+- `nms-isis status`
+- `ps -ef | grep <name> | grep -v grep`
+
+Logs:
+- `find <log_dir> -type f | sort | tail -n 20`
+- `grep -i -n "ERROR|Exception|ORA-" <log_file> | tail -n 20`
+- `tail -n 200 <log_file>`
+
+Ports:
+- `ss -ltn | grep <port>`
+
+## System validation quick checks
+NMS service state:
+- `smsReport`
+
+WebLogic process state:
+- `ps -ef | grep weblogic`
+
+DB basic connectivity:
+- `SELECT 1 FROM dual;`
+
+## Log location map
+- NMS logs: `$NMS_HOME/logs` (or project-specific runtime log path).
+- WebLogic logs: `<domain_home>/servers/*/logs`.
+- DB logs: Oracle alert log and listener log paths for the target environment.
+
+## Output contract for future responses
+Always provide:
+1. What was found (facts only).
+2. What it means (impact on NMS/WebLogic/DB behavior).
+3. Confidence and any uncertainty.
+4. Next smallest safe action if unresolved.
+
+For risky actions:
+- show exact command/query,
+- include target host/user/schema,
+- include one-line blast radius,
+- wait for explicit confirmation.
+
+# Oracle NMS configuration workflow for Cline
+
+This is a generic implementation guide for Oracle Utilities Network Management System (NMS). It is written to help with project-specific configuration work while staying close to the product structure used in the Oracle guides.
+
+## How to use this document
+
+Treat the following order as the normal workflow:
+
+1. Set the environment and service layout.
+2. Generate or update the model configuration files.
+3. Load or rebuild the network model.
+4. Load customer data and customer-to-network mappings.
+5. Configure operator tools such as Switching, Work Agenda, and Control Tool.
+6. Rebuild client configuration and validate the result.
+
+Some file names, tables, and generated outputs are release-specific. In every section below, the “project-specific” note marks the places that normally change from one implementation to another.
 
 ---
-Update: Editing policy and read scope
-- Read allowed across these folders: Project ({{PROJECT_FOLDER}}), Product ({{PRODUCT_JAVA_PATH}}), Decompiled ({{DECOMPILED_FOLDER}}), and merged runtime ({{WORKING_DIR}}).
-- Edits allowed only in the Project folder.
-- Always show a proposed diff and require explicit user confirmation before applying any edit (including Project files).
-- Use NMS_MCP Oracle DB tools (`oracle_connect`, `review_sql`, `execute_sql`) for read-only checks; any write requires explicit confirmation.
-- Do not run any commands unless the user explicitly instructs to run a provided command.
+
+## 1) Switching configuration structure, crucial files, and flow
+
+Switching configuration is split between the model, the server-side runtime, and the Java client configuration. The model determines which devices exist and how they are classified. The server-side configuration decides which switching actions can run. The client-side configuration decides which buttons, labels, and dialogs appear to the user.
+
+### Main pieces
+
+**Server/runtime flow**
+- `system.dat` controls which services start in the operational environment.
+- `SwService` is the service that executes switching sheets and automatic switching-related actions.
+- `system.dat.model_build` is used while the model is still being built and only starts the minimal service set.
+- `CES_PARAMETERS` contains many switch-related runtime parameters and feature toggles.
+
+**Model/configuration inputs**
+- `NMS Distribution Modeling workbook` produces the model configuration files.
+- `Control Tool Workbook` produces the control-action SQL used by switching and device operation steps.
+- `SwmanParameters.properties` contains global Web Switching parameters.
+- `schematic_options` stores schematic-related options when switching work requires a schematic representation.
+
+**Client/UI inputs**
+- The Web Switching UI is driven by JBot / XML configuration.
+- `Control.xml` maps buttons and menu items to control actions.
+- `Project_Control_Actions.inc` is commonly used to centralize project-specific control action definitions.
+
+### Key tables
+
+- `CONTROL_ACT`
+- `CONTROL_AGGREGATES`
+- `CONTROL_ACT_PROMPTS`
+- Switching-related configuration tables used by Web Switching and Web Safety
+
+### Flow
+
+1. Define the device classes and the switching model in the model workbook.
+2. Generate the runtime model files and control-action SQL.
+3. Load the switching configuration into the database.
+4. Map buttons, actions, and prompts in `Control.xml` and related JBot definitions.
+5. Let `SwService` execute switching sheets and related automatic operations.
+6. Validate the result from the Viewer, Switching sheets, and the event log.
+
+### Project-specific notes
+
+- The actual button set differs by utility and by licensed modules.
+- Some actions are reused by Web Switching, Web Safety, and the Control Tool.
+- Keep the action labels and the device-class inheritance consistent, or the wrong buttons will appear.
+- Use project-specific device-class groupings so that the `when` clauses stay readable.
 
 ---
-## Oracle NMS JBot Framework – Project Structure and Workflow
-The framework is configuration-driven via XML and properties. Project-specific overrides supersede product defaults; properties are merged so project-defined keys override product values while non-overridden keys are inherited.
+
+## 2) Work Agenda column configuration and logic flow
+
+Work Agenda is mostly a client configuration problem, but it depends on the shape of the event data that comes from the server. The product guide shows the Work Agenda configuration files under the base config path and separates text, columns, and state logic.
+
+### Main pieces
+
+- `WORKAGENDA_GLOBAL_PROPERTIES.inc`
+- `WorkAgenda_en_US.properties`
+- `WORKAGENDA_TBL_WA_ALARMS.inc` and related XML include files
+- `JOBS`
+- `UNTIED_OUTAGES`
+- `GENERIC_EVENT_FIELDS`
+- the Work Agenda data source tables and event-state filters
+
+### Flow
+
+1. The server creates or updates event rows.
+2. Work Agenda reads those rows and applies the configured state filters.
+3. `WORKAGENDA_GLOBAL_PROPERTIES.inc` controls general behavior such as icons, default ERT offsets, completed-event visibility, and reading-pane delays.
+4. `WorkAgenda_en_US.properties` controls labels such as column headings.
+5. If you add a project-specific column, the database and client config must be updated together.
+6. The client config is rebuilt and then validated in Web Workspace.
+
+### Crucial column logic
+
+- State filters drive whether a row is considered completed, in progress, incomplete, or to-do.
+- The reading pane is driven by selection and a configurable delay.
+- Completed outages can be hidden or made visible by configuration.
+- The grouping dialog can copy selected columns into the event-grouping datastore.
+
+### Project-specific notes
+
+- Adding a new visible Work Agenda column is not only a label change. The new field also has to exist in the server-side tables.
+- When a project adds custom event fields, those fields usually need to be added to `JOBS`, `UNTIED_OUTAGES`, and `GENERIC_EVENT_FIELDS`, then the services restarted.
+- Display names, sort order, and column widths are usually project-specific.
 
 ---
-## Project Folder
-Path: {{PROJECT_FOLDER}}
 
-Purpose
-- Holds project customizations: XML, properties, custom Java command code, and SQL scripts (under `sql`).
-- All edits must be made here (never modify product or decompiled jars).
-- To override product XML, copy it into the project path and edit the project copy. The project copy is used instead of the product one.
+## 3) Network Model configuration, commands, and file flow
 
-Mode-aware actions
-- Explain mode: Point to the exact file(s) and keys to change. Do not edit.
-- Edit mode: Propose a minimal diff for the specific file(s) and apply only after approval.
+The network model is the core of NMS. It starts with source data, gets transformed into model build files, then is merged into the live operations model by MBService.
 
-Analysis scope
-- While edits are confined to Project, analyze behavior using inputs from Project, Product, and Decompiled JARs to understand effective runtime behavior.
+### Main source inputs
 
----
-## Product Folder
-Path: {{PRODUCT_JAVA_PATH}}
+- GIS or CAD/AMFM source data
+- `NMS Distribution Modeling workbook`
+- `Oracle DMS Power Flow Engineering Data workbook`
+- project-specific preprocessors and postprocessors
 
-Purpose
-- Base product code and default XML/properties shipped with NMS.
-- Reference implementation for tools and dialogs.
-- When a project XML exists, the project XML supersedes the product XML.
-- Product and project properties are merged; project keys override product values while non-overridden keys remain from product.
+### Core generated files
 
----
-## Decompiled JAR
-Path: {{DECOMPILED_FOLDER}}
+- `[project]_classes.dat`
+- `[project]_inheritance.dat`
+- `[project]_schema_attributes.sql`
+- `[project]_attributes.sql`
+- `[project]_devices.cel`
+- `[project]_landbase.cel`
+- `[project]_declutter.sql`
+- `[project]_pf_symbology.sql`
+- `[project]_SYMBOLS.sym` or the SVG symbol set under `jconfig`
+- `[project]_control_zones.dat`
+- `[project]_licensed_products.dat`
 
-Purpose
-- Reference for backend Java logic (analysis only): XML parsing, command flows, UI init, data sources/commands, etc.
-- Do not modify. Use to trace dialog loading, confirm command names/parameters, and map property keys to UI widgets/behaviors.
+### Core model tables
 
----
-## Merge and Resolution Rules (effective behavior)
-- XML override: Project XML supersedes product when present.
-- Properties merge: Project values override matching product keys; unspecified keys come from product.
-- Build/install merges: Standard process merges project + product into the runtime area {{WORKING_DIR}}. Validate here.
+- `NETWORK_COMPONENTS`
+- `NETWORK_NODES`
+- `OBJECT_INSTANCES`
+- `ALIAS_MAPPING`
+- `DIAGRAM_OBJECTS`
+- `POINT_COORDINATES`
+- `CES_CUSTOMERS`
+- `CUSTOMER_SUM`
 
----
-## Debugging Process
-1. Inspect Project first: presence of project XML and overridden properties.
-2. Review Product for baseline behavior when no project XML exists.
-3. Consult Decompiled JAR to confirm load order, data sources, command invocation paths.
-4. Validate merged runtime output in {{WORKING_DIR}}: which XML is in effect; verify merged properties.
-5. Search across all folders: correlate dialog names, widget IDs, command IDs, and properties keys.
+### Build flow
 
----
-## Code and Configuration Guidelines
-- Edits
-  - Make changes only in Project.
-  - To override product XML, copy to Project and edit the copy.
-  - Add/change only needed properties keys; rely on product defaults for the rest.
-  - Always propose diffs and require user confirmation before writing.
-- XML structure
-  - Follow XSD: {{JBOT_XSD_PATH}}; do not infer structure from non-XML formats.
-- Properties typically include: labels, colors, queries, UI mappings, feature flags, and other parameters.
-- Cross-platform commands
-  - When sharing commands/scripts, note the shell (cmd/PowerShell/Bash) and adapt quoting/paths.
-  - Suggestions only; no execution unless explicitly instructed by the user.
+1. Extract GIS/CAD source data.
+2. Preprocess it into model import files (`.mb` or equivalent).
+3. Run the model build service to merge the patch into the operations model.
+4. Generate map files for the Viewer.
+5. Rebuild symbols, schematics, and any derived data.
 
----
-## Build and Runtime Behavior
-- Validation (XML syntax/config checks)
-  - Suggested command (not executed): ant config
-  - Working directory: {{PROJECT_FOLDER}}/jconfig/
-  - Policy: Present as guidance only; do not run. Execute only if the user provides and instructs to run.
-- Build/install merge
-  - The project configuration is merged with product configuration and installed to the runtime area.
-  - Merge specifics: XML override; properties merged with project-overrides precedence.
-- Final runtime source
-  - The application loads configurations from the merged output in {{WORKING_DIR}}.
+### Useful commands and scripts
+- These all are high impact commands do not run at all, until user forces it to run, use only for model explaination and understanding.
+- `nms-setup`
+- `nms-post-setup`
+- `nms-model-build`
+- `nms-build-maps`
+- `nms-mb-setup`
+- `nms-make-symbols`
+- `nms-sym-to-svg`
+- `nms-svg-populate-properties`
+- `LatLong`
+- `DBCleanup`
+- `nms-delete-map`
+- `nms-delete-object`
+- `nms-delete-patch`
 
----
-## Localization and Properties Resolution Tips
-- Locale chain honored before fallback (tool_lang_locale.properties → tool_lang.properties → tool.properties).
-- Keep project properties minimal—override only what you need. Validate merged properties in {{WORKING_DIR}}.
+### Power-flow related data files
 
----
-## Troubleshooting Checklist
-- Which XML is in effect? Check {{WORKING_DIR}} for project vs product.
-- Are properties overrides loading? Open merged properties to confirm overrides.
-- Unexpected product behavior? Ensure a project XML exists or add required keys.
-- Dialog/data issues? Trace data source/command flow in {{DECOMPILED_FOLDER}}; verify names and IDs.
-- Baseline vs project: Diff product XML/properties against project versions to isolate meaningful changes.
-- New override? Copy product XML into project path, then edit only the project copy.
+- `[project]_pf_sources.sql`
+- `[project]_pf_line_catalog.sql`
+- `[project]_pf_line_limits.sql`
+- `[project]_pf_switches.sql`
+- `[project]_pf_load_data.sql`
+- `[project]_pf_xfmrtypes.sql`
+- `[project]_pf_xfmrtaps.sql`
+- `[project]_pf_xfmrlimits.sql`
+- `[project]_pf_capacitors.sql`
+- `[project]_pf_hourly_load_profiles.sql`
+- `[project]_pf_dist_gen_data.sql`
+- `[project]_grid_derms_contracts.sql`
+
+### Project-specific notes
+
+- The source order is usually GIS first, then workbook overrides, then defaults.
+- The `CEL` explosion rules are often the most project-specific part of the entire build.
+- Coordinate systems, NCG rules, and symbology mappings usually vary by project.
+- If the project uses DMS features, the engineering data workbook becomes mandatory in practice.
 
 ---
-## Label-to-UI mapping and UI XML discovery
-When the visible label text is known but the UI name is not, deduce the UI component via properties and XML:
-1) Properties search (project first, then product):
-   - Search properties for values matching the label (case-insensitive, tokenized), considering locale chain.
-   - Collect candidate keys (e.g., dialog.widget.label, *.labelKey, *.textKey).
-2) UI XML correlation
-   - Search UI XML (project overrides first) for attributes referencing those keys (labelKey/textKey/propertiesRef).
-   - Identify dialog/component IDs and effective file path.
-3) Execution flow validation
-   - Use {{DECOMPILED_FOLDER}} to confirm bundle/key resolution at runtime.
-4) Effective runtime check
-   - Confirm discovered UI XML and properties in merged output {{WORKING_DIR}}.
 
-Edits
-- Edit only Project properties/XML; never Product or Decompiled content.
-- Always propose diffs and require explicit confirmation before applying changes.
+## 4) Control Tool configuration flow
+
+The Control Tool is the bridge between the model and the actual operator actions. It is configured by database actions, button mappings, and JBot definitions.
+
+### Main pieces
+
+- `CONTROL_ACT`
+- `CONTROL_AGGREGATES`
+- `CONTROL_ACT_PROMPTS`
+- `Control.xml`
+- `Project_Control_Actions.inc`
+- the Control Tool workbook
+- the generated `project_control.sql`
+
+### Flow
+
+1. Define the action in `CONTROL_ACT`.
+2. Define ordered multi-step sequences in `CONTROL_AGGREGATES`.
+3. Define any user prompts in `CONTROL_ACT_PROMPTS`.
+4. Map the action to a button or popup item in `Control.xml`.
+5. Add the matching JBot action name.
+6. Generate or load the SQL into the project schema.
+7. Validate the button visibility by device class and inheritance.
+
+### Important behavior
+
+- `CONTROL_AGGREGATES` must not include SCADA actions in the middle of a sequence when the response model requires one-at-a-time handling.
+- The first matching control action wins, so ordering matters.
+- Device-class inheritance is the cleanest way to keep the control map maintainable.
+
+### Project-specific notes
+
+- New device classes usually mean new visibility rules.
+- New actions often require both a database insert and a UI mapping change.
+- The labels should stay short and consistent with the operating terminology used by the utility.
 
 ---
-## AI Model Accuracy and Output Discipline
-- Provide exact file paths, dialog names, widget IDs, and short code snippets to anchor findings.
-- Include OS and shell when offering command examples; do not execute them.
-- Search across Project, {{PRODUCT_JAVA_PATH}}, and {{DECOMPILED_FOLDER}} with case-insensitive, tokenized queries.
-- Prefer small, incremental changes with explicit acceptance criteria; share diffs/patches.
-- Ground fixes with actual errors, stack traces, and command output when available.
-- Keep responses concise and structured to reduce tokens while preserving accuracy.
+
+## 5) Customer loading process and customer/device mapping structure
+
+Customer loading turns CIS-style customer data into the NMS customer model. The key idea is the link between customer records and the supply node in the electrical model.
+
+### Main tables
+
+- `CU_CUSTOMERS`
+- `CU_SERVICE_LOCATIONS`
+- `CU_METERS`
+- `CU_SERVICE_POINTS`
+- `CU_DERS`
+- `CES_CUSTOMERS`
+- `CES_CUSTOMERS_HISTORY`
+- `CUSTOMER_SUM`
+- `NMS_ACCOUNTS_HISTORY`
+- `supply_nodes`
+
+### Relationship structure
+
+- `CU_CUSTOMERS` holds the account/customer.
+- `CU_SERVICE_LOCATIONS` holds the premises or service location.
+- `CU_METERS` holds the meter records.
+- `CU_SERVICE_POINTS` ties together customer, service location, meter, account type, and the supply node.
+- `CU_DERS` adds DER information attached to a meter when needed.
+- `CES_CUSTOMERS` is the flat operational view used by services such as JMService and Web Call Entry.
+- `CUSTOMER_SUM` is a smaller summary view used for faster outage impact calculations.
+
+### Core mapping rule
+
+The most important relationship is the link between `cu_service_points.device_id` and `supply_nodes.device_id`. That is what ties the customer model to the electrical network model.
+
+### Loading flow
+
+1. Populate the `CU_*` tables from CIS or a project-specific extract.
+2. Populate the mirror `CU_*_CIS` staging tables.
+3. Run `nms-update-customers` to detect changes and update the NMS model.
+4. Rebuild `CES_CUSTOMERS`.
+5. Rebuild or refresh `CUSTOMER_SUM` if the project depends on it.
+6. Let JMService and related tools consume the updated summaries.
+
+### Project-specific notes
+
+- Some deployments use one meter per location; others use multiple meters per account.
+- DER support is optional and may be injected during preprocessing even when the source CIS does not provide it directly.
+- Customer priority flags, user-defined fields, and the amount of history retained are usually project-specific.
+- If the supply-node mapping is weak, trouble calls become fuzzy and outage reporting loses accuracy.
 
 ---
-## User-added Workspace Folders
-Use this space to document any additional folders you've included in the VS Code workspace beyond Project/Product/Decompiled.
-For each folder, describe its purpose so the AI respects it and doesn't attempt to remove or modify it.
 
-- Folder path: <path>
-- Purpose: <why it's included>
-- Notes: <read-only? scripts? data? any special instructions>
+## 6) Other configuration-guide items worth including in a workflow
 
-Add as many entries as needed.
+These are the pieces that usually matter when a project is being implemented, upgraded, or debugged.
+
+### Environment and startup
+
+- `.nmsrc` stores the core runtime environment variables.
+- `nms-env-config` updates `.nmsrc` and the wallets used for database and app-server credentials.
+- `CES_PARAMETERS` and the `[project]_parameters.sql` / `[project]_site_parameters_*.sql` files store site and environment parameters.
+- `system.dat`, `system.dat.init`, and `system.dat.model_build` define the service startup layout.
+- `sms-start`, `sms-stop`, `nms-all-start`, `nms-all-stop`, and `nms-wls-control` are the common operational scripts.
+
+### Authentication and WebLogic
+
+- `nms-wls-config` prepares the WebLogic side for certificate-based control.
+- `nms-wls-control` starts, stops, and checks managed servers.
+- Dual-environment deployments use separate ports and a model-sync filter.
+
+### History and storage
+
+- ILM uses partitioning for active and historical model tables.
+- `PURGE_HISTORY_TABLES` is the standard history cleanup procedure.
+- `RETAIN_HISTORY_RECORDS` in `CES_PARAMETERS` controls online history retention.
+
+### High-value runtime services
+
+- `SMService` supervises the service tree.
+- `DBService` serves database access.
+- `ODService` caches static object data.
+- `DDService` manages dynamic runtime state.
+- `MTService` maintains topology.
+- `JMService` handles outage analysis and restoration resources.
+- `MBService` builds the model.
+- `SwService` runs switching and automatic restoration flows.
+- `DMSService` runs power-flow and DMS work.
+
+### Project-specific notes
+
+- Most implementation issues come from mismatches between the workbook, the SQL files, and the runtime service layout.
+- If a configuration change affects a service cache, restart or recache the related service instead of changing only the database.
+- Keep the base config and the project override files aligned; that reduces upgrade pain later.
+
+---
+
+## Validation checklist
+
+- Confirm the service layout starts cleanly.
+- Confirm `isis` is up before running model utilities.
+- Confirm `ISQL` works as both the read/write and admin users.
+- Confirm the generated model files exist under `OPERATIONS_MODELS`.
+- Confirm `CES_CUSTOMERS` and `CUSTOMER_SUM` have the expected rows.
+- Confirm the Work Agenda columns and Control Tool buttons match the device classes.
+- Confirm switching actions appear only for the intended device classes.
+- Confirm the Viewer loads the expected symbols and coordinate system.
+
+---
+
+## Practical rule of thumb
+
+Use the workbook and generated SQL as the source of truth for project differences. Keep runtime files (`system.dat`, `.nmsrc`, `CES_PARAMETERS`, `Control.xml`, Work Agenda overrides) small and deliberate, and avoid mixing model changes with UI-only changes.
+
+
+## Workspace extension notes
+Use this section to document extra folders added to workspace beyond Project/Product/Decompiled.
+
+- Folder path: `<path>`
+- Purpose: `<why included>`
+- Notes: `<read-only? scripts? data? constraints>`
+
+Add entries as needed.

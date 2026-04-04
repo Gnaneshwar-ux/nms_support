@@ -109,6 +109,8 @@ public class ClineProjectDetailsDialog {
         if (owner != null) {
             dialogStage.initOwner(owner);
         }
+        dialogStage.setOnCloseRequest(event -> completeIfPending(DialogAction.CANCEL));
+        dialogStage.setOnHidden(event -> completeIfPending(DialogAction.CANCEL));
 
         VBox root = new VBox(14);
         root.setPadding(new Insets(18));
@@ -193,7 +195,14 @@ public class ClineProjectDetailsDialog {
 
         Platform.runLater(() -> rows.values().stream().findFirst().ifPresent(r -> r.field.requestFocus()));
         dialogStage.showAndWait();
+        completeIfPending(DialogAction.CANCEL);
         return resultFuture;
+    }
+
+    private void completeIfPending(DialogAction action) {
+        if (resultFuture != null && !resultFuture.isDone()) {
+            resultFuture.complete(action);
+        }
     }
 
     private void addRow(GridPane grid, int rowIndex, String key, String labelText, String value, String defaultValue) {

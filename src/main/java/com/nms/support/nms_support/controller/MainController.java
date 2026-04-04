@@ -1733,7 +1733,8 @@ public class MainController implements Initializable {
             ClineProjectDetailsDialog detailsDialog = new ClineProjectDetailsDialog();
             Stage parentStage = (Stage) projectComboBox.getScene().getWindow();
             ClineProjectDetailsDialog.DialogAction action = detailsDialog.showDialog(parentStage, project,
-                    () -> Platform.runLater(this::reloadSelectedProjectWorkflowFromDefaultAndOpen)).join();
+                    () -> Platform.runLater(this::reloadSelectedProjectWorkflowFromDefaultAndOpen))
+                    .getNow(ClineProjectDetailsDialog.DialogAction.CANCEL);
             logger.info("Cline details dialog completed for project '" + projectName + "' with action=" + action);
             if (action == null || action == ClineProjectDetailsDialog.DialogAction.CANCEL) {
                 logger.info("Cline workspace open cancelled while collecting project details");
