@@ -1732,17 +1732,14 @@ public class MainController implements Initializable {
 
             ClineProjectDetailsDialog detailsDialog = new ClineProjectDetailsDialog();
             Stage parentStage = (Stage) projectComboBox.getScene().getWindow();
-            ClineProjectDetailsDialog.DialogAction action = detailsDialog.showDialog(parentStage, project,
-                    () -> Platform.runLater(this::reloadSelectedProjectWorkflowFromDefaultAndOpen))
+            ClineProjectDetailsDialog.DialogAction action = detailsDialog.showDialog(parentStage, project)
                     .getNow(ClineProjectDetailsDialog.DialogAction.CANCEL);
             logger.info("Cline details dialog completed for project '" + projectName + "' with action=" + action);
             if (action == null || action == ClineProjectDetailsDialog.DialogAction.CANCEL) {
                 logger.info("Cline workspace open cancelled while collecting project details");
                 return;
             }
-            if (action == ClineProjectDetailsDialog.DialogAction.RELOAD_PROJECT_TEMPLATE_AND_OPEN) {
-                return;
-            }
+            boolean reloadTemplateFromDefault = action == ClineProjectDetailsDialog.DialogAction.RELOAD_PROJECT_TEMPLATE_AND_OPEN;
             if (!projectManager.saveData()) {
                 logger.warning("Project save reported failure before opening Cline workspace; proceeding with current in-memory values.");
             }
@@ -1788,7 +1785,13 @@ public class MainController implements Initializable {
             // to the default template and regenerate the file.
             String workflowBase = projectName.toLowerCase(java.util.Locale.ROOT);
             Path workflowFile = workflowsDir.resolve(workflowBase + ".workflow.md");
-            String templateContent = getProjectWorkflowTemplate(workflowFile);
+            String templateContent;
+            if (reloadTemplateFromDefault) {
+                logger.info("Reload Project Template & Open selected. Using system default workflow template for project '" + projectName + "'.");
+                templateContent = getOrCreateDefaultWorkflowTemplate();
+            } else {
+                templateContent = getProjectWorkflowTemplate(workflowFile);
+            }
             logger.info("Preparing workflow file for project '" + projectName + "' at: " + workflowFile);
             String initialWorkflow = fillWorkflowPlaceholders(templateContent, project, projectFolder, productFolder,
                     (decompiledFolder != null && new File(decompiledFolder).exists()) ? decompiledFolder : "Not generated");

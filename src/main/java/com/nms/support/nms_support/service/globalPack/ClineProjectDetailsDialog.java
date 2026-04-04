@@ -103,7 +103,7 @@ public class ClineProjectDetailsDialog {
         IconUtils.setStageIcon(dialogStage);
     }
 
-    public CompletableFuture<DialogAction> showDialog(Window owner, ProjectEntity project, Runnable reloadProjectTemplateAndOpenAction) {
+    public CompletableFuture<DialogAction> showDialog(Window owner, ProjectEntity project) {
         this.resultFuture = new CompletableFuture<>();
         this.defaults = loadDefaults();
         if (owner != null) {
@@ -167,9 +167,6 @@ public class ClineProjectDetailsDialog {
         });
         forceUpdateAndOpen.setOnAction(e -> {
             persistToProject(project);
-            if (reloadProjectTemplateAndOpenAction != null) {
-                reloadProjectTemplateAndOpenAction.run();
-            }
             resultFuture.complete(DialogAction.RELOAD_PROJECT_TEMPLATE_AND_OPEN);
             dialogStage.close();
         });
