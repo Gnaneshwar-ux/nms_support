@@ -28,11 +28,12 @@ Primary goal:
 - Host fallback secret (encoded): `{{HOST_PASSWORD_ENCODED}}`
 - BiPublisher host: `{{BIPUBLISHER}}`
 
-- DB host and port: `{{DB_HOST}}:{{DB_PORT}}`
+- DB host and port(default 22): `{{DB_HOST}}`
+- DB Host Login user: `{{LDAP_USER}}`
+- DB Host password (encoded): `{{DB_PASSWORD_ENCODED}}`
 - DB SID or service ref: `{{DB_SID}}`
-- DB user: `{{DB_USER}}`
-- DB password (plain, if available): `{{DB_PASSWORD}}`
-- DB password (encoded): `{{DB_PASSWORD_ENCODED}}`
+- DB schema user: `{{DB_USER}}`
+- DB schema password (plain, if available): `{{DB_PASSWORD}}`
 - JDBC URL: `{{ORACLE_JDBC_URL}}`
 - SQLcl connect string: `{{SQLCL_CONNECT_STRING}}`
 
