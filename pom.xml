@@ -22,6 +22,7 @@
         <main.class>com.nms.support.nms_support.FakeMain</main.class>
         <!-- Prefer a single source of truth for the compiler level -->
         <maven.compiler.release>${java.version}</maven.compiler.release>
+        <nms.mcp.bundle.source.dir>C:/ProjectNMS/NMS_MCP</nms.mcp.bundle.source.dir>
     </properties>
     <repositories>
         <repository>
@@ -398,6 +399,30 @@
                 <artifactId>maven-antrun-plugin</artifactId>
                 <version>3.1.0</version>
                 <executions>
+                    <execution>
+                        <id>bundle-nms-mcp-offline-package</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <available file="${nms.mcp.bundle.source.dir}" type="dir" property="nms.mcp.bundle.source.dir.exists"/>
+                                <fail unless="nms.mcp.bundle.source.dir.exists"
+                                      message="NMS MCP offline bundle source directory not found: ${nms.mcp.bundle.source.dir}. Set -Dnms.mcp.bundle.source.dir=... before running the build."/>
+                                <mkdir dir="${project.build.outputDirectory}/offline-bundles"/>
+                                <echo message="Bundling offline NMS MCP package from ${nms.mcp.bundle.source.dir}"/>
+                                <zip destfile="${project.build.outputDirectory}/offline-bundles/nms-mcp-bundle.zip"
+                                     basedir="${nms.mcp.bundle.source.dir}">
+                                    <exclude name=".git/**"/>
+                                    <exclude name=".codex-ssh/**"/>
+                                    <exclude name="cache/**"/>
+                                    <exclude name="mcp-audit.ndjson"/>
+                                </zip>
+                                <echo message="Bundled offline NMS MCP package to ${project.build.outputDirectory}/offline-bundles/nms-mcp-bundle.zip"/>
+                            </target>
+                        </configuration>
+                    </execution>
                     <execution>
                         <id>unpack-jd-libs</id>
                         <phase>prepare-package</phase>

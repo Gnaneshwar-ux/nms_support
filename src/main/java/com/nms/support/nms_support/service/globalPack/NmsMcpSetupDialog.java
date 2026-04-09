@@ -21,6 +21,7 @@ import javafx.stage.Window;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -28,12 +29,20 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.nio.file.attribute.DosFileAttributeView;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 public class NmsMcpSetupDialog {
 
     private static final java.util.logging.Logger logger = LoggerUtil.getLogger();
     private static final String REPO_URL = "https://github.com/Gnaneshwar-ux/NMS_MCP.git";
     private static final String SERVER_NAME = "nms-mcp";
+    private static final String PUBLIC_NPM_REGISTRY = "https://registry.npmjs.org/";
+    private static final String ORACLE_NPM_REGISTRY = "https://artifacthub-iad.oci.oraclecorp.com/api/npm/npmjs-registry";
+    private static final String BUNDLED_REPO_ARCHIVE_RESOURCE = "/offline-bundles/nms-mcp-bundle.zip";
+    private static final Path LOCAL_FALLBACK_REPO_SOURCE = Path.of("C:\\ProjectNMS\\NMS_MCP");
+    private static final Set<String> OFFLINE_BUNDLE_EXCLUDED_TOP_LEVEL_NAMES = Set.of(".git", ".codex-ssh", "cache");
+    private static final Set<String> OFFLINE_BUNDLE_EXCLUDED_TOP_LEVEL_FILES = Set.of("mcp-audit.ndjson");
 
     private final Stage dialogStage = new Stage();
     private final ProgressBar progressBar = new ProgressBar(0);
@@ -72,7 +81,7 @@ public class NmsMcpSetupDialog {
         title.setTextFill(Color.web("#0f172a"));
 
         Label subtitle = new Label(
-                "Clone or refresh the MCP repository, validate prerequisites, build it, register it for Codex, update Cline MCP settings, and copy the final Codex self-setup prompt.");
+                "Clone or restore the MCP package, validate prerequisites, use public npm with Oracle Artifact Hub fallback when needed, rebuild when possible, register it for Codex, update Cline MCP settings, and copy the final Codex self-setup prompt.");
         subtitle.setWrapText(true);
         subtitle.setMaxWidth(640);
         subtitle.setTextFill(Color.web("#475569"));
@@ -93,6 +102,8 @@ public class NmsMcpSetupDialog {
         addInfoRow(infoGrid, 1, "Documents Clone Path", getDocumentsRepoDir().toString());
         addInfoRow(infoGrid, 2, "Detected Cline Config", getClineConfigPath() != null ? getClineConfigPath().toString() : "Not found yet - will create when possible");
         addInfoRow(infoGrid, 3, "Codex MCP Name", SERVER_NAME);
+        addInfoRow(infoGrid, 4, "Bundled Offline Fallback", BUNDLED_REPO_ARCHIVE_RESOURCE);
+        addInfoRow(infoGrid, 5, "npm Fallback Registry", ORACLE_NPM_REGISTRY);
 
         Label progressTitle = new Label("Setup Progress");
         progressTitle.setFont(Font.font("Inter", FontWeight.SEMI_BOLD, 14));
@@ -186,7 +197,7 @@ public class NmsMcpSetupDialog {
             try {
                 runStep(0.08, "Validating prerequisites", this::validatePrerequisites);
                 runStep(0.18, "Preparing repository directory", this::prepareRepoDir);
-                runStep(0.34, "Cloning NMS_MCP repository", this::cloneRepo);
+                runStep(0.34, "Acquiring NMS_MCP package", this::cloneRepo);
                 runStep(0.52, "Installing npm dependencies", this::npmInstall);
                 runStep(0.68, "Building MCP project", this::npmBuild);
                 runStep(0.84, "Updating Cline MCP settings", this::updateClineConfig);
@@ -211,9 +222,15 @@ public class NmsMcpSetupDialog {
     }
 
     private void validatePrerequisites() throws Exception {
-        detectedGitCommand = validateCommandExists("git");
+        detectedGitCommand = resolveCommandIfAvailable("git");
+        if (detectedGitCommand == null) {
+            appendLog("Git was not detected. Setup will use bundled or local offline MCP fallback sources.");
+        }
         detectedNodeCommand = validateCommandExists("node.exe", "node");
-        detectedNpmCommand = validateCommandExists("npm.cmd", "npm");
+        detectedNpmCommand = resolveCommandIfAvailable("npm.cmd", "npm");
+        if (detectedNpmCommand == null) {
+            appendLog("npm was not detected. Setup will reuse bundled node_modules/dist artifacts if they are available.");
+        }
         detectedCodexCommand = validateCommandExists("codex.cmd", "codex");
 
         String nodeVersion = runCommand(List.of(detectedNodeCommand, "--version"), null, false);
@@ -296,15 +313,91 @@ public class NmsMcpSetupDialog {
     }
 
     private void cloneRepo() throws Exception {
-        runCommand(List.of(detectedGitCommand, "clone", REPO_URL, getDocumentsRepoDir().toString()), null, true);
+        Exception gitFailure = null;
+        if (detectedGitCommand != null) {
+            try {
+                runCommand(List.of(detectedGitCommand, "clone", REPO_URL, getDocumentsRepoDir().toString()), null, true);
+                verifyProvisionedRepo("git clone");
+                return;
+            } catch (Exception ex) {
+                gitFailure = ex;
+                appendLog("Git clone failed. Falling back to offline MCP package sources. Reason: " + ex.getMessage());
+                resetRepoDirAfterProvisionFailure();
+            }
+        } else {
+            appendLog("Skipping git clone because git is unavailable.");
+        }
+
+        Exception bundledArchiveFailure = null;
+        try {
+            extractBundledRepoArchive();
+            verifyProvisionedRepo("bundled offline archive");
+            return;
+        } catch (Exception ex) {
+            bundledArchiveFailure = ex;
+            appendLog("Bundled MCP archive fallback did not complete. Reason: " + ex.getMessage());
+            resetRepoDirAfterProvisionFailure();
+        }
+
+        try {
+            copyLocalFallbackRepo();
+            verifyProvisionedRepo("local MCP fallback directory");
+        } catch (Exception ex) {
+            throw new IllegalStateException(buildProvisioningFailureMessage(gitFailure, bundledArchiveFailure, ex), ex);
+        }
     }
 
     private void npmInstall() throws Exception {
-        runCommand(List.of(detectedNpmCommand, "install"), getDocumentsRepoDir(), true);
+        Path repoDir = getDocumentsRepoDir();
+        if (detectedNpmCommand == null) {
+            if (Files.isDirectory(repoDir.resolve("node_modules"))) {
+                appendLog("npm is unavailable. Reusing bundled node_modules from the offline MCP package.");
+                return;
+            }
+            throw new IllegalStateException("npm is not installed and no offline node_modules bundle is available.");
+        }
+
+        Exception publicRegistryFailure = null;
+        try {
+            runCommand(buildNpmInstallCommand(PUBLIC_NPM_REGISTRY), repoDir, true);
+            return;
+        } catch (Exception ex) {
+            publicRegistryFailure = ex;
+            appendLog("npm install via public registry failed. Retrying with Oracle Artifact Hub. Reason: " + ex.getMessage());
+        }
+
+        try {
+            runCommand(buildNpmInstallCommand(ORACLE_NPM_REGISTRY), repoDir, true);
+            return;
+        } catch (Exception ex) {
+            appendLog("npm install via Oracle Artifact Hub also failed. Reason: " + ex.getMessage());
+            if (Files.isDirectory(repoDir.resolve("node_modules"))) {
+                appendLog("Reusing bundled node_modules from the offline MCP package after both npm registry attempts failed.");
+                return;
+            }
+            throw new IllegalStateException("npm install failed against both public npm and Oracle Artifact Hub, and no offline node_modules bundle was found.", publicRegistryFailure != null ? publicRegistryFailure : ex);
+        }
     }
 
     private void npmBuild() throws Exception {
-        runCommand(List.of(detectedNpmCommand, "run", "build"), getDocumentsRepoDir(), true);
+        Path entryPoint = getDocumentsRepoDir().resolve("dist").resolve("index.js");
+        if (detectedNpmCommand == null) {
+            ensureEntryPointExists(entryPoint, "npm is unavailable and bundled build output is missing.");
+            appendLog("npm is unavailable. Reusing bundled dist output: " + entryPoint);
+            return;
+        }
+
+        try {
+            runCommand(List.of(detectedNpmCommand, "run", "build"), getDocumentsRepoDir(), true);
+        } catch (Exception ex) {
+            if (Files.exists(entryPoint)) {
+                appendLog("npm build failed, but bundled dist output already exists. Continuing with: " + entryPoint);
+                return;
+            }
+            throw ex;
+        }
+
+        ensureEntryPointExists(entryPoint, "npm build completed but dist/index.js was not produced.");
     }
 
     private void updateClineConfig() throws Exception {
@@ -332,7 +425,7 @@ public class NmsMcpSetupDialog {
         server.put("disabled", false);
         server.put("timeout", 60);
         server.put("type", "stdio");
-        server.put("command", "node");
+        server.put("command", detectedNodeCommand != null && !detectedNodeCommand.isBlank() ? detectedNodeCommand : "node");
         server.put("args", List.of(getDocumentsRepoDir().resolve("dist").resolve("index.js").toString()));
 
         LinkedHashMap<String, String> env = new LinkedHashMap<>();
@@ -390,6 +483,14 @@ public class NmsMcpSetupDialog {
     }
 
     private String validateCommandExists(String... candidates) throws Exception {
+        String resolved = resolveCommandIfAvailable(candidates);
+        if (resolved != null) {
+            return resolved;
+        }
+        throw new IllegalStateException("Missing prerequisite: " + String.join(" / ", candidates));
+    }
+
+    private String resolveCommandIfAvailable(String... candidates) throws Exception {
         for (String candidate : candidates) {
             if (candidate == null || candidate.isBlank()) {
                 continue;
@@ -401,7 +502,7 @@ public class NmsMcpSetupDialog {
                 return resolved;
             }
         }
-        throw new IllegalStateException("Missing prerequisite: " + String.join(" / ", candidates));
+        return null;
     }
 
     private String firstNonBlankLine(String text) {
@@ -517,6 +618,139 @@ public class NmsMcpSetupDialog {
             }
         }
         return candidates.get(0);
+    }
+
+    private List<String> buildNpmInstallCommand(String registry) {
+        return List.of(
+                detectedNpmCommand,
+                "install",
+                "--registry",
+                registry,
+                "--no-audit",
+                "--no-fund",
+                "--fetch-retries",
+                "1",
+                "--fetch-timeout",
+                "20000"
+        );
+    }
+
+    private void verifyProvisionedRepo(String sourceName) throws Exception {
+        Path repoDir = getDocumentsRepoDir();
+        ensureFileExists(repoDir.resolve("package.json"), "Provisioned MCP package is missing package.json after using " + sourceName + ".");
+        ensureFileExists(repoDir.resolve("ssh-mcp-policy.json"), "Provisioned MCP package is missing ssh-mcp-policy.json after using " + sourceName + ".");
+        appendLog("Provisioned NMS_MCP from " + sourceName + ": " + repoDir);
+    }
+
+    private void ensureEntryPointExists(Path entryPoint, String failureMessage) throws Exception {
+        ensureFileExists(entryPoint, failureMessage + " Expected file: " + entryPoint);
+    }
+
+    private void ensureFileExists(Path path, String failureMessage) throws Exception {
+        if (!Files.exists(path)) {
+            throw new IllegalStateException(failureMessage);
+        }
+    }
+
+    private void resetRepoDirAfterProvisionFailure() throws Exception {
+        Path repoDir = getDocumentsRepoDir();
+        if (Files.exists(repoDir)) {
+            forceDeleteRecursively(repoDir);
+        }
+        Files.createDirectories(repoDir.getParent());
+    }
+
+    private void extractBundledRepoArchive() throws Exception {
+        try (InputStream inputStream = getClass().getResourceAsStream(BUNDLED_REPO_ARCHIVE_RESOURCE)) {
+            if (inputStream == null) {
+                throw new IllegalStateException("Bundled offline MCP archive not found at " + BUNDLED_REPO_ARCHIVE_RESOURCE);
+            }
+            unzipToDirectory(inputStream, getDocumentsRepoDir());
+            appendLog("Extracted bundled offline MCP archive to: " + getDocumentsRepoDir());
+        }
+    }
+
+    private void unzipToDirectory(InputStream inputStream, Path targetDir) throws IOException {
+        Files.createDirectories(targetDir);
+        try (ZipInputStream zipInputStream = new ZipInputStream(inputStream, StandardCharsets.UTF_8)) {
+            ZipEntry entry;
+            while ((entry = zipInputStream.getNextEntry()) != null) {
+                Path targetPath = resolveZipEntry(targetDir, entry);
+                if (entry.isDirectory()) {
+                    Files.createDirectories(targetPath);
+                } else {
+                    Files.createDirectories(targetPath.getParent());
+                    Files.copy(zipInputStream, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                }
+                zipInputStream.closeEntry();
+            }
+        }
+    }
+
+    private Path resolveZipEntry(Path targetDir, ZipEntry entry) throws IOException {
+        Path resolvedPath = targetDir.resolve(entry.getName()).normalize();
+        if (!resolvedPath.startsWith(targetDir)) {
+            throw new IOException("Refusing to extract zip entry outside target directory: " + entry.getName());
+        }
+        return resolvedPath;
+    }
+
+    private void copyLocalFallbackRepo() throws Exception {
+        if (!Files.isDirectory(LOCAL_FALLBACK_REPO_SOURCE)) {
+            throw new IllegalStateException("Local MCP fallback directory does not exist: " + LOCAL_FALLBACK_REPO_SOURCE);
+        }
+
+        Path targetDir = getDocumentsRepoDir();
+        Files.createDirectories(targetDir);
+        Files.walkFileTree(LOCAL_FALLBACK_REPO_SOURCE, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                Path relative = LOCAL_FALLBACK_REPO_SOURCE.relativize(dir);
+                if (shouldSkipOfflineBundlePath(relative)) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                Files.createDirectories(targetDir.resolve(relative.toString()));
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                Path relative = LOCAL_FALLBACK_REPO_SOURCE.relativize(file);
+                if (shouldSkipOfflineBundlePath(relative)) {
+                    return FileVisitResult.CONTINUE;
+                }
+                Path destination = targetDir.resolve(relative.toString());
+                Files.createDirectories(destination.getParent());
+                Files.copy(file, destination, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        appendLog("Copied local offline MCP package from: " + LOCAL_FALLBACK_REPO_SOURCE);
+    }
+
+    private boolean shouldSkipOfflineBundlePath(Path relativePath) {
+        if (relativePath == null || relativePath.getNameCount() == 0) {
+            return false;
+        }
+        String topLevelName = relativePath.getName(0).toString();
+        if (OFFLINE_BUNDLE_EXCLUDED_TOP_LEVEL_NAMES.contains(topLevelName)) {
+            return true;
+        }
+        return relativePath.getNameCount() == 1 && OFFLINE_BUNDLE_EXCLUDED_TOP_LEVEL_FILES.contains(topLevelName);
+    }
+
+    private String buildProvisioningFailureMessage(Exception gitFailure, Exception bundledArchiveFailure, Exception localFailure) {
+        List<String> reasons = new ArrayList<>();
+        if (gitFailure != null) {
+            reasons.add("git clone failed: " + gitFailure.getMessage());
+        } else if (detectedGitCommand == null) {
+            reasons.add("git command was not available");
+        }
+        if (bundledArchiveFailure != null) {
+            reasons.add("bundled offline archive failed: " + bundledArchiveFailure.getMessage());
+        }
+        reasons.add("local fallback copy failed: " + localFailure.getMessage());
+        return "Unable to provision NMS_MCP. " + String.join(" | ", reasons);
     }
 
     private void forceDeleteRecursively(Path path) throws Exception {

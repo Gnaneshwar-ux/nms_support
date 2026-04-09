@@ -62,6 +62,26 @@ build_app_windows.bat
 
 This isolates the packaging toolchain from the rest of your system. The script verifies the variable and exits early with a clear message if it cannot find a JDK 25 installation.
 
+## MCP offline bundle during Maven build
+
+Every `mvn clean install` now refreshes an offline `NMS_MCP` bundle from `C:\ProjectNMS\NMS_MCP` and embeds it into the application resources. The MCP Setup dialog uses that bundle as a fallback when office-network machines cannot reach GitHub or the public npm registry.
+
+If your local MCP source lives elsewhere, override the build source directory:
+
+```bat
+mvnw.cmd -Dnms.mcp.bundle.source.dir=D:\work\NMS_MCP -DskipTests clean install
+```
+
+Runtime fallback order in the MCP Setup dialog:
+- `git clone` from GitHub
+- bundled offline archive from the app build
+- direct copy from `C:\ProjectNMS\NMS_MCP`
+
+For npm dependency refresh, the dialog tries:
+- `https://registry.npmjs.org/`
+- `https://artifacthub-iad.oci.oraclecorp.com/api/npm/npmjs-registry`
+- bundled `node_modules` if both registries fail
+
 ## Typical workflow
 
 1. Install JDK 25 and ensure IntelliJ has an SDK entry for it.
