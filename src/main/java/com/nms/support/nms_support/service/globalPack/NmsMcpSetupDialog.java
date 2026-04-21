@@ -49,7 +49,7 @@ public class NmsMcpSetupDialog {
     private final Label statusLabel = new Label("Ready to validate and setup NMS_MCP.");
     private final TextArea logArea = new TextArea();
     private final Button startButton = new Button("Start Clean Setup");
-    private final Button copyButton = new Button("Copy Codex Prompt");
+    private final Button copyButton = new Button("Copy Setup Prompt");
     private final Button closeButton = new Button("Close");
     private final AtomicBoolean running = new AtomicBoolean(false);
     private String detectedGitCommand = "git";
@@ -81,7 +81,7 @@ public class NmsMcpSetupDialog {
         title.setTextFill(Color.web("#0f172a"));
 
         Label subtitle = new Label(
-                "Clone or restore the MCP package, validate prerequisites, use public npm with Oracle Artifact Hub fallback when needed, rebuild when possible, register it for Codex, update Cline MCP settings, and copy the final Codex self-setup prompt.");
+                "Clone or restore the MCP package, validate prerequisites, use public npm with Oracle Artifact Hub fallback when needed, rebuild when possible, register it for Codex, update Cline MCP settings when available, and copy a general self-setup prompt for Cline or Codex.");
         subtitle.setWrapText(true);
         subtitle.setMaxWidth(640);
         subtitle.setTextFill(Color.web("#475569"));
@@ -200,7 +200,7 @@ public class NmsMcpSetupDialog {
                 runStep(0.34, "Acquiring NMS_MCP package", this::cloneRepo);
                 runStep(0.52, "Installing npm dependencies", this::npmInstall);
                 runStep(0.68, "Building MCP project", this::npmBuild);
-                runStep(0.84, "Updating Cline MCP settings", this::updateClineConfig);
+                runStep(0.84, "Updating Cline MCP settings when available", this::updateClineConfig);
                 runStep(0.96, "Refreshing Codex MCP registration", this::updateCodexRegistration);
                 updateUi(1.0, "Setup completed successfully.");
                 appendLog("Done. NMS_MCP setup completed successfully.");
@@ -282,7 +282,7 @@ public class NmsMcpSetupDialog {
 
         if (repoExists || clineConfigured || codexConfigured) {
             copyButton.setDisable(false);
-            statusLabel.setText("Existing MCP setup detected. You can copy the Codex prompt or run a clean setup again.");
+            statusLabel.setText("Existing MCP setup detected. You can copy the self-setup prompt or run a clean setup again.");
         }
     }
 
@@ -403,7 +403,8 @@ public class NmsMcpSetupDialog {
     private void updateClineConfig() throws Exception {
         Path configPath = getClineConfigPath();
         if (configPath == null) {
-            throw new IllegalStateException("Unable to resolve a Cline MCP settings path on this Windows system.");
+            appendLog("Cline MCP settings path could not be resolved automatically. Manual prompt-based setup will still be available.");
+            return;
         }
         if (!Files.exists(configPath.getParent())) {
             Files.createDirectories(configPath.getParent());
@@ -571,29 +572,86 @@ public class NmsMcpSetupDialog {
     }
 
     private void copyPrompt() {
-        String prompt = buildCodexPrompt();
+        String prompt = buildSelfSetupPrompt();
         ClipboardContent content = new ClipboardContent();
         content.putString(prompt);
         Clipboard.getSystemClipboard().setContent(content);
-        appendLog("Copied Codex setup prompt to clipboard.");
-        statusLabel.setText("Codex setup prompt copied to clipboard.");
+        appendLog("Copied MCP self-setup prompt to clipboard.");
+        statusLabel.setText("MCP self-setup prompt copied to clipboard.");
     }
 
-    private String buildCodexPrompt() {
+    private String buildSelfSetupPrompt() {
         Path repoDir = getDocumentsRepoDir();
-        return "Set up the NMS MCP server in Codex using these exact values:\n\n"
-                + "Repo path: " + repoDir + "\n"
-                + "Entry point: " + repoDir.resolve("dist").resolve("index.js") + "\n"
-                + "Policy file: " + repoDir.resolve("ssh-mcp-policy.json") + "\n"
-                + "Audit log: " + repoDir.resolve("mcp-audit.ndjson") + "\n\n"
-                + "Recommended command:\n"
-                + detectedCodexCommand + " mcp add nms-mcp --env MCP_SSH_DEFAULT_TIMEOUT_MS=120000 --env MCP_SSH_IDLE_TIMEOUT_MS=3600000 --env MCP_SSH_APPROVAL_TTL_MS=600000 --env MCP_SSH_POLICY_FILE="
-                + repoDir.resolve("ssh-mcp-policy.json")
-                + " --env MCP_SSH_MAX_SESSIONS=10 --env MCP_DB_DEFAULT_TIMEOUT_MS=60000 --env MCP_DB_IDLE_TIMEOUT_MS=3600000 --env MCP_DB_MAX_SESSIONS=5 --env MCP_DB_MAX_ROWS=200 --env MCP_AUDIT_LOG_FILE="
-                + repoDir.resolve("mcp-audit.ndjson")
-                + " -- " + detectedNodeCommand + " "
-                + repoDir.resolve("dist").resolve("index.js")
-                + "\n\nIf nms-mcp already exists, remove and add it again.";
+        Path entryPoint = repoDir.resolve("dist").resolve("index.js");
+        Path policyFile = repoDir.resolve("ssh-mcp-policy.json");
+        Path auditLog = repoDir.resolve("mcp-audit.ndjson");
+        Path clineConfigPath = getClineConfigPath();
+        String nodeCommand = detectedNodeCommand != null && !detectedNodeCommand.isBlank() ? detectedNodeCommand : "node";
+        String codexCommand = detectedCodexCommand != null && !detectedCodexCommand.isBlank() ? detectedCodexCommand : "codex.cmd";
+
+        return "Set up the NMS MCP package manually for either Cline or Codex on Windows. Follow these exact requirements and finish the registration yourself instead of relying on any automatic setup that may fail when the Cline settings file does not already exist.\n\n"
+                + "Target MCP name: " + SERVER_NAME + "\n"
+                + "Expected repo folder: " + repoDir + "\n"
+                + "Expected entry point after build: " + entryPoint + "\n"
+                + "Expected policy file: " + policyFile + "\n"
+                + "Expected audit log: " + auditLog + "\n"
+                + "Preferred Cline config path: " + (clineConfigPath != null ? clineConfigPath : "create the normal cline_mcp_settings.json file under the extension globalStorage settings folder") + "\n"
+                + "Source repo: " + REPO_URL + "\n"
+                + "Offline zip fallback resource name: nms-mcp-bundle.zip\n\n"
+                + "Required setup flow:\n"
+                + "1. Ensure the target folder exists at " + repoDir + ".\n"
+                + "2. If git clone is possible, clone the repository there. If not, extract the provided offline zip bundle into that same folder.\n"
+                + "3. Verify package.json and ssh-mcp-policy.json exist in the repo folder after clone or unzip.\n"
+                + "4. If npm is available, run npm install first against https://registry.npmjs.org/ and if that fails retry against " + ORACLE_NPM_REGISTRY + ".\n"
+                + "5. Run npm run build and make sure dist/index.js exists. If npm is unavailable, only continue when dist/index.js is already present from the bundle.\n"
+                + "6. Register the MCP for the tool you are configuring.\n\n"
+                + "For Codex, use this command:\n"
+                + codexCommand + " mcp remove " + SERVER_NAME + "\n"
+                + codexCommand + " mcp add " + SERVER_NAME
+                + " --env MCP_SSH_DEFAULT_TIMEOUT_MS=120000"
+                + " --env MCP_SSH_IDLE_TIMEOUT_MS=3600000"
+                + " --env MCP_SSH_APPROVAL_TTL_MS=600000"
+                + " --env MCP_SSH_POLICY_FILE=" + policyFile
+                + " --env MCP_SSH_MAX_SESSIONS=10"
+                + " --env MCP_DB_DEFAULT_TIMEOUT_MS=60000"
+                + " --env MCP_DB_IDLE_TIMEOUT_MS=3600000"
+                + " --env MCP_DB_MAX_SESSIONS=5"
+                + " --env MCP_DB_MAX_ROWS=200"
+                + " --env MCP_AUDIT_LOG_FILE=" + auditLog
+                + " -- " + nodeCommand + " " + entryPoint + "\n\n"
+                + "For Cline, create or update cline_mcp_settings.json with this full structure:\n"
+                + "{\n"
+                + "  \"mcpServers\": {\n"
+                + "    \"" + SERVER_NAME + "\": {\n"
+                + "      \"disabled\": false,\n"
+                + "      \"timeout\": 60,\n"
+                + "      \"type\": \"stdio\",\n"
+                + "      \"command\": \"" + escapeJson(nodeCommand) + "\",\n"
+                + "      \"args\": [\"" + escapeJson(entryPoint.toString()) + "\"],\n"
+                + "      \"env\": {\n"
+                + "        \"MCP_SSH_DEFAULT_TIMEOUT_MS\": \"120000\",\n"
+                + "        \"MCP_SSH_IDLE_TIMEOUT_MS\": \"3600000\",\n"
+                + "        \"MCP_SSH_APPROVAL_TTL_MS\": \"600000\",\n"
+                + "        \"MCP_SSH_POLICY_FILE\": \"" + escapeJson(policyFile.toString()) + "\",\n"
+                + "        \"MCP_SSH_MAX_SESSIONS\": \"10\",\n"
+                + "        \"MCP_DB_DEFAULT_TIMEOUT_MS\": \"60000\",\n"
+                + "        \"MCP_DB_IDLE_TIMEOUT_MS\": \"3600000\",\n"
+                + "        \"MCP_DB_MAX_SESSIONS\": \"5\",\n"
+                + "        \"MCP_DB_MAX_ROWS\": \"200\",\n"
+                + "        \"MCP_AUDIT_LOG_FILE\": \"" + escapeJson(auditLog.toString()) + "\"\n"
+                + "      }\n"
+                + "    }\n"
+                + "  }\n"
+                + "}\n\n"
+                + "Important rules:\n"
+                + "- If the Cline settings file does not exist, create it and wrap the server entry inside a root object with an mcpServers property.\n"
+                + "- Do not fail setup only because the settings json was missing.\n"
+                + "- Prefer the zip bundle when clone or npm access is blocked.\n"
+                + "- Finish only after dist/index.js exists and the MCP entry is registered for the chosen client.\n";
+    }
+
+    private String escapeJson(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private Path getDocumentsRepoDir() {
